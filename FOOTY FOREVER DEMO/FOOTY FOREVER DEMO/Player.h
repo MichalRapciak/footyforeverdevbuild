@@ -60,6 +60,9 @@ public:
     float getGkAwareness() { return m_stats.getGkAwareness(); }
     float getGkBlocking() { return m_stats.getGkBlocking(); }
 
+    PlayerStats getStats() { return m_stats; }
+    void setStats(PlayerStats stats) { m_stats = stats; }
+
     bool isTackling() { return m_currentState == PlayerState::Tackling; }
     void setStumbled(float duration) {
         // Only stumble if we aren't already in a more severe state

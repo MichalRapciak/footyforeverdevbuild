@@ -482,6 +482,22 @@ void GamePlay::spawnTeam(std::vector<std::unique_ptr<NPCPlayer>>& team,
         player->setTeam(isHomeSide ? Team::Home : Team::Away);
         player->setPosition(player->getHomePosition(isHomeSide, TeamState::Neutral));
 
+		// ==========================================
+		// DYNAMIC STAT ASSIGNMENT
+		// ==========================================
+		PlayerStats generatedStats = PlayerStats::createFromRole(role);
+
+		// Add slightly randomized genetics (+/- 3 points) to physical stats
+		// This ensures the players feel organic and not like copy-pasted clones
+		float speedVariance = ((rand() % 7) - 3.0f);
+		float accelVariance = ((rand() % 7) - 3.0f);
+
+		generatedStats.topSpeed += speedVariance;
+		generatedStats.acceleration += accelVariance;
+
+		// Assuming your Player/NPCPlayer class has a setter for stats!
+		player->setStats(generatedStats);
+
 		if (isHomeSide) {
 			player->getSprite().setColor(sf::Color::White); // Home Kit
 		}

@@ -1,137 +1,229 @@
 #pragma once
+#include "PositionRole.h"
 
 struct PlayerStats
 {
-	// CURL, TOP SPEED, ACCELERATION, AGILITY, KICK POWER, AWARENESS, AGGRESSION, BLOCKING, GK COVER, GK REACT, GK CATCH, GK THROW< GK AWARE, GK BLOCK
-
 	/// SHOOTING STATS
-	float m_finishing = 0.0f;
-	float m_heading = 0.0f;
+	float finishing = 0.0f;
+	float heading = 0.0f;
 	float getFinishing() const
 	{
-		return m_finishing;
+		return finishing;
 	}
 	float getHeading() const
 	{
-		return m_heading;
+		return heading;
 	}
 
 	/// DRIBBLING STATS
-	float m_ballControl = 0.f; // BALL CONTROL
-	float m_balancing = 0.f; // BALANCING
+	float ballControl = 0.f; // BALL CONTROL
+	float balancing = 0.f; // BALANCING
 	float getBallControl() const
 	{
-		return m_ballControl;
+		return ballControl;
 	}
 	float getBalancing() const
 	{
-		return m_balancing;
+		return balancing;
 	}
 
-	float m_curl = 0.f; // CURL
-	float m_deadBall = 0.0f;
+	// TECHNIQUE STATS
+	float curl = 0.f; // CURL
+	float deadBall = 0.0f;
 	float getCurl() const
 	{
-		return m_curl;
+		return curl;
 	}
 	float getDeadBall() const
 	{
-		return m_deadBall;
+		return deadBall;
 	}
 
 	/// PASSING STATS
-	float m_shortPassing = 0.0f;
-	float m_longPassing = 0.0f;
+	float shortPassing = 0.0f;
+	float longPassing = 0.0f;
 	float getShortPassing() const
 	{
-		return m_shortPassing;
+		return shortPassing;
 	}
 	float getLongPassing() const
 	{
-		return m_longPassing;
+		return longPassing;
 	}
 
 	///  SPEED STATS
-	float m_topSpeed = 0.f;
-	float m_acceleration = 0.f;
-	float m_agility = 0.f;
+	float topSpeed = 0.f;
+	float acceleration = 0.f;
+	float agility = 0.f;
 	float getTopSpeed() const
 	{
-		return m_topSpeed;
+		return topSpeed;
 	}
 	float getAccel() const
 	{
-		return m_acceleration;
+		return acceleration;
 	}
 	float getAgility() const
 	{
-		return m_agility;
+		return agility;
 	}
 
 	/// PHYSICAL STATS
-	float m_bodyStrength = 0.0f;
-	float m_kickPower = 0.f;
-	float m_jumpingStrength = 0.f;
+	float bodyStrength = 0.0f;
+	float kickPower = 0.f;
+	float jumpingStrength = 0.f;
 	float getBodyStrength() const
 	{
-		return m_bodyStrength;
+		return bodyStrength;
 	}
 	float getKickPower() const
 	{
-		return m_kickPower;
+		return kickPower;
 	}
 	float getJumpingStrength() const
 	{
-		return m_jumpingStrength;
+		return jumpingStrength;
 	}
 
 	/// MENTAL STATS
-	float m_awareness = 0.0f;
-	float m_aggression = 0.0f;
-	float m_blocking = 0.0f;
+	float awareness = 0.0f;
+	float aggression = 0.0f;
+	float blocking = 0.0f;
 	float getAwareness() const
 	{
-		return m_awareness;
+		return awareness;
 	}
 	float getAggression() const
 	{
-		return m_aggression;
+		return aggression;
 	}
 	float getBlocking() const
 	{
-		return m_blocking;
+		return blocking;
 	}
 
 	/// GOALKEEPING STATS
-	float m_gkCoverage = 0.f; 	/// <summary>Ability to position well, cut off angles, and diving reach.</summary>
-	float m_gkReactions = 0.f; 	/// <summary>Speed of responding to close-range shots, deflections, and penalties.</summary
-	float m_gkCatching = 0.f; 	/// <summary>Ability to hold onto the ball securely to prevent rebounds.</summary>
-	float m_gkThrowing = 0.f; 	/// <summary>Accuracy and distance of manual distribution to start counter-attacks.</summary>
-	float m_gkAwareness = 0.f; 	/// <summary>Anticipation of crosses, through-balls, and general game reading.</summary>
-	float m_gkBlocking = 0.f; 	/// <summary>Ability to make yourself big in 1v1s and stop shots with the body/feet.</summary>
+	float gkCoverage = 0.f; 	/// <summary>Ability to position well, cut off angles, and diving reach.</summary>
+	float gkReactions = 0.f; 	/// <summary>Speed of responding to close-range shots, deflections, and penalties.</summary
+	float gkCatching = 0.f; 	/// <summary>Ability to hold onto the ball securely to prevent rebounds.</summary>
+	float gkThrowing = 0.f; 	/// <summary>Accuracy and distance of manual distribution to start counter-attacks.</summary>
+	float gkAwareness = 0.f; 	/// <summary>Anticipation of crosses, through-balls, and general game reading.</summary>
+	float gkBlocking = 0.f; 	/// <summary>Ability to make yourself big in 1v1s and stop shots with the body/feet.</summary>
 	float getGkCoverage() const
 	{
-		return m_gkCoverage;
+		return gkCoverage;
 	}
 	float getGkReactions() const
 	{
-		return m_gkReactions;
+		return gkReactions;
 	}
 	float getGkCatching() const
 	{
-		return m_gkCatching;
+		return gkCatching;
 	}
 	float getGkThrowing() const
 	{
-		return m_gkThrowing;
+		return gkThrowing;
 	}
 	float getGkAwareness() const
 	{
-		return m_gkAwareness;
+		return gkAwareness;
 	}
 	float getGkBlocking() const
 	{
-		return m_gkBlocking;
+		return gkBlocking;
 	}
 
+
+	///DEFAULT CONSTRUCTOR
+	static PlayerStats createFromRole(PositionRole role) {
+		PlayerStats s; // Creates a baseline 0-overall player
+
+		switch (role) {
+		case PositionRole::Goalkeeper:
+			s.finishing = 0.0f; s.heading = 20.0f; // SHOOTING
+			s.ballControl = 40.0f; s.balancing = 24.0f; // DRIBBLING
+			s.curl = 55.0f; s.deadBall = 15.0f; // TECHNIQUE
+			s.shortPassing = 56.0f; s.longPassing = 68.0f; // PASSING
+			s.topSpeed = 34.0f; s.acceleration = 46.0f; s.agility = 76.0f; // SPEED
+			s.bodyStrength = 78.0f; s.kickPower = 84.0f; s.jumpingStrength = 80.0f; // PHYSICAL
+			s.awareness = 37.0f; s.aggression = 23.0f; s.blocking = 28.0f; // MENTAL
+			s.gkCoverage = 76.0f; s.gkReactions = 66.0f; s.gkCatching = 67.0f; s.gkThrowing = 56.0f; s.gkAwareness = 75.0f; s.gkBlocking = 57.0f; // GOALKEEPING
+			break;
+
+		case PositionRole::LCenterBack:
+		case PositionRole::RCenterBack:
+			s.finishing = 30.0f; s.heading = 84.0f; // SHOOTING
+			s.ballControl = 58.0f; s.balancing = 52.0f; // DRIBBLING
+			s.curl = 35.0f; s.deadBall = 30.0f; // TECHNIQUE
+			s.shortPassing = 68.0f; s.longPassing = 64.0f; // PASSING
+			s.topSpeed = 66.0f; s.acceleration = 62.0f; s.agility = 55.0f; // SPEED
+			s.bodyStrength = 88.0f; s.kickPower = 70.0f; s.jumpingStrength = 85.0f; // PHYSICAL
+			s.awareness = 82.0f; s.aggression = 86.0f; s.blocking = 88.0f; // MENTAL
+			break;
+
+		case PositionRole::LeftBack:
+		case PositionRole::RightBack:
+			s.finishing = 52.0f; s.heading = 68.0f; // SHOOTING
+			s.ballControl = 74.0f; s.balancing = 72.0f; // DRIBBLING
+			s.curl = 70.0f; s.deadBall = 55.0f; // TECHNIQUE
+			s.shortPassing = 76.0f; s.longPassing = 72.0f; // PASSING
+			s.topSpeed = 84.0f; s.acceleration = 86.0f; s.agility = 80.0f; // SPEED
+			s.bodyStrength = 72.0f; s.kickPower = 74.0f; s.jumpingStrength = 74.0f; // PHYSICAL
+			s.awareness = 76.0f; s.aggression = 78.0f; s.blocking = 77.0f; // MENTAL
+			break;
+
+		case PositionRole::DefensiveMid:
+			s.finishing = 58.0f; s.heading = 75.0f; // SHOOTING
+			s.ballControl = 78.0f; s.balancing = 75.0f; // DRIBBLING
+			s.curl = 65.0f; s.deadBall = 60.0f; // TECHNIQUE
+			s.shortPassing = 84.0f; s.longPassing = 80.0f; // PASSING
+			s.topSpeed = 72.0f; s.acceleration = 68.0f; s.agility = 66.0f; // SPEED
+			s.bodyStrength = 84.0f; s.kickPower = 80.0f; s.jumpingStrength = 78.0f; // PHYSICAL
+			s.awareness = 84.0f; s.aggression = 86.0f; s.blocking = 82.0f; // MENTAL
+			break;
+
+		case PositionRole::CenterMid:
+			s.finishing = 70.0f; s.heading = 68.0f; // SHOOTING
+			s.ballControl = 84.0f; s.balancing = 80.0f; // DRIBBLING
+			s.curl = 76.0f; s.deadBall = 72.0f; // TECHNIQUE
+			s.shortPassing = 86.0f; s.longPassing = 84.0f; // PASSING
+			s.topSpeed = 74.0f; s.acceleration = 76.0f; s.agility = 78.0f; // SPEED
+			s.bodyStrength = 74.0f; s.kickPower = 80.0f; s.jumpingStrength = 70.0f; // PHYSICAL
+			s.awareness = 85.0f; s.aggression = 72.0f; s.blocking = 68.0f; // MENTAL
+			break;
+
+		case PositionRole::AttackingMid:
+			s.finishing = 78.0f; s.heading = 62.0f; // SHOOTING
+			s.ballControl = 88.0f; s.balancing = 85.0f; // DRIBBLING
+			s.curl = 82.0f; s.deadBall = 80.0f; // TECHNIQUE
+			s.shortPassing = 86.0f; s.longPassing = 78.0f; // PASSING
+			s.topSpeed = 78.0f; s.acceleration = 82.0f; s.agility = 86.0f; // SPEED
+			s.bodyStrength = 66.0f; s.kickPower = 78.0f; s.jumpingStrength = 62.0f; // PHYSICAL
+			s.awareness = 86.0f; s.aggression = 55.0f; s.blocking = 48.0f; // MENTAL
+			break;
+
+		case PositionRole::LeftWing:
+		case PositionRole::RightWing:
+			s.finishing = 80.0f; s.heading = 58.0f; // SHOOTING
+			s.ballControl = 86.0f; s.balancing = 88.0f; // DRIBBLING
+			s.curl = 84.0f; s.deadBall = 74.0f; // TECHNIQUE
+			s.shortPassing = 80.0f; s.longPassing = 72.0f; // PASSING
+			s.topSpeed = 90.0f; s.acceleration = 93.0f; s.agility = 92.0f; // SPEED
+			s.bodyStrength = 62.0f; s.kickPower = 76.0f; s.jumpingStrength = 65.0f; // PHYSICAL
+			s.awareness = 80.0f; s.aggression = 50.0f; s.blocking = 42.0f; // MENTAL
+			break;
+
+		case PositionRole::Striker:
+			s.finishing = 88.0f; s.heading = 84.0f; // SHOOTING
+			s.ballControl = 82.0f; s.balancing = 78.0f; // DRIBBLING
+			s.curl = 76.0f; s.deadBall = 68.0f; // TECHNIQUE
+			s.shortPassing = 74.0f; s.longPassing = 58.0f; // PASSING
+			s.topSpeed = 83.0f; s.acceleration = 86.0f; s.agility = 80.0f; // SPEED
+			s.bodyStrength = 82.0f; s.kickPower = 86.0f; s.jumpingStrength = 84.0f; // PHYSICAL
+			s.awareness = 86.0f; s.aggression = 60.0f; s.blocking = 45.0f; // MENTAL
+			break;
+		}
+		return s;
+	}
 };
