@@ -14,23 +14,13 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
     const MatchReferee& referee)
 {
-    auto it = npc.actionLog.begin();
-    while (it != npc.actionLog.end()) {
-        it->second -= dt; // Decrease timer
-        if (it->second <= 0.f) {
-            it = npc.actionLog.erase(it); // Erase if expired
-        }
-        else {
-            ++it;
-        }
-    }
 
     npc.updateCooldown(dt);
     updateNPCAirPhysics(npc, dt);
 
     bool isTaker = (&npc == referee.getSetPieceTaker());
     TacticalContext ctx = referee.getTacticalContext(npc.getTeam(), isTaker);
-    PositioningMask mask = referee.getPositioningMask(npc.getTeam(), npc.getPositionRole());
+    PositioningMask mask = referee.getPositioningMask(npc.getTeam(), npc.getPositionRole(), pitch);
 
     // ==========================================
     // 3. DEAD BALL STATE HANDLING
@@ -368,7 +358,7 @@ sf::Vector2f NPCController::calculateSeparation(NPCPlayer& npc, const std::vecto
         bool markingSameGuy = (myTarget != nullptr && myTarget == teammateTarget);
 
         // 2m (200px) if double-teaming, 5m (500px) if just wandering
-        float currentBubble = markingSameGuy ? 200.f : 500.f;
+        float currentBubble = markingSameGuy ? 300.f : 600.f;
 
         if (distSq < currentBubble * currentBubble && distSq > 0.1f) {
             float d = std::sqrt(distSq);
@@ -450,7 +440,7 @@ sf::Vector2f NPCController::decideTargetPosition(NPCPlayer& npc, Ball& ball,
     {
         if (ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam())
         {
-            float pressDistance = 150.f - (aggressionNorm * 100.f);
+            float pressDistance = 250.f - (aggressionNorm * 100.f);
             sf::Vector2f toGoal = normalize(goalPos - ballPos);
             finalTarget = ballPos + (toGoal * pressDistance);
         }
@@ -910,9 +900,6 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
             directDir.x * std::sin(offsetRad) + directDir.y * std::cos(offsetRad)
         );
     }
-    std::string logMsg = goHigh ? "High Pass" : "Ground Pass";
-    if (needsCurl) logMsg += " (Curled)";
-    npc.logAction(logMsg);
     // --- 6. LOG & SHOOT ---
     ball.shoot(finalDir, finalStatUsed, finalSpin, requiredVz, finalBackspin);
     npc.resetKickCooldown();
@@ -1037,10 +1024,6 @@ void NPCController::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos
     // Cap the final power at physical limits
     totalPower = std::min(totalPower, npc.getKickPower() * (isHighShot ? 1.0f : 1.5f));
 
-    std::string logMsg = isHighShot ? "High Shot" : "Low Driven Shot";
-    if (needsCurl) logMsg += " (Curled)";
-    npc.logAction(logMsg);
-
     // ==========================================
     // 6. EXECUTE
     // ==========================================
@@ -1106,100 +1089,181 @@ sf::Vector2f NPCController::applyTacticalPositioning(NPCPlayer& npc, sf::Vector2
     float ballProgress = isHomeSide ? (ballX / pitch.totalWidth) : (1.0f - (ballX / pitch.totalWidth));
     ballProgress = std::clamp(ballProgress, 0.0f, 1.0f);
 
-    // 2. FETCH MENTAL STATS (Normalized 0.0 to 1.0)
-    // If you haven't added these to Player.h yet, you can temporarily hardcode them to 0.8f for testing!
-    float attackPosNorm = npc.getAwareness() / 100.0f;
+    // 2. FETCH MENTAL STATS & ROLES
     float awarenessNorm = npc.getAwareness() / 100.0f;
+    float attackPosNorm = npc.getAwareness() / 100.0f; 
+
+    bool isForward = (npc.getPositionRole() == PositionRole::Striker ||
+        npc.getPositionRole() == PositionRole::LeftWing ||
+        npc.getPositionRole() == PositionRole::RightWing);
+    
+    bool isMid = (npc.getPositionRole() == PositionRole::CenterMid ||
+        npc.getPositionRole() == PositionRole::AttackingMid);
+    
+    // We treat CDMs, Fullbacks, and CBs all as defensive buildup players
+    bool isDefender = (!isForward && !isMid); 
+
+    // Pitch Context for this specific player
+    bool inOwnHalf = isHomeSide ? (tacticalTarget.x < pitch.totalWidth / 2.f) : (tacticalTarget.x > pitch.totalWidth / 2.f);
 
     if (state == TeamState::Attacking) {
         // --- 3. THE DYNAMIC PUSH ---
-        // Every player pushes forward based on their leash multiplied by ball progress
         float pushMagnitude = zone.forwardLeash * ballProgress;
         sf::Vector2f pushDir = isHomeSide ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f);
         tacticalTarget = homePos + (pushDir * pushMagnitude);
 
         // --- 4. ROLE-BASED ATTACKING INTELLIGENCE ---
-        bool isForward = (npc.getPositionRole() == PositionRole::Striker ||
-            npc.getPositionRole() == PositionRole::LeftWing ||
-            npc.getPositionRole() == PositionRole::RightWing);
-        bool isMid = (npc.getPositionRole() == PositionRole::CenterMid);
-
         if (isForward || isMid) {
 
-            // --- A. THE "RAUMDEUTER" ESCAPE (Space Invader) ---
+            // A. THE "RAUMDEUTER" ESCAPE (Space Invader)
             Player* nearestOpp = findNearestOpponent(tacticalTarget, opposition);
             if (nearestOpp) {
                 float distToOpp = dist(tacticalTarget, nearestOpp->getPosition());
-
-                // If the spot they *want* to run to is covered by a defender...
                 if (distToOpp < 500.f) {
                     sf::Vector2f escapeDir = normalize(tacticalTarget - nearestOpp->getPosition());
-
-                    // High Attacking Positioning finds larger pockets of space (up to 4m away)
                     float spaceCreation = 100.f + (attackPosNorm * 300.f);
-
-                    // Prioritize escaping FORWARD and DIAGONALLY
                     escapeDir.x = isHomeSide ? std::abs(escapeDir.x) : -std::abs(escapeDir.x);
                     tacticalTarget += escapeDir * spaceCreation;
                 }
             }
 
             if (isForward) {
-                // --- B. PENETRATING BOX RUNS (Strikers/Wingers) ---
+                // B. PENETRATING BOX RUNS (Strikers/Wingers)
                 if (ballProgress > 0.65f) {
-                    // High stats push the defensive line aggressively (up to 8 meters deep)
                     float boxPenetration = attackPosNorm * 800.f;
                     tacticalTarget.x += isHomeSide ? boxPenetration : -boxPenetration;
-
-                    // Peel off to the far post or near post to get open for crosses
                     float postPeel = (tacticalTarget.y < pitch.totalHeight / 2.0f) ? -300.f : 300.f;
                     tacticalTarget.y += postPeel * attackPosNorm;
                 }
 
-                // --- C. OFFENSIVE AWARENESS (The Offside Trap) ---
-                // Find the deepest outfield defender to establish the offside line
+                // C. OFFENSIVE AWARENESS (The Offside Trap)
                 float offsideLineX = isHomeSide ? 0.0f : pitch.totalWidth;
-
                 for (Player* opp : opposition) {
                     if (opp->getPositionRole() == PositionRole::Goalkeeper) continue;
-
-                    // Home attacks right (+X). Deepest Away defender has the highest X.
-                    if (isHomeSide && opp->getPosition().x > offsideLineX) {
-                        offsideLineX = opp->getPosition().x;
-                    }
-                    // Away attacks left (-X). Deepest Home defender has the lowest X.
-                    else if (!isHomeSide && opp->getPosition().x < offsideLineX) {
-                        offsideLineX = opp->getPosition().x;
-                    }
+                    if (isHomeSide && opp->getPosition().x > offsideLineX) offsideLineX = opp->getPosition().x;
+                    else if (!isHomeSide && opp->getPosition().x < offsideLineX) offsideLineX = opp->getPosition().x;
                 }
 
-                // The Discipline Check: High awareness holds the run perfectly 0.5m behind the line.
                 float awarenessError = (1.0f - awarenessNorm) * 400.f;
-
                 if (isHomeSide && tacticalTarget.x > offsideLineX + awarenessError) {
-                    tacticalTarget.x = offsideLineX + awarenessError - 50.f; // Hit the brakes!
+                    tacticalTarget.x = offsideLineX + awarenessError - 50.f;
                 }
                 else if (!isHomeSide && tacticalTarget.x < offsideLineX - awarenessError) {
                     tacticalTarget.x = offsideLineX - awarenessError + 50.f;
                 }
             }
             else if (isMid) {
-                // --- D. MIDFIELD AWARENESS (The Transition Reader) ---
-                // If ball is in the opponent's half, midfielders push up to support the attack
+                // D. MIDFIELD AWARENESS (The Transition Reader)
                 if (ballProgress > 0.5f) {
-                    // 99 Awareness adds up to 8 meters (800px) of forward push to the edge of the box
                     float midfieldSupportPush = (awarenessNorm * 800.f) * ((ballProgress - 0.5f) * 2.0f);
                     tacticalTarget.x += isHomeSide ? midfieldSupportPush : -midfieldSupportPush;
                 }
             }
 
-            // Attackers/Midfielders shadow the ball's Y-axis aggressively to offer passing options
+            // Shadows the ball's Y-axis aggressively
             tacticalTarget.y += (ballPos.y - tacticalTarget.y) * zone.ballInfluence;
         }
         else {
-            // --- E. ATTACKING DISCIPLINE (Defenders) ---
-            // Stay central and disciplined. Don't chase the ball's Y-axis too much.
+            // E. ATTACKING DISCIPLINE (Defenders)
             tacticalTarget.y += (ballPos.y - tacticalTarget.y) * (zone.ballInfluence * 0.3f);
+        }
+
+        // ========================================================
+        // --- F. DYNAMIC PASSING LANES (SHOWING FOR THE BALL) ---
+        // ========================================================
+        float distToBall = dist(tacticalTarget, ballPos);
+
+        // Only create lanes if we are a viable passing option (not too close, not miles away)
+        if (distToBall > 200.f && distToBall < 3500.f) {
+
+            // 1. Check if Ball Carrier is Pressured
+            bool carrierPressured = false;
+            for (auto* opp : opposition) {
+                if (dist(ballPos, opp->getPosition()) < 450.f) {
+                    carrierPressured = true;
+                    break;
+                }
+            }
+
+            // 2. Check if our Lane is Blocked (Cover Shadow)
+            sf::Vector2f toBall = ballPos - tacticalTarget;
+            sf::Vector2f dirToBall = normalize(toBall);
+            Player* laneBlocker = nullptr;
+
+            for (auto* opp : opposition) {
+                float dOpp = dist(tacticalTarget, opp->getPosition());
+                // If opponent is physically between us and the ball
+                if (dOpp < distToBall - 50.f && dOpp > 50.f) {
+                    float alignment = (dirToBall.x * ((opp->getPosition().x - tacticalTarget.x) / dOpp) +
+                                       dirToBall.y * ((opp->getPosition().y - tacticalTarget.y) / dOpp));
+                    // 0.94 is a tight cone. If they are in it, the direct pass is blocked.
+                    if (alignment > 0.94f) {
+                        laneBlocker = opp; 
+                        break;
+                    }
+                }
+            }
+
+            // 3. Execution Based on Pitch Area and Role
+            if (inOwnHalf) {
+                // --- OWN HALF: Safety and Spacing ---
+                if (isDefender) {
+                    if (carrierPressured) {
+                        // Drop deeper and spread wider to offer a safe back-pass (Safety Valve)
+                        tacticalTarget.x += isHomeSide ? -300.f : 300.f;
+                        float stretchY = (tacticalTarget.y > pitch.totalHeight / 2.f) ? 250.f : -250.f;
+                        tacticalTarget.y += stretchY * awarenessNorm;
+                    }
+                    if (laneBlocker) {
+                        // Shift laterally to open the lane
+                        sf::Vector2f perp(-dirToBall.y, dirToBall.x);
+                        sf::Vector2f toBlocker = laneBlocker->getPosition() - tacticalTarget;
+                        if (perp.x * toBlocker.x + perp.y * toBlocker.y > 0) perp = -perp; // Step away from blocker
+                        tacticalTarget += perp * (250.f * awarenessNorm);
+                    }
+                }
+                else if (isMid) {
+                    // Midfielders drop into pockets to help build up
+                    if (carrierPressured) {
+                        tacticalTarget += dirToBall * (350.f * awarenessNorm); // Show to feet
+                    }
+                    if (laneBlocker) {
+                        sf::Vector2f perp(-dirToBall.y, dirToBall.x);
+                        sf::Vector2f toBlocker = laneBlocker->getPosition() - tacticalTarget;
+                        if (perp.x * toBlocker.x + perp.y * toBlocker.y > 0) perp = -perp;
+                        tacticalTarget += perp * (200.f * awarenessNorm);
+                    }
+                }
+                else if (isForward && carrierPressured) {
+                    // Strikers abandon the offside line and drop deep as a Target Man when trapped
+                    tacticalTarget += dirToBall * (600.f * awarenessNorm);
+                }
+            }
+            else {
+                // --- OPPONENT HALF: Penetration and Pockets ---
+                if (isMid) {
+                    // Midfielders constantly seek pockets of space between defenders (Tiki-Taka)
+                    if (laneBlocker) {
+                        sf::Vector2f perp(-dirToBall.y, dirToBall.x);
+                        sf::Vector2f toBlocker = laneBlocker->getPosition() - tacticalTarget;
+                        if (perp.x * toBlocker.x + perp.y * toBlocker.y > 0) perp = -perp;
+                        tacticalTarget += perp * (250.f * awarenessNorm);
+                    }
+                    // Only show back to feet if the carrier is desperate and we are far away
+                    if (carrierPressured && distToBall > 1200.f) {
+                        tacticalTarget += dirToBall * (250.f * awarenessNorm);
+                    }
+                }
+                else if (isForward) {
+                    // Forwards mostly do penetrating runs, but micro-adjust to stay out of cover shadows
+                    if (laneBlocker && distToBall < 2000.f) {
+                        sf::Vector2f perp(-dirToBall.y, dirToBall.x);
+                        sf::Vector2f toBlocker = laneBlocker->getPosition() - tacticalTarget;
+                        if (perp.x * toBlocker.x + perp.y * toBlocker.y > 0) perp = -perp;
+                        tacticalTarget += perp * (150.f * awarenessNorm);
+                    }
+                }
+            }
         }
     }
     else {
@@ -1215,20 +1279,12 @@ sf::Vector2f NPCController::applyTacticalPositioning(NPCPlayer& npc, sf::Vector2
         tacticalTarget.y += sideSqueeze;
 
         // --- 6. DEFENSIVE AWARENESS (Holding the Line) ---
-        bool isDefender = (npc.getPositionRole() == PositionRole::LCenterBack ||
-            npc.getPositionRole() == PositionRole::RCenterBack ||
-            npc.getPositionRole() == PositionRole::LeftBack ||
-            npc.getPositionRole() == PositionRole::RightBack);
-
         if (isDefender) {
             // The Penalty Box line is roughly 16.5 meters (1650px) from the goal line
             float penaltyBoxEdgeX = isHomeSide ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
-
-            // If the ball is outside our box, hold the line at the edge of the box!
             bool ballOutsideBox = isHomeSide ? (ballPos.x > penaltyBoxEdgeX) : (ballPos.x < penaltyBoxEdgeX);
 
             if (ballOutsideBox) {
-                // High awareness holds the strict offside line. Low awareness drops too deep.
                 float disciplineError = (1.0f - awarenessNorm) * 300.f;
 
                 if (isHomeSide && tacticalTarget.x < penaltyBoxEdgeX - disciplineError) {
@@ -1446,10 +1502,6 @@ bool NPCController::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f 
         aimDir.x * cosA - aimDir.y * sinA,
         aimDir.x * sinA + aimDir.y * cosA
     );
-
-    std::string logMsg = isHeader ? "Header" : "Volley";
-    if (whiffChance > 0.f) logMsg += " (Scuffed!)";
-    npc.logAction(logMsg);
 
     ball.shoot(finalDir, basePower, 0.0f, vzOut, finalBackspin);
     npc.resetKickCooldown();

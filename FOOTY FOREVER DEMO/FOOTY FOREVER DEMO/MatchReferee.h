@@ -13,19 +13,20 @@ class Player;
 class MatchReferee {
 public:
     void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt);
-    void prepareRestart(MatchState state, Ball& ball, const std::vector<Player*>& players);
+    void prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players);
 
     Player* getSetPieceTaker() const { return m_setPieceTaker; }
     bool isWhistleBlown() const { return m_whistleTimer <= 0.f; }
 
     void updateMatchContexts();
     TacticalContext getTacticalContext(Team team, bool isTaker) const;
-    PositioningMask getPositioningMask(Team team, PositionRole role) const;
+    PositioningMask getPositioningMask(Team team, PositionRole role, const Pitch& pitch) const;
 
     MatchState getMatchState() const { return m_matchState; }
     void setMatchState(MatchState newState) { m_matchState = newState; }
     void checkBoundaries(Ball& ball, const Pitch& pitch);
     bool checkGoalScored(Ball& ball, const Pitch& pitch);
+    void awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players);
 
 private:
     MatchState m_matchState = MatchState::InPlay;

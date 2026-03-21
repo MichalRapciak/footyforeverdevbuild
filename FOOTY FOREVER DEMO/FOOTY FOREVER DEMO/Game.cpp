@@ -10,7 +10,7 @@ GameState Game::currentState = GameState::License;
 /// load and setup the image
 /// </summary>
 Game::Game() :
-	m_window{ sf::VideoMode({ 1920U, 1080U }), "FOOTY FOREVER DEMO"}, // , sf::State::Fullscreen
+	m_window{ sf::VideoMode({ 1920U, 1080U }), "FOOTY FOREVER DEMO", sf::State::Fullscreen }, // , sf::State::Fullscreen
 	m_exitGame{ false } //when true game will exit
 
 {

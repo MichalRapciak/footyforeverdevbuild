@@ -30,7 +30,6 @@ Ball::Ball() : sprite(texture)
 
 void Ball::update(float dt)
 {
-    std::cout << z << std::endl;
     // Route the logic based on possession
     if (owner != nullptr) {
         updateDribbling(dt);
@@ -412,9 +411,11 @@ void Ball::applyImpulse(sf::Vector2f force)
     // This stops the dribbler's own body from ripping the ball away from their feet!
     if (owner && forceSpeed > 300.f)
     {
-        owner->setBallPossession(false);
-        lastOwner = owner;
-        owner = nullptr;
+        if (owner->getPositionRole() != PositionRole::Goalkeeper) {
+            owner->setBallPossession(false);
+            lastOwner = owner;
+            owner = nullptr;
+        }
     }
 
     // If someone is still safely dribbling, ignore this bump entirely!

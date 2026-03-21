@@ -28,6 +28,7 @@ class GamePlay
 		void processTackle(Player* tackler, Player* victim, float dt);
 		void handleBallPlayerPhysics(std::vector<Player*>& players, Ball& ball);
 		void updateCamera(sf::RenderWindow& t_window);
+		void drawUI(sf::RenderWindow& t_window);
 
 		bool getGameOver() { return m_gameOver; }
 		bool getGameWon() { return m_gameWon; }
@@ -80,7 +81,6 @@ class GamePlay
 	std::unique_ptr<NPCController> m_npcController;
 
 	std::vector<Entity*> m_entities;
-	void drawCarrierDebug(sf::RenderWindow& window);
 	void setupGame();
 	void refreshEntities();
 	void spawnTeam(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, bool isHomeSide);

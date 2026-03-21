@@ -16,16 +16,8 @@ public:
     // Standard getters/setters (matching UserPlayer)
     sf::Sprite getSprite() override { return m_sprite; }
     void setRotation(float t_degrees) { m_sprite.setRotation(sf::degrees(t_degrees)); }
-
-
-    std::vector<std::pair<std::string, float>> actionLog;
-
-    void logAction(const std::string& action) {
-        // Add the action with a 3.0 second fade timer
-        actionLog.push_back({ action, 3.0f });
-    }
-
-    // This fulfills the "isTeammate" requirement for your logic
+    //std::vector<std::pair<std::string, float>> actionLog;
+    //void logAction(const std::string& action) {actionLog.push_back({ action, 3.0f });}
 
     sf::Vector2f getAimDirection() const override { return { 0,0 }; }
     void move(sf::Vector2f t_move) override { m_position += t_move; }

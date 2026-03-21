@@ -241,7 +241,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	m_awayGoal.draw(t_window);
 	m_userController->draw(t_window);
 	powerBarDraw(t_window);
-	drawCarrierDebug(t_window);
+	drawUI(t_window);
 	if (m_pause)
 	{
 		t_window.setView(t_window.getDefaultView());
@@ -708,7 +708,7 @@ void GamePlay::powerBarDraw(sf::RenderWindow& t_window)
 
 	// Position the bar (e.g., bottom center)
 	sf::Vector2f uiPos(t_window.getSize().x / 2.f - barSize.x / 2.f,
-		t_window.getSize().y - 150.f);
+		t_window.getSize().y - 75.f);
 	barBackground.setPosition(uiPos);
 	barFill.setPosition(uiPos);
 
@@ -997,85 +997,111 @@ Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
 	return bestResponder;
 }
 
-void GamePlay::drawCarrierDebug(sf::RenderWindow& window)
+void GamePlay::drawUI(sf::RenderWindow& t_window)
 {
-	// Only show if someone actually has the ball
-	// FIX: Look at the LAST owner if the ball is currently flying in the air!
-	Player* owner = m_ball->hasOwner() ? m_ball->getOwner() : m_ball->getLastOwner();
-	if (!owner) return;
+	// ==========================================
+	// 1. WORLD-SPACE UI (Player Indicator)
+	// ==========================================
+	// Draw this BEFORE changing the view so it stays attached to the player in the world!
 
-	NPCPlayer* npcOwner = dynamic_cast<NPCPlayer*>(owner);
-	if (!npcOwner) return;
-	if (!m_ball->hasOwner()) return;
+	// A CircleShape with 3 points is a triangle!
+	sf::CircleShape indicator(25.f, 3);
+	indicator.setFillColor(sf::Color(255, 255, 0, 180)); // Semi-transparent yellow
+	indicator.setOrigin({ 25.f, 25.f });
+	indicator.setRotation(sf::degrees(180.f)); // Rotate 180 degrees to point down
 
-	sf::Text debugText(m_font);
-	debugText.setFont(m_font);
-	debugText.setCharacterSize(18);
-	debugText.setFillColor(sf::Color::Yellow);
-	debugText.setOutlineColor(sf::Color::Black);
-	debugText.setOutlineThickness(2.0f);
+	// Position it hovering just above the player's head
+	sf::Vector2f playerPos = m_userPlayer->getPosition();
+	indicator.setPosition({ playerPos.x, playerPos.y - 120.f });
 
-	// Position it in the top-left corner
-	debugText.setPosition({ 20.f, 20.f });
+	t_window.draw(indicator);
 
-	sf::Vector2f vel = npcOwner->getVelocity();
-	float speed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+	// ==========================================
+	// 2. SCREEN-SPACE UI (Minimap)
+	// ==========================================
+	// Save the camera view, then switch to the static screen view
+	sf::View worldView = t_window.getView();
+	t_window.setView(t_window.getDefaultView());
 
-	std::string info = "=== NPC BALL CARRIER DEBUG ===\n";
+	// --- A. MINIMAP BACKGROUND ---
+	float mapWidth = 300.f;
+	float mapHeight = 210.f; // 10:7 aspect ratio to match your 10000x7000 pitch
+	float padding = 20.f;
 
-	// 1. Who is it?
-	info += "Team: " + std::string(npcOwner->getTeam() == Team::Home ? "HOME" : "AWAY") + "\n";
+	// Top right corner calculation
+	sf::Vector2f mapPos(t_window.getSize().x - mapWidth - padding, padding);
 
-	// 2. What are their timers doing?
-	info += "Pass Timer: " + std::to_string(npcOwner->m_passTimer) + "s\n";
-	info += "Possession Timer: " + std::to_string(npcOwner->m_possessionTimer) + "s\n";
-	info += "Kick Cooldown: " + std::to_string(npcOwner->getKickCooldown()) + "s\n";
+	sf::RectangleShape mapBg(sf::Vector2f(mapWidth, mapHeight));
+	mapBg.setPosition(mapPos);
+	mapBg.setFillColor(sf::Color(50, 50, 50, 150)); // See-through dark grey
+	mapBg.setOutlineThickness(2.f);
+	mapBg.setOutlineColor(sf::Color(255, 255, 255, 200));
+	t_window.draw(mapBg);
 
-	// 3. Physical State
-	info += "Current Speed: " + std::to_string(speed) + " px/s\n";
-	info += "Player State: " + std::to_string(static_cast<int>(npcOwner->getState())) + "\n";
+	// --- B. PITCH LINES ---
+	// Halfway Line
+	sf::RectangleShape halfway(sf::Vector2f(2.f, mapHeight));
+	halfway.setPosition({ mapPos.x + (mapWidth / 2.f) - 1.f, mapPos.y });
+	halfway.setFillColor(sf::Color(255, 255, 255, 100));
+	t_window.draw(halfway);
 
-	// 4. THE SMOKING GUN: Ball Z-Axis
-	// If Vz spikes to 100+ without the Pass Timer resetting, the PHYSICS engine is flicking it, not the AI!
-	info += "Ball Z Height: " + std::to_string(m_ball->z) + "\n";
-	info += "Ball Vz (Vertical Speed): " + std::to_string(m_ball->vz) + "\n";
+	// Penalty Boxes (Proportionally scaled to 16.5m x 40m)
+	float boxW = mapWidth * 0.165f;
+	float boxH = mapHeight * 0.575f;
+	float boxY = mapPos.y + (mapHeight - boxH) / 2.f;
 
-	debugText.setString(info);
+	sf::RectangleShape leftBox(sf::Vector2f(boxW, boxH));
+	leftBox.setPosition({ mapPos.x, boxY });
+	leftBox.setFillColor(sf::Color::Transparent);
+	leftBox.setOutlineThickness(1.f);
+	leftBox.setOutlineColor(sf::Color(255, 255, 255, 100));
+	t_window.draw(leftBox);
 
-	// Draw directly to the screen (ensure you have a fixed view set if your camera moves!)
-	sf::View oldView = window.getView();
-	window.setView(window.getDefaultView()); // Pin to screen
-	window.draw(debugText);
-	window.setView(oldView); // Restore camera
+	sf::RectangleShape rightBox(sf::Vector2f(boxW, boxH));
+	rightBox.setPosition({ mapPos.x + mapWidth - boxW, boxY });
+	rightBox.setFillColor(sf::Color::Transparent);
+	rightBox.setOutlineThickness(1.f);
+	rightBox.setOutlineColor(sf::Color(255, 255, 255, 100));
+	t_window.draw(rightBox);
 
-	float yOffset = debugText.getPosition().y + debugText.getGlobalBounds().size.y + 20.f;
+	// --- C. PLAYER & BALL DOTS ---
+	// Helper lambda to easily draw dots on the map
+	auto drawMinimapDot = [&](sf::Vector2f worldPos, sf::Color color, float radius = 3.f) {
+		float normX = worldPos.x / m_pitch.totalWidth;
+		float normY = worldPos.y / m_pitch.totalHeight;
 
-	sf::Text logText(m_font);
-	logText.setFont(m_font);
-	logText.setCharacterSize(18);
-	logText.setOutlineThickness(1.5f);
+		// Clamp to ensure dots don't leak out of the map if players go out of bounds
+		normX = std::clamp(normX, 0.0f, 1.0f);
+		normY = std::clamp(normY, 0.0f, 1.0f);
 
-	// Loop through their recent actions
-	for (const auto& log : npcOwner->actionLog) {
-		logText.setString(log.first);
-		logText.setPosition({20.f, yOffset});
+		sf::CircleShape dot(radius);
+		dot.setOrigin({ radius, radius });
+		dot.setPosition({ mapPos.x + (normX * mapWidth), mapPos.y + (normY * mapHeight) });
+		dot.setFillColor(color);
+		t_window.draw(dot);
+		};
 
-		// Calculate Alpha (0 to 255) based on the remaining 3 seconds
-		float alphaFloat = std::min(255.0f, (log.second / 3.0f) * 255.0f);
-		std::uint8_t alpha = static_cast<std::uint8_t>(std::max(0.0f, alphaFloat));
-
-		// Make the text neon cyan so it pops against the grass
-		logText.setFillColor(sf::Color(0, 255, 255, alpha));
-		logText.setOutlineColor(sf::Color(0, 0, 0, alpha));
-
-		// Use a fixed view if your camera moves!
-		sf::View oldView = window.getView();
-		window.setView(window.getDefaultView());
-
-		window.draw(logText);
-
-		window.setView(oldView);
-
-		yOffset += 22.f; // Push the next log down a line
+	// Draw Teammates (White)
+	for (const auto& tm : m_teammates) {
+		drawMinimapDot(tm->getPosition(), sf::Color::White);
 	}
+
+	// Draw Opponents (Blue)
+	for (const auto& opp : m_opponents) {
+		drawMinimapDot(opp->getPosition(), sf::Color::Blue);
+	}
+
+	// Draw the User Player (Slightly larger, Yellow)
+	drawMinimapDot(m_userPlayer->getPosition(), sf::Color::Yellow, 4.f);
+
+	// Draw the Ball (Slightly larger, Orange)
+	if (m_ball) {
+		drawMinimapDot(m_ball->getPosition(), sf::Color(255, 165, 0), 4.f);
+	}
+
+	// ==========================================
+	// 3. RESTORE WORLD VIEW
+	// ==========================================
+	// Put the camera back to normal so the next frame renders the pitch correctly!
+	t_window.setView(worldView);
 }

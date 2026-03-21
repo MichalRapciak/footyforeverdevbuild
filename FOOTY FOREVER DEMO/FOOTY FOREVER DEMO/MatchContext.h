@@ -34,3 +34,17 @@ struct SetPieceAssignment {
     sf::Vector2f restartSpot = { 0.f, 0.f };
     Team awardedTo = Team::None;
 };
+
+enum class FoulType {
+    None,
+    Obstruction, // Soft foul (Free Kick)
+    Sliding,     // Reckless foul (Free Kick + Yellow)
+    Violent,     // Dangerous (Free Kick + Red)
+    Handball     // Hand
+};
+
+struct FoulEvent {
+    FoulType type;
+    sf::Vector2f location;
+    Player* offender;
+};
