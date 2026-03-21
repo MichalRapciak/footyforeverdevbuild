@@ -136,7 +136,10 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
 
             // Auto-Possess
             if (!ball.hasOwner() && distToBall < 70.f && ctx.canPossess) {
-                if (npc.getState() != PlayerState::Tackling && npc.getState() != PlayerState::Stunned && ball.z < 40.f) {
+                if (npc.getState() != PlayerState::Tackling &&
+                    npc.getState() != PlayerState::Stunned &&
+                    ball.z < 40.f &&
+                    npc.getKickCooldown() <= 0.0f) { // CRITICAL FIX
                     ball.possess(&npc);
                 }
             }
