@@ -35,6 +35,11 @@ struct Pitch {
     sf::FloatRect homeGoalBox;
     sf::FloatRect awayGoalBox;
 
+    float boxDepth = 1650.f; // 16.5 meters
+    float boxWidth = 4032.f; // 40.32 meters (16.5 + 7.32 goal + 16.5)
+    float centerY = totalHeight / 2.f;
+    float boxTopY = centerY - (boxWidth / 2.f);
+
     Pitch() {
         // Playable area starts at (500, 500) and is 9000x6000
         playableArea = sf::FloatRect({ margin, margin }, { totalWidth - (2 * margin), totalHeight - (2 * margin) });
@@ -45,8 +50,10 @@ struct Pitch {
         // Penalty Spots: margin + 11m
         homePenaltySpot = { margin + 1100.f, totalHeight / 2.f };
         awayPenaltySpot = { totalWidth - margin - 1100.f, totalHeight / 2.f };
-        homeGoalCenter = { margin + 300, totalHeight / 2.0f};
-        awayGoalCenter = { totalWidth - margin - 300, totalHeight / 2.0f };
+        homeGoalCenter = { margin, totalHeight / 2.0f};
+        awayGoalCenter = { totalWidth - margin, totalHeight / 2.0f };
+        homePenaltyBox = sf::FloatRect({ margin, boxTopY }, { boxDepth, boxWidth });
+        awayPenaltyBox = sf::FloatRect({ totalWidth - margin - boxDepth, boxTopY }, { boxDepth, boxWidth });
 
         // Goal Line: 7.32m wide
         float goalWidth = 732.f;

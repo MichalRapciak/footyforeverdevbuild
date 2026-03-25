@@ -33,6 +33,9 @@ public:
     sf::Sprite getSprite() override { return sprite; }
     sf::CircleShape getShadow() { return shadow; }
 
+    bool isSetPiece() const { return m_isSetPiece; }
+    void setSetPiece(bool state) { m_isSetPiece = state; }
+
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
     float friction = 800.f;
@@ -44,7 +47,7 @@ private:
 
     Player* owner = nullptr;
     Player* lastOwner = nullptr;
-
+    bool m_isSetPiece = false;
 
 
     float maxSpeed = 5200.f;

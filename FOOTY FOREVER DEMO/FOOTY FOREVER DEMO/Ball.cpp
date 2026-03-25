@@ -32,7 +32,13 @@ void Ball::update(float dt)
 {
     // Route the logic based on possession
     if (owner != nullptr) {
-        updateDribbling(dt);
+        if (m_isSetPiece) {
+            // DEAD BALL: The ball is glued to the ground, not the foot.
+            velocity = { 0.f, 0.f };
+        }
+        else {
+            updateDribbling(dt);
+        }
     }
     else {
         updateFreePhysics(dt);
@@ -165,7 +171,14 @@ void Ball::updateFreePhysics(float dt)
         sf::Vector2f perpendicular(-velocity.y, velocity.x);
         perpendicular /= speed;
 
-        float spinStrength = 12.0f * (1.0f + z / 100.f);
+        // FIX: Severely nerfed the curl scaling and capped the height influence!
+        // The height factor is now clamped between 0.0 and 1.0 (maxes out at z=400)
+        float heightFactor = std::clamp(z / 400.f, 0.0f, 1.0f);
+
+        // Base strength is 2.0f, and only increases to a maximum of 3.5f at peak height.
+        // (Your old formula was reaching 110.0f+ !)
+        float spinStrength = 2.0f + (heightFactor * 1.5f);
+
         velocity += perpendicular * spin * spinStrength * dt;
 
         float newSpeed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
@@ -364,6 +377,7 @@ void Ball::release()
 
 void Ball::shoot(const sf::Vector2f& direction, float power, float kickSpin, float v0z, float backspin)
 {
+    m_isSetPiece = false;
     // 1. Release the owner if there is one
     if (owner)
     {
@@ -404,6 +418,7 @@ void Ball::setPosition(const sf::Vector2f& pos)
 
 void Ball::applyImpulse(sf::Vector2f force)
 {
+    if (m_isSetPiece) return;
     float forceSpeed = std::sqrt(force.x * force.x + force.y * force.y);
 
     // 1. THE FLICKER SHIELD

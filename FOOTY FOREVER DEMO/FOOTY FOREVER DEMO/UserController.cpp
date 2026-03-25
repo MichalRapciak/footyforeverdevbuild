@@ -133,6 +133,10 @@ void UserController::inputHandler(const sf::Event t_event)
 /// updating player movement - can be turned off if within menus.
 /// </summary>
 /// <param name="isPressed"></param>
+/// <summary>
+/// updating player movement - can be turned off if within menus.
+/// </summary>
+/// <param name="isPressed"></param>
 void UserController::update(float dt, GamePlay& game)
 {
 	// 1. Process Gravity and Jumping FIRST
@@ -142,33 +146,59 @@ void UserController::update(float dt, GamePlay& game)
 	MatchState state = game.m_referee.getMatchState();
 	bool isTaker = (game.m_referee.getSetPieceTaker() == &m_userPlayer);
 
+	// --- CANCEL TACKLES ON THE WHISTLE ---
+	// If the referee blows the play dead while you are sliding, snap out of it
+	if (state != MatchState::InPlay && m_userPlayer.getState() == PlayerState::Tackling) {
+		m_userPlayer.setState(PlayerState::Normal);
+	}
+
 	// ==========================================
-	// 3. DEAD BALL OVERRIDE FOR THE USER
+	// 3. MATCH PAUSED & CELEBRATION STATES
 	// ==========================================
-	if (state != MatchState::InPlay && state != MatchState::GoalScored)
+	if (state == MatchState::HalfTime || state == MatchState::FullTime || state == MatchState::GoalScored)
 	{
-		if (!isTaker) {
-			// If the user isn't taking the kick, FREEZE THEM!
-			// Apply heavy friction so they slide to a halt if they were sprinting
-			m_userPlayer.setVelocity(m_userPlayer.getVelocity() * 0.85f);
-			return; // Skip normal movement and shooting entirely
-		}
-		else {
+		// Apply heavy friction so you naturally slide to a halt
+		m_userPlayer.setVelocity(m_userPlayer.getVelocity() * 0.85f);
+		return; // Skip normal movement and shooting entirely
+	}
+
+	// ==========================================
+	// 4. DEAD BALL OVERRIDE (Set Pieces)
+	// ==========================================
+	if (state != MatchState::InPlay)
+	{
+		updateTargetScanning(game); // Let the user look around and aim
+
+		if (isTaker) {
 			// THE USER IS THE TAKER
 			// Keep them locked to the spot while waiting for the whistle
 			m_userPlayer.setVelocity({ 0.f, 0.f });
 
+			// FORCE POSSESSION: Ensure the physics engine knows the taker "has" the ball
+			if (game.m_ball->getOwner() != &m_userPlayer) {
+				game.m_ball->possess(&m_userPlayer);
+			}
+
 			// If the whistle blew, let them shoot!
-			// (Note: Your GamePlay loop still calls mouseAiming, so they can still aim!)
 			if (game.m_referee.isWhistleBlown()) {
 				playerShooting(dt, game);
 			}
-			return; // Skip normal movement!
 		}
+		else {
+			// THE USER IS *NOT* THE TAKER
+			// Let the user move freely to get into the box for a header or form a wall!
+			m_speedVector = m_userPlayer.getVelocity();
+			playerMovement(dt, game);
+
+			// NOTE: We deliberately do NOT call playerShooting here so you can't 
+			// accidentally swing your leg while waiting for the NPC to cross it.
+		}
+
+		return; // Skip the open play block
 	}
 
 	// ==========================================
-	// 4. NORMAL OPEN PLAY
+	// 5. NORMAL OPEN PLAY
 	// ==========================================
 	m_speedVector = m_userPlayer.getVelocity();
 	updateTargetScanning(game);
@@ -665,7 +695,7 @@ void UserController::playerShooting(float dt, GamePlay& game)
 
 				// Keep ground shots on the floor, but add a tiny pop if it's a "Driven" shot
 				vzPower = 5.f + (kickStrength * 50.f);
-				finalPower *= 1.5f;
+				finalPower *= 1.2f;
 				finalBackspin = (m_currentTarget && stat == m_userPlayer.getShortPassing()) ? 10.f : 0.f;
 			}
 		}

@@ -316,6 +316,9 @@ void GamePlay::setupGame()
 
 void GamePlay::handlePlayerCollisions(std::vector<Player*>& players, const Pitch& pitch)
 {
+	// --- 0. DEAD BALL CHECK ---
+	if (m_referee.getMatchState() != MatchState::InPlay) return;
+
 	// --- 1. PITCH BOUNDARY COLLISIONS (Walls) ---
 	for (Player* p : players)
 	{
@@ -341,33 +344,27 @@ void GamePlay::handlePlayerCollisions(std::vector<Player*>& players, const Pitch
 	// ==========================================
 	// --- 1.5 TACKLE VS BALL COLLISIONS ---
 	// ==========================================
-	// We do this ONCE per player, outside the N^2 loop!
 	for (Player* tackler : players)
 	{
 		if (!tackler->isTackling()) continue;
 
 		sf::FloatRect tackleArea = tackler->getTackleHitbox();
-
-		// THE Z-AXIS FIX: Only check intersection with the ball's GROUND SHAPE, not the flying sprite!
-		// Assuming shape/shadow stays on the ground based on your Ball.cpp logic.
-		// NOTE: Make sure `getShape()` or `getShadow()` is publicly accessible in Ball.h!
 		sf::FloatRect ballGroundBounds = m_ball->getShadow().getGlobalBounds();
 
-		// We also check z < 40.f so you can't slide-tackle a ball bouncing over your waist
 		if (tackleArea.findIntersection(ballGroundBounds) && m_ball->z < 40.f) {
 
 			if (m_ball->hasOwner()) {
 				Player* owner = m_ball->getOwner();
-				// Don't stun yourself if you accidentally tackle a ball you own
-				if (owner != tackler) {
-					owner->setState(PlayerState::Stunned);
-					owner->resetTackleCooldown();
+
+				// NO FRIENDLY FIRE: Only stumble the owner if they are on the opposing team
+				if (owner != tackler && owner->getTeam() != tackler->getTeam()) {
+					owner->setStumbled(0.5f); // Clean tackle! Just stumble the opponent
 				}
 			}
 			m_ball->release();
 
 			sf::Vector2f tackleImpulse = tackler->getVelocity() * 1.2f;
-			m_ball->applyImpulse(tackleImpulse); // This now only fires ONCE per tackle!
+			m_ball->applyImpulse(tackleImpulse);
 
 			tackler->setVelocity(tackler->getVelocity() * 0.97f);
 		}
@@ -383,27 +380,62 @@ void GamePlay::handlePlayerCollisions(std::vector<Player*>& players, const Pitch
 			Player* p1 = players[i];
 			Player* p2 = players[j];
 
-			// A. HANDLE PLAYER VS PLAYER TACKLES
-			auto processTackleHit = [&](Player* tackler, Player* victim)
+			// ==========================================
+			// GHOSTING (NO TEAMMATE COLLISIONS)
+			// ==========================================
+			// If they are on the same team, skip ALL physics and foul checks. 
+			// They will smoothly pass through each other.
+			if (p1->getTeam() == p2->getTeam()) continue;
+
+
+			// ==========================================
+			// A. HANDLE PLAYER VS PLAYER TACKLES (FOULS)
+			// ==========================================
+			auto processTackleHit = [&](Player* tackler, Player* victim) -> bool
 				{
-					if (!tackler->isTackling()) return;
+					if (!tackler->isTackling()) return false;
+
+					// Friendly fire check removed here since the loop 'continue' handles it globally
 
 					if (tackler->getTackleHitbox().findIntersection(victim->getBoundingBox())) {
-						victim->setState(PlayerState::Stunned);
-						victim->resetTackleCooldown();
-						tackler->setVelocity(tackler->getVelocity() * 0.97f);
+
+						// EXCLUSIVE BALL CARRIER CHECK
+						if (m_ball->getOwner() == victim) {
+							// Did they get the man before the ball?
+							sf::Vector2f toBall = m_ball->getPosition() - tackler->getPosition();
+							float distToBall = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
+
+							// If the ball is more than 60px away during player contact, it's a foul!
+							if (distToBall > 60.f) {
+								victim->setState(PlayerState::Stunned);
+								victim->resetTackleCooldown();
+
+								tackler->setState(PlayerState::Normal); // Snap tackler out of animation
+								tackler->setVelocity({ 0.f, 0.f });
+
+								FoulEvent foul;
+								foul.type = FoulType::Sliding;
+								foul.location = victim->getPosition();
+								foul.offender = tackler;
+								m_referee.awardFoul(foul, pitch, *m_ball, players, victim);
+								return true; // FOUL CALLED
+							}
+						}
 					}
+					return false;
 				};
 
-			processTackleHit(p1, p2);
-			processTackleHit(p2, p1);
+			if (processTackleHit(p1, p2)) return;
+			if (processTackleHit(p2, p1)) return;
 
-			// B. HANDLE BODY COLLISIONS (The "Shoulder to Shoulder" Physics)
+			// ==========================================
+			// B. HANDLE BODY COLLISIONS (Shoulder to Shoulder & Shoves)
+			// ==========================================
 			sf::Vector2f delta = p1->getPosition() - p2->getPosition();
 			float distanceSq = delta.x * delta.x + delta.y * delta.y;
 			float combinedRadius = p1->getCollisionRadius() + p2->getCollisionRadius();
 
-			if (distanceSq < combinedRadius * combinedRadius && distanceSq > 0.0001f) // Added tiny buffer to prevent div-by-zero
+			if (distanceSq < combinedRadius * combinedRadius && distanceSq > 0.0001f)
 			{
 				float distance = std::sqrt(distanceSq);
 				sf::Vector2f normal = delta / distance;
@@ -452,6 +484,35 @@ void GamePlay::handlePlayerCollisions(std::vector<Player*>& players, const Pitch
 
 					float stumbleThreshold1 = 250.f * (1.0f + b1);
 					float stumbleThreshold2 = 250.f * (1.0f + b2);
+
+					// --- SHOVE FOUL DETECTION (Obstruction) ---
+					// Team check removed here since teammates never reach this point anyway
+					float v1Sq = p1->getVelocity().x * p1->getVelocity().x + p1->getVelocity().y * p1->getVelocity().y;
+					float v2Sq = p2->getVelocity().x * p2->getVelocity().x + p2->getVelocity().y * p2->getVelocity().y;
+
+					Player* aggressor = nullptr;
+					Player* victim = nullptr;
+					float vicDeltaV = 0.f;
+					float vicThresh = 0.f;
+
+					if (v1Sq > v2Sq + 40000.f) { aggressor = p1; victim = p2; vicDeltaV = deltaV2; vicThresh = stumbleThreshold2; }
+					else if (v2Sq > v1Sq + 40000.f) { aggressor = p2; victim = p1; vicDeltaV = deltaV1; vicThresh = stumbleThreshold1; }
+
+					if (aggressor && victim && vicDeltaV > vicThresh * 5.0f) {
+
+						// EXCLUSIVE BALL CARRIER CHECK
+						if (m_ball->getOwner() == victim) {
+							victim->setState(PlayerState::Stunned);
+
+							FoulEvent foul;
+							foul.type = FoulType::Obstruction;
+							foul.location = victim->getPosition();
+							foul.offender = aggressor;
+							m_referee.awardFoul(foul, pitch, *m_ball, players, victim);
+							return; // FOUL CALLED
+						}
+					}
+					// -----------------------------------------
 
 					float stumbleDuration1 = std::clamp((deltaV1 / stumbleThreshold1) * 0.4f, 0.3f, 0.8f);
 					float stumbleDuration2 = std::clamp((deltaV2 / stumbleThreshold2) * 0.4f, 0.3f, 0.8f);
@@ -1017,7 +1078,7 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	t_window.draw(indicator);
 
 	// ==========================================
-	// 2. SCREEN-SPACE UI (Minimap)
+	// 2. SCREEN-SPACE UI (Minimap & Scoreboard)
 	// ==========================================
 	// Save the camera view, then switch to the static screen view
 	sf::View worldView = t_window.getView();
@@ -1065,12 +1126,10 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	t_window.draw(rightBox);
 
 	// --- C. PLAYER & BALL DOTS ---
-	// Helper lambda to easily draw dots on the map
 	auto drawMinimapDot = [&](sf::Vector2f worldPos, sf::Color color, float radius = 3.f) {
 		float normX = worldPos.x / m_pitch.totalWidth;
 		float normY = worldPos.y / m_pitch.totalHeight;
 
-		// Clamp to ensure dots don't leak out of the map if players go out of bounds
 		normX = std::clamp(normX, 0.0f, 1.0f);
 		normY = std::clamp(normY, 0.0f, 1.0f);
 
@@ -1081,23 +1140,57 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 		t_window.draw(dot);
 		};
 
-	// Draw Teammates (White)
-	for (const auto& tm : m_teammates) {
-		drawMinimapDot(tm->getPosition(), sf::Color::White);
-	}
+	for (const auto& tm : m_teammates) drawMinimapDot(tm->getPosition(), sf::Color::White);
+	for (const auto& opp : m_opponents) drawMinimapDot(opp->getPosition(), sf::Color::Blue);
 
-	// Draw Opponents (Blue)
-	for (const auto& opp : m_opponents) {
-		drawMinimapDot(opp->getPosition(), sf::Color::Blue);
-	}
-
-	// Draw the User Player (Slightly larger, Yellow)
 	drawMinimapDot(m_userPlayer->getPosition(), sf::Color::Yellow, 4.f);
+	if (m_ball) drawMinimapDot(m_ball->getPosition(), sf::Color(255, 165, 0), 4.f);
 
-	// Draw the Ball (Slightly larger, Orange)
-	if (m_ball) {
-		drawMinimapDot(m_ball->getPosition(), sf::Color(255, 165, 0), 4.f);
-	}
+	// ==========================================
+	// --- D. TV BROADCAST SCOREBOARD ---
+	// ==========================================
+	float scoreWidth = 260.f;
+	float scoreHeight = 65.f;
+	sf::Vector2f scorePos(20.f, 20.f); // Top Left Corner
+
+	// 1. Scoreboard Background
+	sf::RectangleShape scoreBg(sf::Vector2f(scoreWidth, scoreHeight));
+	scoreBg.setPosition(scorePos);
+	scoreBg.setFillColor(sf::Color(20, 20, 30, 200)); // Dark navy blue broadcast feel
+	scoreBg.setOutlineThickness(2.f);
+	scoreBg.setOutlineColor(sf::Color(255, 255, 255, 150));
+	t_window.draw(scoreBg);
+
+	// 2. Format the Match Score Text
+	int hScore = m_referee.getHomeScore();
+	int aScore = m_referee.getAwayScore();
+	std::string scoreString = "HOME  " + std::to_string(hScore) + " - " + std::to_string(aScore) + "  AWAY";
+
+	// In SFML 3.0, the font is passed directly into the constructor
+	sf::Text scoreText(m_font, scoreString, 22);
+	scoreText.setFillColor(sf::Color::White);
+
+	// Center the score text horizontally inside the box
+	float textX = scorePos.x + (scoreWidth - scoreText.getLocalBounds().size.x) / 2.f;
+	scoreText.setPosition({ textX, scorePos.y + 10.f });
+	t_window.draw(scoreText);
+
+	// 3. Format the Match Timer Text
+	float matchTime = m_referee.getMatchMinute();
+	int mins = static_cast<int>(matchTime);
+	int secs = static_cast<int>((matchTime - mins) * 60.0f);
+
+	// Add leading zeroes if numbers are < 10 (e.g., "05:09")
+	std::string timeString = (mins < 10 ? "0" : "") + std::to_string(mins) + ":" +
+		(secs < 10 ? "0" : "") + std::to_string(secs);
+
+	sf::Text timeText(m_font, timeString, 18);
+	timeText.setFillColor(sf::Color::Yellow);
+
+	// Center the time text below the score
+	float timeX = scorePos.x + (scoreWidth - timeText.getLocalBounds().size.x) / 2.f;
+	timeText.setPosition({ timeX, scorePos.y + 35.f });
+	t_window.draw(timeText);
 
 	// ==========================================
 	// 3. RESTORE WORLD VIEW
