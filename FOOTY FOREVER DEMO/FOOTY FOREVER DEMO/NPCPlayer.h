@@ -10,7 +10,7 @@
 class NPCPlayer : public Player
 {
 public:
-    NPCPlayer();
+    NPCPlayer(const sf::Texture& texture);
     ~NPCPlayer();
 
     // Standard getters/setters (matching UserPlayer)
@@ -19,12 +19,12 @@ public:
     //std::vector<std::pair<std::string, float>> actionLog;
     //void logAction(const std::string& action) {actionLog.push_back({ action, 3.0f });}
 
-    sf::Vector2f getAimDirection() const override { return { 0,0 }; }
+    sf::Vector2f getAimDirection() const override { return m_physicalHeading; }
     void move(sf::Vector2f t_move) override { m_position += t_move; }
 
 
 
-    void update(float dt) override;
+    void update(float dt, AnimationServer& animServer) override;
 
     // NPC specific: needs to be told where to look since there's no mouse
     void setRotationToward(sf::Vector2f targetPos);
@@ -40,8 +40,6 @@ public:
 
 private:
     float m_kickCooldown = 0.f;
+    sf::Vector2f m_physicalHeading = { 1.f, 0.f };
     sf::Vector2f m_dribbleTargetDir;
-
-    sf::Sprite m_sprite;
-    sf::Texture m_texture;
 };

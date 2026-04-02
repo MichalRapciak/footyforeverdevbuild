@@ -1,0 +1,62 @@
+{
+    "TEAM_LIV": {
+        "badge_id": "Badge_LIV",
+        "captain_id": "PLY_1004",
+        "default_formation": "4-3-3",
+        "full_name": "Liverpool FC",
+        "kits": {
+            "shirt": {
+                "badge_id": "Badge_LIV",
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shirt_VNeck_Collar"
+                    },
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shirt_SleeveCuffs"
+                    },
+                    {
+                        "color": "#B30E29",
+                        "texture_id": "Shirt_Pinstripes"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E",
+                "sponsor_id": "Logo_StandardChartered"
+            },
+            "shorts": {
+                "badge_id": "Badge_LIV",
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shorts_SideStripe"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E"
+            },
+            "socks": {
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Socks_TopBand"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E"
+            }
+        },
+        "manager_name": "Jurgen Klopp",
+        "roster": [
+            "PLY_1001",
+            "PLY_1002",
+            "PLY_1003",
+            "PLY_1004",
+            "PLY_1000"
+        ],
+        "short_name": "LIV",
+        "stadium_name": "Anfield",
+        "ui_color": "#FF102E"
+    }
+}

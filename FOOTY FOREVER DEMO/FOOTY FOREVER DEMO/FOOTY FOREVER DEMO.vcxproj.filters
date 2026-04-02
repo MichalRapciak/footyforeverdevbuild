@@ -13,6 +13,12 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\IMGUI">
+      <UniqueIdentifier>{fe5960a7-9d00-4a19-a3c8-c76b046f9b99}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Menus">
+      <UniqueIdentifier>{bce58b24-1cfe-4115-a89a-b98397851676}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -60,6 +66,33 @@
     <ClCompile Include="MatchReferee.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
+    <ClCompile Include="GameDatabase.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
+    <ClCompile Include="EditorScreen.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui-1.92.6\imgui.cpp">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui-1.92.6\imgui_draw.cpp">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui-1.92.6\imgui_tables.cpp">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui-1.92.6\imgui_widgets.cpp">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui-1.92.6\imgui-SFML.cpp">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimationServer.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Animator.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h">
@@ -69,18 +102,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Entity.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="LicenseScreen.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="SplashScreen.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MainMenu.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Help.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UserPlayer.h">
@@ -129,6 +150,60 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MatchContext.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GameDatabase.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imconfig.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imconfig-SFML.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imgui.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imgui_internal.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imgui-SFML.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imgui-SFML_export.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imstb_rectpack.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imstb_textedit.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui-1.92.6\imstb_truetype.h">
+      <Filter>Source Files\IMGUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Direction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EditorScreen.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="LicenseScreen.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="MainMenu.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="Help.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="SplashScreen.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimationServer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Animator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

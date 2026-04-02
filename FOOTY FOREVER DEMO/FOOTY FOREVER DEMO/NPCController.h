@@ -33,6 +33,7 @@ public:
         const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder, const MatchReferee& referee);
     /// Uses GkCatching: Determines if a successful save is held or parried away
     void resolveSaveOutcome(NPCPlayer& npc, Ball& ball);
+    TacticalZone getZoneForRole(PositionRole role);
 
 private:
     // 1. TACTICAL BRAIN: Decides WHERE to go
@@ -113,7 +114,6 @@ private:
     float dist(sf::Vector2f p1, sf::Vector2f p2);
     bool isBallInOurHalf(NPCPlayer& npc, Ball& ball, const Pitch& pitch);
     Player* findNearestOpponent(const sf::Vector2f& npcPos, const std::vector<Player*>& opponents);
-    TacticalZone getZoneForRole(PositionRole role);
     float length(sf::Vector2f v) {
         return std::sqrt(v.x * v.x + v.y * v.y);
     }

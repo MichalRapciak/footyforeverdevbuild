@@ -10,6 +10,9 @@ public:
 	virtual sf::FloatRect getBoundingBox() const = 0;
 	virtual sf::Sprite getSprite() = 0;
 	virtual sf::Vector2f getPosition() const = 0;
+	virtual float getSortDepth() const {
+		return getPosition().x;
+	}
 
 	float z = 0.0f;
 	float vz = 0.0f;

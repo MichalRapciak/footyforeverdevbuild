@@ -48,6 +48,9 @@ void GamePlay::initialise(sf::Font& t_font)
 	xpos = (1920 / 2) - (textSize.size.x / 2);
 	m_gameWonText.setPosition({ xpos, 1080 * 0.5f });
 
+
+	m_animServer.init("ASSETS/PLAYER/player_run.png");
+
 }
 
 /// <summary>
@@ -168,7 +171,6 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		// 3. RUN THE SIMULATION
         // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
         runStandardSystems(dt, t_window);
-
 		// 4. Update visuals
 		updateCamera(t_window);
 		powerBarUpdate();
@@ -183,7 +185,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	t_window.setView(m_playerCam); // Set Camera to player camera
 	t_window.draw(m_level1.getLevelBG());
 	std::sort(m_entities.begin(), m_entities.end(), [](Entity* a, Entity* b) {
-		return a->getPosition().y < b->getPosition().y;
+		// Now it compares the Ball's center to the Player's feet!
+		return a->getSortDepth() > b->getSortDepth();
 		});
 	for (Entity* entity : m_entities)
 	{
@@ -204,21 +207,21 @@ void GamePlay::render(sf::RenderWindow& t_window)
 			float z = entity->z;
 
 			// 2. Draw standard Player Shadow at the ACTUAL ground position
-			sf::CircleShape shadow(15.f);
-			shadow.setFillColor(sf::Color(0, 0, 0, 100));
-			shadow.setOrigin({ 15.f, 15.f });
+			sf::CircleShape shadow(20.f);
+			shadow.setFillColor(sf::Color(0, 0, 0, 50));
+			shadow.setOrigin({ 20.f, 20.f });
 			shadow.setScale({ 1.0f, 1.0f });
 
 
 			// Shadow offset: If you want the shadow slightly offset from their feet, 
 			// you might want to shift it on the Y axis (-10.f) rather than X, 
 			// depending on where your imaginary "sun" is!
-			shadow.setPosition({ groundPos.x - 10.f, groundPos.y });
+			shadow.setPosition({ groundPos.x - 40.f, groundPos.y });
 			t_window.draw(shadow);
 
 			// 3. Calculate the visual (elevated) position
 			// Because +X is UP on your screen, jumping adds Z to X!
-			sf::Vector2f visualPos = { groundPos.x + z, groundPos.y };
+			sf::Vector2f visualPos = { groundPos.x + (z / 1.5f), groundPos.y };
 
 			// 4. Move and draw the VISUALS only
 			// Making a local copy of the sprite keeps the real collision box on the ground
@@ -226,7 +229,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 			visualSprite.setPosition(visualPos);
 
 			// Optional: Make the player scale up slightly as they jump closer to the camera
-			 float scaleMultiplier = 1.0f + (z / 2000.f); 
+			 float scaleMultiplier = 1.0f + (z / 750.f); 
 			 visualSprite.setScale({ visualSprite.getScale().x * scaleMultiplier, visualSprite.getScale().y * scaleMultiplier });
 
 			 float t = std::min(z / 100.f, 1.f);
@@ -280,7 +283,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 void GamePlay::setupGame()
 {
 	// --- 1. SETUP USER (As you have it) ---
-	m_userPlayer = std::make_unique<UserPlayer>();
+	m_userPlayer = std::make_unique<UserPlayer>((m_animServer.getPlayerTexture()));
 	m_entities.push_back(m_userPlayer.get());
 	m_userController = std::make_unique<UserController>(*m_userPlayer);
 
@@ -538,7 +541,7 @@ void GamePlay::spawnTeam(std::vector<std::unique_ptr<NPCPlayer>>& team,
 
     for (PositionRole role : formation)
     {
-        auto player = std::make_unique<NPCPlayer>();
+        auto player = std::make_unique<NPCPlayer>((m_animServer.getPlayerTexture()));
         player->setPositionRole(role);
         player->setTeam(isHomeSide ? Team::Home : Team::Away);
         player->setPosition(player->getHomePosition(isHomeSide, TeamState::Neutral));
@@ -977,7 +980,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	// --- 2. UPDATE HUMAN USER ---
 	m_userController->update(dt, *this);
 	m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
-	m_userPlayer->update(dt);
+	m_userPlayer->update(dt, m_animServer);
 
 	// --- 3. GATHER ACTIVE LISTS & FIND FIRST RESPONDERS ---
 	std::vector<Player*> homeFriends;
@@ -993,11 +996,11 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	// --- 4. UPDATE AI BRAINS ---
 	for (auto& npc : m_teammates) {
 		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee);
-		npc->update(dt); // Internal motor physics
+		npc->update(dt, m_animServer); // Internal motor physics
 	}
 	for (auto& npc : m_opponents) {
 		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee);
-		npc->update(dt);
+		npc->update(dt, m_animServer);
 	}
 
 	// --- 5. WORLD PHYSICS & COLLISIONS ---
@@ -1127,8 +1130,8 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 
 	// --- C. PLAYER & BALL DOTS ---
 	auto drawMinimapDot = [&](sf::Vector2f worldPos, sf::Color color, float radius = 3.f) {
-		float normX = worldPos.x / m_pitch.totalWidth;
-		float normY = worldPos.y / m_pitch.totalHeight;
+		float normX = worldPos.x / (m_pitch.totalWidth);
+		float normY = worldPos.y / (m_pitch.totalHeight);
 
 		normX = std::clamp(normX, 0.0f, 1.0f);
 		normY = std::clamp(normY, 0.0f, 1.0f);

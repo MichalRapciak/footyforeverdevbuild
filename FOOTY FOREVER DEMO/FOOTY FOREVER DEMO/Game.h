@@ -6,6 +6,8 @@
 #include "SplashScreen.h"
 #include "MainMenu.h"
 #include "Help.h"
+#include "EditorScreen.h" // <-- NEW
+#include "GameDatabase.h"
 
 enum class
 	GameState
@@ -16,6 +18,7 @@ enum class
 	MainMenu,
 	Help,
 	GamePlay,
+	Editor
 };
 
 
@@ -32,6 +35,7 @@ public:
 	static GameState currentState;
 
 private:
+	GameDatabase m_database;
 
 	void processEvents();
 	void processKeys(sf::Event t_event);
@@ -47,6 +51,7 @@ private:
 	SplashScreen m_splashScreen;
 	MainMenu m_mainMenuScreen;
 	Help m_helpScreen;
+	EditorScreen m_editorScreen;
 	std::unique_ptr<GamePlay> m_gamingScreen;
 
 	bool m_exitGame; // control exiting game

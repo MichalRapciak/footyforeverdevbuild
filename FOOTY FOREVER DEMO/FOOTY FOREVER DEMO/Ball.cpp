@@ -48,7 +48,18 @@ void Ball::update(float dt)
 void Ball::updateDribbling(float dt)
 {
     // --- 1. PLAYER STATE & DIRECTION ---
-    sf::Vector2f playerPos = owner->getPosition();
+    sf::Vector2f playerCenter = owner->getPosition();
+
+    // Grab the exact current scale of this specific player (e.g., 0.13 * height)
+    sf::Vector2f playerScale = owner->getSprite().getScale();
+
+    // Start at the center (500, 500)
+    sf::Vector2f feetPos = playerCenter;
+
+    // Shift 400 raw pixels down the sprite's local vertical axis (Y) to hit the boots,
+    // perfectly multiplied by whatever their dynamic height scale is!
+    feetPos.x -= 400.0f * std::abs(playerScale.x);
+
     sf::Vector2f playerVel = owner->getVelocity();
     float playerSpeed = std::sqrt(playerVel.x * playerVel.x + playerVel.y * playerVel.y);
     float topSpeed = owner->getTopSpeed() * 10.0f;
@@ -64,10 +75,11 @@ void Ball::updateDribbling(float dt)
     sf::Vector2f lateral = { -forward.y, forward.x };
 
     float bcNorm = owner->getBallControl() / 100.0f;
-    float errorFactor = 1.0f - bcNorm; 
+    float errorFactor = 1.0f - bcNorm;
 
     // --- 2. THE DRIBBLE LEASH ---
-    sf::Vector2f toBall = shape.getPosition() - playerPos;
+    // Use feetPos instead of the center!
+    sf::Vector2f toBall = shape.getPosition() - feetPos;
     float dist = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
     sf::Vector2f toBallNorm = (dist > 0.f) ? toBall / dist : sf::Vector2f{ 0.f, 0.f };
     float cosAngle = forward.x * toBallNorm.x + forward.y * toBallNorm.y;
@@ -89,48 +101,53 @@ void Ball::updateDribbling(float dt)
     footTimer += dt;
 
     if (footTimer >= stepInterval) {
-        footTimer = 0.f;          
+        footTimer = 0.f;
 
         if (playerSpeed > 50.f) {
             float randAngle = ((rand() % 360) * 3.14159f) / 180.f;
-            float maxErrorDist = 35.f * errorFactor; 
+            float maxErrorDist = 35.f * errorFactor;
             float randMag = (rand() % 100) / 100.f * maxErrorDist;
             stepError = sf::Vector2f(std::cos(randAngle) * randMag, std::sin(randAngle) * randMag);
-            
-            // Removed the harsh horizontal velocity dampening that was fighting the player's momentum
         }
         else {
-            stepError = { 0.f, 0.f }; 
+            stepError = { 0.f, 0.f };
         }
     }
 
     // --- 4. CALCULATING THE DYNAMIC OFFSET ---
     float stepProgress = footTimer / stepInterval;
 
-    float basePush = 15.f; 
-    float maxPushExt = 20.f + (errorFactor * 50.f); 
+    float basePush = 15.f;
+    float maxPushExt = 20.f + (errorFactor * 50.f);
 
     float dynamicForwardPush = basePush + (maxPushExt * speedFactor * (1.0f - stepProgress));
 
     float footSpread = (playerSpeed < 50.f) ? 12.f : 22.f;
     float sideOffset = owner->usingRightFoot() ? footSpread : -footSpread;
 
-    sf::Vector2f desiredPos = playerPos + (forward * dynamicForwardPush) + (lateral * sideOffset) + stepError;
+    // ANCHOR TO THE FEET!
+    sf::Vector2f desiredPos = feetPos + (forward * dynamicForwardPush) + (lateral * sideOffset) + stepError;
 
     // ==========================================
-    // --- 5. FIXED SPRING PHYSICS ---
-    // ==========================================
+        // --- 5. SMOOTH "TAP AND ROLL" PHYSICS ---
+        // ==========================================
     sf::Vector2f toTarget = desiredPos - shape.getPosition();
     dist = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y);
 
-    float controlMultiplier = 0.6f + (bcNorm * 1.4f);
-    float springStrength = 12.0f * controlMultiplier; 
+    float controlMultiplier = 0.8f + (bcNorm * 1.2f);
 
-    // The target velocity is simply the player's speed PLUS the spring trying to close the gap
+    // 1. THE GOLDILOCKS SPRING
+    // Strong enough to follow the player, soft enough to absorb the "teleporting" footstep target
+    float springStrength = 18.0f * controlMultiplier;
+
+    // The ball matches the player's base speed, plus the pull of the spring
     sf::Vector2f targetVel = playerVel + (toTarget * springStrength);
-    
-    // Smoothly interpolate the ball's current velocity toward the target velocity
-    float damping = 0.85f; // Higher damping = smoother dribbling
+
+    // 2. THE SMOOTHING DAMPING
+    // 0.75f gives us enough "slide" to make the ball roll smoothly between touches,
+    // but prevents it from feeling laggy or getting left behind.
+    float damping = 0.75f;
+
     velocity = (velocity * damping) + (targetVel * (1.0f - damping));
 
     // --- 6. APPLY MOVEMENT & AIR PHYSICS ---
@@ -177,7 +194,7 @@ void Ball::updateFreePhysics(float dt)
 
         // Base strength is 2.0f, and only increases to a maximum of 3.5f at peak height.
         // (Your old formula was reaching 110.0f+ !)
-        float spinStrength = 2.0f + (heightFactor * 1.5f);
+        float spinStrength = 15.0f + (heightFactor * 2.f);
 
         velocity += perpendicular * spin * spinStrength * dt;
 
@@ -195,7 +212,7 @@ void Ball::updateFreePhysics(float dt)
 
         // Cap the lift at 25% of gravity (Max 245px/s lift)
         // This ensures the ball ALWAYS feels 75% of Earth's gravity, dropping naturally!
-        liftForce = std::min(liftForce, gravity * 0.25f);
+        liftForce = std::min(liftForce, gravity * 0.40f);
 
         vz += liftForce * dt;
     }
@@ -316,11 +333,10 @@ void Ball::updateFreePhysics(float dt)
     }
 
     // --- VISUAL SCALING ---
-    float t = std::min(z / 300.f, 1.f);
+    float t = std::min(z / 600.f, 1.f);
     float scale = minScale + (maxScale - minScale) * t;
     shape.setScale({ scale, scale });
     shadow.setPosition(shape.getPosition());
-
     // THE SHADOW FIX: Shrink the shadow along the X-axis instead of Y
     shadow.setScale({ 1.f - (t * 0.5f), 1.f });
 }
@@ -334,7 +350,7 @@ void Ball::draw(sf::RenderWindow& window)
     // 2. Calculate the visual (elevated) position for the ball
     // We use a local variable so we don't mess up the ball's real position
     sf::Vector2f groundPos = shape.getPosition();
-    sf::Vector2f visualPos = { groundPos.x + z, groundPos.y  };
+    sf::Vector2f visualPos = { groundPos.x + (z / 3.f), groundPos.y  };
 
     // 3. Move the VISUALS only
     sprite.setPosition(visualPos);

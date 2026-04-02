@@ -90,89 +90,113 @@ struct Goal {
     bool isHomeGoal;            // Side of the pitch
 
     // --- 2. THE POSTS (Physics & Visuals) ---
-    // Using Circles for posts creates realistic "angled" bounces
     sf::CircleShape topPost;
     sf::CircleShape bottomPost;
-    float postRadius = 12.0f;   // Matches ball radius for satisfying "clangs"
-    float crossbarHeight = 244.f; // 2.44 meters
-    float barThickness = 24.f;    // To match your postRadius
-    // We'll add a visual rectangle for the crossbar in SFML
+    float postRadius = 12.0f;
+    float crossbarHeight = 244.f;
+    float barThickness = 24.f;
+
+    // NEW: We need uprights to connect the ground to the shifted crossbar!
     sf::RectangleShape visualCrossbar;
+    sf::RectangleShape topUpright;
+    sf::RectangleShape bottomUpright;
 
     // --- 3. THE NET ZONES (Collision Boxes) ---
-    // These boxes catch the ball. They should be thick (50px+) to prevent tunneling.
-    sf::FloatRect backNet;      // The long vertical bar behind the goal
-    sf::FloatRect topSideNet;   // The horizontal "roof/side" at the top
-    sf::FloatRect bottomSideNet; // The horizontal "roof/side" at the bottom
+    sf::FloatRect backNet;
+    sf::FloatRect topSideNet;
+    sf::FloatRect bottomSideNet;
 
     // --- 4. VISUAL MESH ---
-    // A collection of lines to represent the netting
     sf::VertexArray netMesh;
-    sf::Color netColor = sf::Color(255, 255, 255, 120); // Semi-transparent white
+    sf::Color netColor = sf::Color(255, 255, 255, 120);
 
     // --- 5. INITIALIZER ---
-    void initialize(sf::Vector2f pos, bool homeSide) 
+    void initialize(sf::Vector2f pos, bool homeSide)
     {
         isHomeGoal = homeSide;
         center = pos;
         float goalWidth = 732.0f;
         float netDepth = 225.0f;
-        float step = 40.f; // Mesh density
+        float step = 40.f;
 
-        // 1. Posts (Physical circles)
-        topPost.setRadius(postRadius);
-        topPost.setOrigin({ postRadius, postRadius });
-        topPost.setFillColor(sf::Color::White);
-        topPost.setPosition(sf::Vector2f{ pos.x, pos.y - (goalWidth / 2.f) });
-
-        bottomPost.setRadius(postRadius);
-        bottomPost.setOrigin({ postRadius, postRadius });
-        bottomPost.setFillColor(sf::Color::White);
-        bottomPost.setPosition(sf::Vector2f{ pos.x, pos.y + (goalWidth / 2.f) });
-
-        visualCrossbar.setSize({ barThickness, 732.f });
-        visualCrossbar.setOrigin({ barThickness / 2.f, 732.f / 2.f });
-        visualCrossbar.setFillColor(sf::Color::White);
-        visualCrossbar.setPosition({ pos.x, pos.y });
-
-        // 2. Net Physics (sf::FloatRect {position}, {size})
-        float netX = homeSide ? pos.x - netDepth : pos.x;
-        backNet = sf::FloatRect({ homeSide ? pos.x - netDepth : pos.x + netDepth, pos.y - (goalWidth / 2.f) }, { 10.f, goalWidth });
-        topSideNet = sf::FloatRect({ netX, pos.y - (goalWidth / 2.f) }, { netDepth, 10.f });
-        bottomSideNet = sf::FloatRect({ netX, pos.y + (goalWidth / 2.f) }, { netDepth, 10.f });
-
-        // 3. Visual Net Mesh
-        netMesh.setPrimitiveType(sf::PrimitiveType::Lines);
-        netMesh.clear();
+        // THE 3D MAGIC: Shift the top of the goal 120px in the +X direction
+        float overhangX = 180.f;
 
         float topY = pos.y - (goalWidth / 2.f);
         float bottomY = pos.y + (goalWidth / 2.f);
 
-        // Vertical Depth Lines (Connecting the posts to the back of the net)
-        for (float y = topY; y <= bottomY; y += step) {
-            netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x, y }, netColor });
-            netMesh.append(sf::Vertex{ sf::Vector2f{ homeSide ? pos.x - netDepth : pos.x + netDepth, y }, netColor });
-        }
+        // 1. Post Bases (Physical circles on the ground)
+        topPost.setRadius(postRadius);
+        topPost.setOrigin({ postRadius, postRadius });
+        topPost.setFillColor(sf::Color::White);
+        topPost.setPosition(sf::Vector2f{ pos.x, topY });
 
-        // Horizontal Depth Lines (The "Roof" and "Floor" lines)
-        for (float x = 0; x <= netDepth; x += step) {
-            float currentX = homeSide ? pos.x - x : pos.x + x;
-            netMesh.append(sf::Vertex{ sf::Vector2f{ currentX, topY }, netColor });
-            netMesh.append(sf::Vertex{ sf::Vector2f{ currentX, bottomY }, netColor });
-        }
+        bottomPost.setRadius(postRadius);
+        bottomPost.setOrigin({ postRadius, postRadius });
+        bottomPost.setFillColor(sf::Color::White);
+        bottomPost.setPosition(sf::Vector2f{ pos.x, bottomY });
 
-        // Back Wall Vertical Lines (The Mesh at the very back)
+        // 2. Uprights (Connecting the ground to the shifted crossbar)
+        topUpright.setSize({ overhangX, barThickness });
+        topUpright.setOrigin({ 0.f, barThickness / 2.f });
+        topUpright.setFillColor(sf::Color::White);
+        topUpright.setPosition({ pos.x, topY });
+
+        bottomUpright.setSize({ overhangX, barThickness });
+        bottomUpright.setOrigin({ 0.f, barThickness / 2.f });
+        bottomUpright.setFillColor(sf::Color::White);
+        bottomUpright.setPosition({ pos.x, bottomY });
+
+        // 3. Shifted Crossbar
+        visualCrossbar.setSize({ barThickness, goalWidth });
+        visualCrossbar.setOrigin({ barThickness / 2.f, goalWidth / 2.f });
+        visualCrossbar.setFillColor(sf::Color::White);
+        visualCrossbar.setPosition({ pos.x + overhangX, pos.y }); // Shifted!
+
+        // 4. Net Physics (Untouched, they stay flat on the grass!)
+        float netX = homeSide ? pos.x - netDepth : pos.x;
         float backX = homeSide ? pos.x - netDepth : pos.x + netDepth;
+        backNet = sf::FloatRect({ backX, topY }, { 10.f, goalWidth });
+        topSideNet = sf::FloatRect({ netX, topY }, { netDepth, 10.f });
+        bottomSideNet = sf::FloatRect({ netX, bottomY }, { netDepth, 10.f });
+
+        // 5. 3D Visual Net Mesh
+        netMesh.setPrimitiveType(sf::PrimitiveType::Lines);
+        netMesh.clear();
+
+        // A. Sloped Back Net (From the overhang crossbar down to the back ground line)
         for (float y = topY; y <= bottomY; y += step) {
+            netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + overhangX, y }, netColor });
             netMesh.append(sf::Vertex{ sf::Vector2f{ backX, y }, netColor });
-            netMesh.append(sf::Vertex{ sf::Vector2f{ backX, y + step > bottomY ? bottomY : y + step }, netColor });
+        }
+
+        // B. Horizontal Net Lines (Following the slope)
+        int numHorizLines = std::abs(backX - (pos.x + overhangX)) / step;
+        for (int i = 0; i <= numHorizLines; ++i) {
+            float t = (float)i / numHorizLines;
+            float currX = (pos.x + overhangX) + t * (backX - (pos.x + overhangX));
+            netMesh.append(sf::Vertex{ sf::Vector2f{ currX, topY }, netColor });
+            netMesh.append(sf::Vertex{ sf::Vector2f{ currX, bottomY }, netColor });
+        }
+
+        // C. Side Netting (Fanning from the upright down to the back corner)
+        for (float x = 0; x <= overhangX; x += step) {
+            // Top Side Net
+            netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + x, topY }, netColor });
+            netMesh.append(sf::Vertex{ sf::Vector2f{ backX, topY }, netColor });
+            // Bottom Side Net
+            netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + x, bottomY }, netColor });
+            netMesh.append(sf::Vertex{ sf::Vector2f{ backX, bottomY }, netColor });
         }
     }
-    void draw(sf::RenderWindow& window) 
+
+    void draw(sf::RenderWindow& window)
     {
         window.draw(netMesh);
         window.draw(topPost);
         window.draw(bottomPost);
+        window.draw(topUpright);    // Draw the new uprights!
+        window.draw(bottomUpright);
         window.draw(visualCrossbar);
     }
 };

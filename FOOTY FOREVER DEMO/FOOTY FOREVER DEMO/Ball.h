@@ -36,6 +36,7 @@ public:
     bool isSetPiece() const { return m_isSetPiece; }
     void setSetPiece(bool state) { m_isSetPiece = state; }
 
+
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
     float friction = 800.f;
@@ -57,7 +58,7 @@ private:
     float spinFriction = 0.f;
 
     float minScale = 1.f;
-    float maxScale = 1.4f;
+    float maxScale = 1.6f;
 
 
     float gravity = 980.f;   // pixels per second

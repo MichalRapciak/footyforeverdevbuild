@@ -34,14 +34,14 @@ public:
     int getHalf() const { return m_half; }
 
 private:
-    MatchState m_matchState = MatchState::InPlay;
+    MatchState m_matchState = MatchState::KickOff;
     Team m_awardedTo;
     sf::Vector2f m_restartPos;
     Player* m_setPieceTaker;
     Player* m_fouledPlayer;
 
     float m_matchMinute = 0.0f;
-    float m_timeScale = 10.0f; // 1 real second = 20 in-game seconds (adjust to your liking!)
+    float m_timeScale = 20.0f; // 1 real second = 20 in-game seconds (adjust to your liking!)
     int m_half = 1;
 
     float m_whistleTimer = 0.0f;

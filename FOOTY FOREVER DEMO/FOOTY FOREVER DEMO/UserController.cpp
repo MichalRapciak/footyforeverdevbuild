@@ -185,13 +185,20 @@ void UserController::update(float dt, GamePlay& game)
 			}
 		}
 		else {
-			// THE USER IS *NOT* THE TAKER
-			// Let the user move freely to get into the box for a header or form a wall!
-			m_speedVector = m_userPlayer.getVelocity();
-			playerMovement(dt, game);
+			if (state == MatchState::KickOff && !game.m_referee.isWhistleBlown()) {
+				// Teleport the user safely into their own half, just outside the center circle
+				bool isHome = (m_userPlayer.getTeam() == Team::Home);
+				float startX = game.m_pitch.totalWidth / 2.f + (isHome ? -400.f : 400.f);
+				float startY = game.m_pitch.totalHeight / 2.f + 200.f; // Offset from dead center
 
-			// NOTE: We deliberately do NOT call playerShooting here so you can't 
-			// accidentally swing your leg while waiting for the NPC to cross it.
+				m_userPlayer.setPosition({ startX, startY });
+				m_userPlayer.setVelocity({ 0.f, 0.f });
+			}
+			else {
+				// Normal free movement for corners, free kicks, and throw-ins
+				m_speedVector = m_userPlayer.getVelocity();
+				playerMovement(dt, game);
+			}
 		}
 
 		return; // Skip the open play block
@@ -230,25 +237,13 @@ void UserController::draw(sf::RenderWindow& window)
 /// <param name="t_mouseWorld"></param>
 void UserController::mouseAiming(sf::Vector2f t_mouseWorld, sf::RenderWindow& t_window, sf::View t_view)
 {
-	// 1. Get where the player is ON THE MONITOR (Screen Pixels)
-	// We use mapCoordsToPixel to account for the camera's current offset
-	sf::Vector2i playerPixelPos = t_window.mapCoordsToPixel(m_userPlayer.getPosition(), t_view);
+	// The view is rotated 90 degrees, so mapPixelToCoords automatically handles
+	// translating the screen's X/Y mouse position into the correct rotated World X/Y!
+	sf::Vector2f mouseWorldPos = t_window.mapPixelToCoords(sf::Mouse::getPosition(t_window), t_view);
 
-	// 2. Get the mouse position relative to the window
-	sf::Vector2i mousePixelPos = sf::Mouse::getPosition(t_window);
-
-	// 3. Vector from Player Pixel to Mouse Pixel
-	sf::Vector2f aimDir = sf::Vector2f(mousePixelPos.x - playerPixelPos.x,
-		mousePixelPos.y - playerPixelPos.y);
-
-	// 4. Calculate and set rotation
-	if (std::abs(aimDir.x) > 0.5f || std::abs(aimDir.y) > 0.5f) {
-		float angleRad = std::atan2(aimDir.y, aimDir.x);
-		float angleDeg = angleRad * 180.f / 3.14159265f;
-		// Use m_player.setRotation if you have a wrapper, or the sprite directly
-		m_userPlayer.getSprite().setRotation(sf::degrees(angleDeg));
-		m_userPlayer.updateAim(mousePixelPos, angleDeg);
-	}
+	// Pass the actual world position to the player
+	// (Notice we don't need to calculate angles here anymore)
+	m_userPlayer.updateAim(mouseWorldPos);
 }
 
 /// <summary>

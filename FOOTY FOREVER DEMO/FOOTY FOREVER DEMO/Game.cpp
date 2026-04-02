@@ -1,4 +1,6 @@
 #include "Game.h"
+#include "imgui-1.92.6/imgui.h"
+#include "imgui-1.92.6/imgui-sfml.h"
 #include <iostream>
 
 GameState Game::currentState = GameState::License;
@@ -24,6 +26,7 @@ Game::Game() :
 /// </summary>
 Game::~Game()
 {
+    ImGui::SFML::Shutdown();
 }
 
 /// <summary>
@@ -85,6 +88,9 @@ void Game::processEvents()
 		case GameState::GamePlay:
 			m_gamingScreen->processEvents(*event, m_window);
 			break;
+		case GameState::Editor:
+			ImGui::SFML::ProcessEvent(m_window, *event);
+			m_editorScreen.processEvents(*event);
 		default:
 			break;
 		}
@@ -114,6 +120,7 @@ void Game::processKeys(sf::Event t_event)
 /// <param name="t_deltaTime">time interval per frame</param>
 void Game::update(sf::Time t_deltaTime)
 {
+
 	if (m_exitGame)
 	{
 		m_window.close();
@@ -143,15 +150,16 @@ void Game::update(sf::Time t_deltaTime)
 			m_gamingScreen = std::make_unique<GamePlay>();
 			m_gamingScreen->initialise(m_font);
 		}
-		m_gamingScreen.reset();
-		m_gamingScreen = std::make_unique<GamePlay>();
-		m_gamingScreen->initialise(m_font);
 		break;
 	case GameState::Help:
 		m_helpScreen.update(t_deltaTime);
 		break;
 	case GameState::GamePlay:
 		m_gamingScreen->update(t_deltaTime, m_window);
+		break;
+	case GameState::Editor:
+		ImGui::SFML::Update(m_window, t_deltaTime);
+		m_editorScreen.update(t_deltaTime, m_window);
 		break;
 	default:
 		break;
@@ -183,9 +191,14 @@ void Game::render()
 	case GameState::GamePlay:
 		m_gamingScreen->render(m_window);
 		break;
+	case GameState::Editor:
+		m_editorScreen.render(m_window);
+		ImGui::SFML::Render(m_window);
+		break;
 	default:
 		break;
 	}
+
 	m_window.display();
 }
 
@@ -194,10 +207,14 @@ void Game::render()
 /// </summary>
 void Game::initialiseStates()
 {
+    ImGui::SFML::Init(m_window);
+	m_database.loadPlayersFromFile("ASSETS/DATA/players.json");
+	m_database.loadTeamsFromFile("ASSETS/DATA/teams.json");
 	if (!m_font.openFromFile("ASSETS\\FONTS\\ariblk.ttf"))
 	{
 		std::cout << "problem loading arial black font" << std::endl;
 	}
+	m_editorScreen.init(m_font, m_database);
 	m_licenseScreen.initialise(m_font);
 	m_splashScreen.initialise(m_font);
 	m_mainMenuScreen.initialise(m_font);

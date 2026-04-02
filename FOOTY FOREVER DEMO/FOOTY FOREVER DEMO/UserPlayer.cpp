@@ -3,18 +3,10 @@
 /// <summary>
 /// Setting up player sprite when the player function is created.
 /// </summary>
-UserPlayer::UserPlayer() : m_playerSprite(m_playerTexture)
+UserPlayer::UserPlayer(const sf::Texture& texture) : Player(texture)
 {
-	if (!m_playerTexture.loadFromFile("Assets/Player/playerplaceholder.png", false, sf::IntRect({ 0,0 }, { 256, 256 }))) // if texture doesnt load, output text
-	{
-		std::cout << "Texture not loaded." << std::endl;
-	}
 	m_position = { 4000,3500 };
-	m_playerSprite.setTexture(m_playerTexture);
-	m_playerSprite.setTextureRect(sf::IntRect({ 0,0 }, { 256,256 }));
-	m_playerSprite.setOrigin({ 128,128 });
-	m_playerSprite.setScale({ 0.40f,0.40f });
-	m_playerSprite.setPosition(m_position);
+	m_sprite.setPosition(m_position);
 	m_stats = { 80.0f, 80.0f, 80.0f, 88.0f, 80.0f, 80.0f, 80.0f, 88.0f, 88.0f, 88.0f, 80.0f, 80.0f, 80.f, 80.f, 80.f, 80.f, 80.f, 80.f, 80.0f, 80.0f, 80.0f }; 	// FINISHING, CURL, BALL CONTROL, BALANCING, SHORT PASSING, LONG PASSING, THROUGH PASSING, TOP SPEED, ACCELERATION, AGILITY, BODY STRENGTH, KICK POWER, AWARENESS, AGGRESSION, BLOCKING, GK COVER, GK REACT, GK CATCH, GK THROW< GK AWARE, GK BLOCK
 	m_team = Team::Home;
 }
@@ -27,18 +19,33 @@ UserPlayer::~UserPlayer()
 /// Function used to update player position
 /// </summary>
 /// <param name="dt"></param>
-void UserPlayer::update(float dt)
+void UserPlayer::update(float dt, AnimationServer& animServer)
 {
-	Player::update(dt);
-    if (m_team != Team::Home)
+    // 1. Tick the base physics and tackle state machine
+    Player::update(dt, animServer);
+    
+    float speed = std::sqrt((m_velocity.x * m_velocity.x) + (m_velocity.y * m_velocity.y));
+
+    // 2. ONLY play running animations if we are standing or running
+    if (m_currentState == PlayerState::Normal)
     {
-        m_playerSprite.setColor(sf::Color::Blue);
+        if (speed > 10.f) 
+        {
+            // Notice we deleted the visualVector math! 
+            // m_currentDirection is already perfectly set by your mouse in updateAim().
+            
+            // Play the animation and MAINTAIN the frame sync!
+            const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+            m_animator.playAnimation(&runAnim, true); 
+        }
+        else 
+        {
+            // When stopping, we snap back to the standing pose!
+            const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+            m_animator.playAnimation(&runAnim, false); 
+            m_animator.stopAndReset(); 
+        }
     }
-    if (m_positionRole == PositionRole::Goalkeeper)
-    {
-        m_playerSprite.setColor(sf::Color::Green);
-    }
-	m_playerSprite.setPosition(m_position);
 }
 
 /// <summary>
@@ -46,11 +53,34 @@ void UserPlayer::update(float dt)
 /// </summary>
 /// <param name="t_mousePos"></param>
 /// <param name="facingDir"></param>
-void UserPlayer::updateAim(sf::Vector2i t_mousePos, float facingDir)
+// Change the signature in UserPlayer.h to: void updateAim(sf::Vector2f t_mouseWorldPos);
+
+void UserPlayer::updateAim(sf::Vector2f t_mouseWorldPos)
 {
-	m_playerAim.x = t_mousePos.x;
-	m_playerAim.y = t_mousePos.y;
-	m_playerSprite.setRotation(sf::degrees(facingDir + 90));
+    // 1. Store the literal world coordinates for gameplay math (passing, shooting)
+    m_playerAim = t_mouseWorldPos;
+
+    // 2. Get the vector pointing from the player to the mouse in world space
+    sf::Vector2f rawAimVector = m_playerAim - m_position;
+
+    // 3. APPLY 90-DEGREE MATH ROTATION FOR THE ANIMATION
+    // Since your camera is rotated 90 degrees, we must rotate the visual 
+    // calculation by -90 degrees so "up on screen" maps to "Direction::Up"
+
+    // Formula for rotating a 2D vector by an angle (theta):
+    // x' = x * cos(theta) - y * sin(theta)
+    // y' = x * sin(theta) + y * cos(theta)
+
+    // For -90 degrees (or -PI/2 radians): cos(-90) = 0, sin(-90) = -1
+    // Therefore: x' = -y * (-1) = y
+    //            y' = x * (-1) = -x
+
+    sf::Vector2f visualVector;
+    visualVector.x = rawAimVector.y;
+    visualVector.y = -rawAimVector.x;
+
+    // 4. Ask for the correct sprite direction based on the rotated visual vector
+    m_currentDirection = get8WayDirection(visualVector);
 }
 
 /// <summary>

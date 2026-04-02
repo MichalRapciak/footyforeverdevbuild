@@ -10,6 +10,7 @@
 #include "Pitch.h"
 #include "MatchReferee.h"
 #include <memory>
+#include "AnimationServer.h"
 
 class GamePlay
 {
@@ -58,6 +59,7 @@ class GamePlay
 		sf::Text m_pauseText;
 		sf::Text m_gameOverText;
 		sf::Text m_gameWonText;
+		AnimationServer m_animServer;
 
 	private:
 		bool m_pause = false;
