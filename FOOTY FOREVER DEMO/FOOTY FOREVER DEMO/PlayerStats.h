@@ -146,9 +146,9 @@ struct PlayerStats
 			s.curl = 55.0f; s.deadBall = 15.0f; // TECHNIQUE
 			s.shortPassing = 56.0f; s.longPassing = 68.0f; // PASSING
 			s.topSpeed = 34.0f; s.acceleration = 46.0f; s.agility = 76.0f; // SPEED
-			s.bodyStrength = 78.0f; s.kickPower = 84.0f; s.jumpingStrength = 80.0f; // PHYSICAL
+			s.bodyStrength = 78.0f; s.kickPower = 84.0f; s.jumpingStrength = 88.0f; // PHYSICAL
 			s.awareness = 37.0f; s.aggression = 23.0f; s.blocking = 28.0f; // MENTAL
-			s.gkCoverage = 76.0f; s.gkReactions = 66.0f; s.gkCatching = 67.0f; s.gkThrowing = 56.0f; s.gkAwareness = 75.0f; s.gkBlocking = 57.0f; // GOALKEEPING
+			s.gkCoverage = 86.0f; s.gkReactions = 86.0f; s.gkCatching = 87.0f; s.gkThrowing = 76.0f; s.gkAwareness = 85.0f; s.gkBlocking = 87.0f; // GOALKEEPING
 			break;
 
 		case PositionRole::LCenterBack:

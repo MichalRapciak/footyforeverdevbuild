@@ -207,6 +207,7 @@ void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
                     ImGui::SliderFloat("Agility", &p->stats.agility, 1.f, 99.f, "%.0f");
                     ImGui::SliderFloat("Body Strength", &p->stats.bodyStrength, 1.f, 99.f, "%.0f");
                     ImGui::SliderFloat("Jumping", &p->stats.jumpingStrength, 1.f, 99.f, "%.0f");
+                    ImGui::SliderFloat("Balancing", &p->stats.balancing, 1.f, 99.f, "%.0f");
 
                     ImGui::Separator();
                     ImGui::Text("Technical");

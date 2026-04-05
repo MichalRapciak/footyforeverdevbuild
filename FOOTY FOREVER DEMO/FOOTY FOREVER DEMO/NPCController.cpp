@@ -1549,6 +1549,8 @@ bool NPCController::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f 
         // ==========================================
     if (npc.getKickCooldown() > 0.0f) return false;
 
+    if (ball.hasOwner()) return false;
+
     // ==========================================
     // 2. THE JUGGLING EXPLOIT BAN
     // ==========================================

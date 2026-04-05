@@ -277,13 +277,15 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
         return;
     }
 
+    ball.release();
+    ball.setSetPiece(true);
     // 1. Reset the ball
     ball.setPosition(m_restartPos);
     ball.setVelocity({ 0.f, 0.f });
     ball.z = 0.f;
     ball.vz = 0.f;
 
-    ball.setSetPiece(true);
+
 
     // 2. Find the Taker
     float closestDist = 99999.f;

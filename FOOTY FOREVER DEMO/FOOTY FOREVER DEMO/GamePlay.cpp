@@ -243,8 +243,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	m_homeGoal.draw(t_window);
 	m_awayGoal.draw(t_window);
 	m_userController->draw(t_window);
-	powerBarDraw(t_window);
 	drawUI(t_window);
+	powerBarDraw(t_window);
 	if (m_pause)
 	{
 		t_window.setView(t_window.getDefaultView());
@@ -1069,14 +1069,14 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	// Draw this BEFORE changing the view so it stays attached to the player in the world!
 
 	// A CircleShape with 3 points is a triangle!
-	sf::CircleShape indicator(25.f, 3);
-	indicator.setFillColor(sf::Color(255, 255, 0, 180)); // Semi-transparent yellow
-	indicator.setOrigin({ 25.f, 25.f });
-	indicator.setRotation(sf::degrees(180.f)); // Rotate 180 degrees to point down
+	sf::CircleShape indicator(20.f, 3);
+	indicator.setFillColor(sf::Color(255, 255, 0, 130)); // Semi-transparent yellow
+	indicator.setOrigin({ 20.f, 20.f });
+	indicator.setRotation(sf::degrees(270.f)); // Rotate 180 degrees to point down
 
 	// Position it hovering just above the player's head
 	sf::Vector2f playerPos = m_userPlayer->getPosition();
-	indicator.setPosition({ playerPos.x, playerPos.y - 120.f });
+	indicator.setPosition({ playerPos.x + 100.f, playerPos.y });
 
 	t_window.draw(indicator);
 
@@ -1130,9 +1130,15 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 
 	// --- C. PLAYER & BALL DOTS ---
 	auto drawMinimapDot = [&](sf::Vector2f worldPos, sf::Color color, float radius = 3.f) {
-		float normX = worldPos.x / (m_pitch.totalWidth);
-		float normY = worldPos.y / (m_pitch.totalHeight);
+		// 1. Calculate the actual dimensions inside the chalk lines
+		float playWidth = m_pitch.totalWidth - (2.f * m_pitch.margin);
+		float playHeight = m_pitch.totalHeight - (2.f * m_pitch.margin);
 
+		// 2. Subtract the margin so the touchlines map perfectly to 0.0 and 1.0
+		float normX = (worldPos.x - m_pitch.margin) / playWidth;
+		float normY = (worldPos.y - m_pitch.margin) / playHeight;
+
+		// 3. Clamp keeps players on the edge of the minimap if they step out of bounds
 		normX = std::clamp(normX, 0.0f, 1.0f);
 		normY = std::clamp(normY, 0.0f, 1.0f);
 

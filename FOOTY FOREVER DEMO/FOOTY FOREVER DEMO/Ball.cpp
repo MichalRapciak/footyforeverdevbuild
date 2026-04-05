@@ -35,6 +35,12 @@ void Ball::update(float dt)
         if (m_isSetPiece) {
             // DEAD BALL: The ball is glued to the ground, not the foot.
             velocity = { 0.f, 0.f };
+            shadow.setPosition(shape.getPosition());
+
+            // Reset the scales to their ground-level defaults 
+            // (Replace 'minScale' with your actual base scale if needed, usually 1.0f)
+            shape.setScale({ 1.0f, 1.0f });
+            shadow.setScale({ 1.0f, 1.0f });
         }
         else {
             updateDribbling(dt);
@@ -370,11 +376,18 @@ void Ball::possess(Player* player)
 {
     if (player->isTackling() == false && z <= 40 && player->getState() != PlayerState::Stunned)
     {
+        if (owner != nullptr && owner != player) {
+            owner->setBallPossession(false);
+            lastOwner = owner;
+        }
         owner = player;
         owner->setBallPossession(true);
         owner->changeFoot();
         footTimer = 0.f;
         velocity = { 0,0 };
+        // FIX: Kill vertical momentum so it doesn't float up while dribbling!
+        vz = 0.f;
+        z = 0.f;
     }
 }
 
@@ -410,6 +423,7 @@ void Ball::shoot(const sf::Vector2f& direction, float power, float kickSpin, flo
 
     // 3. FIX: Do NOT set z = 0 here! That ruins aerial shots.
     // Instead, just give it a microscopic bump so it registers as "in the air" and escapes grass friction.
+    z = 1.0f; // <--- You wrote the comment but forgot to write this line!
 }
 
 bool Ball::hasOwner() const

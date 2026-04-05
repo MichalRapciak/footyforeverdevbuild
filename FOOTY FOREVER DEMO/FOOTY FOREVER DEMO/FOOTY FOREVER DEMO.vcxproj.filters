@@ -19,6 +19,12 @@
     <Filter Include="Header Files\Menus">
       <UniqueIdentifier>{bce58b24-1cfe-4115-a89a-b98397851676}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\Tactical Info">
+      <UniqueIdentifier>{0fd88e66-c6a8-4d3c-86a3-df4b23416ffe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Menus">
+      <UniqueIdentifier>{94016784-511e-44c7-a445-c0bdaa50c156}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -28,18 +34,6 @@
       <Filter>Resource Files</Filter>
     </ClCompile>
     <ClCompile Include="GamePlay.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Help.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="LicenseScreen.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MainMenu.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="SplashScreen.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
     <ClCompile Include="UserPlayer.cpp">
@@ -69,9 +63,6 @@
     <ClCompile Include="GameDatabase.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
-    <ClCompile Include="EditorScreen.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
     <ClCompile Include="imgui-1.92.6\imgui.cpp">
       <Filter>Source Files\IMGUI</Filter>
     </ClCompile>
@@ -92,6 +83,21 @@
     </ClCompile>
     <ClCompile Include="Animator.cpp">
       <Filter>Resource Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Help.cpp">
+      <Filter>Resource Files\Menus</Filter>
+    </ClCompile>
+    <ClCompile Include="EditorScreen.cpp">
+      <Filter>Resource Files\Menus</Filter>
+    </ClCompile>
+    <ClCompile Include="MainMenu.cpp">
+      <Filter>Resource Files\Menus</Filter>
+    </ClCompile>
+    <ClCompile Include="LicenseScreen.cpp">
+      <Filter>Resource Files\Menus</Filter>
+    </ClCompile>
+    <ClCompile Include="SplashScreen.cpp">
+      <Filter>Resource Files\Menus</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -131,25 +137,10 @@
     <ClInclude Include="Player.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Pitch.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="PositionRole.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Team.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TacticalZone.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="MatchReferee.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MatchState.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MatchContext.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GameDatabase.h">
@@ -205,6 +196,21 @@
     </ClInclude>
     <ClInclude Include="Animator.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TacticalZone.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="PositionRole.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="MatchState.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="MatchContext.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="Pitch.h">
+      <Filter>Header Files\Tactical Info</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,29 @@
 {
+    "TEAM_101": {
+        "badge_id": "Badge_Default",
+        "captain_id": "",
+        "default_formation": "4-4-2",
+        "full_name": "Monasterevin AFC",
+        "kits": {
+            "shirt": {
+                "design_layers": [],
+                "primary_color": "#184C0D"
+            },
+            "shorts": {
+                "design_layers": [],
+                "primary_color": "#0E4514"
+            },
+            "socks": {
+                "design_layers": [],
+                "primary_color": "#19470D"
+            }
+        },
+        "manager_name": "Mark Whelan",
+        "roster": [],
+        "short_name": "MVN",
+        "stadium_name": "Toughers Road",
+        "ui_color": "#125121"
+    },
     "TEAM_LIV": {
         "badge_id": "Badge_LIV",
         "captain_id": "PLY_1004",
@@ -53,7 +78,13 @@
             "PLY_1002",
             "PLY_1003",
             "PLY_1004",
-            "PLY_1000"
+            "PLY_1000",
+            "PLY_1005",
+            "PLY_1006",
+            "PLY_1007",
+            "PLY_1008",
+            "PLY_1009",
+            "PLY_1010"
         ],
         "short_name": "LIV",
         "stadium_name": "Anfield",
