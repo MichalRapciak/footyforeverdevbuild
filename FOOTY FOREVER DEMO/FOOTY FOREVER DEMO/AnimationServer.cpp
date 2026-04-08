@@ -8,12 +8,12 @@ void AnimationServer::init(const std::string& texturePath) {
     if (!m_playerTexture.loadFromFile(texturePath)) {
         std::cerr << "Failed to load run sprite sheet: " << texturePath << "\n";
     }
-    if (!m_tackleTexture.loadFromFile("ASSETS/PLAYER/player_tackle.png")) {
+    if (!m_tackleTexture.loadFromFile("ASSETS/PLAYER/player_tackle_ing.png")) {
         std::cerr << "Failed to load tackle sprite sheet: ASSETS/PLAYER/player_tackle.png\n";
     }
 
-    const int frameW = 1000;
-    const int frameH = 1000;
+    const int frameW = 500;
+    const int frameH = 500;
 
     // ==========================================
     // 2. BUILD RUNNING ANIMATIONS
@@ -23,15 +23,15 @@ void AnimationServer::init(const std::string& texturePath) {
 
     // Standard Directions
     m_runningAnimations[Direction::Down] = sliceRow(0, numRunFrames, frameW, frameH, false, runLoopStart);
-    m_runningAnimations[Direction::Up] = sliceRow(1000, numRunFrames, frameW, frameH, false, runLoopStart);
-    m_runningAnimations[Direction::DownLeft] = sliceRow(2000, numRunFrames, frameW, frameH, false, runLoopStart);
-    m_runningAnimations[Direction::Left] = sliceRow(3000, numRunFrames, frameW, frameH, false, runLoopStart);
-    m_runningAnimations[Direction::UpLeft] = sliceRow(4000, numRunFrames, frameW, frameH, false, runLoopStart);
+    m_runningAnimations[Direction::Up] = sliceRow(500, numRunFrames, frameW, frameH, false, runLoopStart);
+    m_runningAnimations[Direction::DownLeft] = sliceRow(1000, numRunFrames, frameW, frameH, false, runLoopStart);
+    m_runningAnimations[Direction::Left] = sliceRow(1500, numRunFrames, frameW, frameH, false, runLoopStart);
+    m_runningAnimations[Direction::UpLeft] = sliceRow(2000, numRunFrames, frameW, frameH, false, runLoopStart);
 
     // Flipped Directions (Using negative width math)
-    m_runningAnimations[Direction::DownRight] = sliceRow(2000, numRunFrames, frameW, frameH, true, runLoopStart);
-    m_runningAnimations[Direction::Right] = sliceRow(3000, numRunFrames, frameW, frameH, true, runLoopStart);
-    m_runningAnimations[Direction::UpRight] = sliceRow(4000, numRunFrames, frameW, frameH, true, runLoopStart);
+    m_runningAnimations[Direction::DownRight] = sliceRow(1000, numRunFrames, frameW, frameH, true, runLoopStart);
+    m_runningAnimations[Direction::Right] = sliceRow(1500, numRunFrames, frameW, frameH, true, runLoopStart);
+    m_runningAnimations[Direction::UpRight] = sliceRow(2000, numRunFrames, frameW, frameH, true, runLoopStart);
 
 
     // ==========================================
@@ -56,41 +56,41 @@ void AnimationServer::init(const std::string& texturePath) {
     m_tackleAnimations[Direction::Down].push_back(sliceTackleSeq(0, 8, false)); // Seq C
 
     // Up (Y = 1000)
-    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(1000, 0, false));
-    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(1000, 4, false));
-    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(1000, 8, false));
+    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(500, 0, false));
+    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(500, 4, false));
+    m_tackleAnimations[Direction::Up].push_back(sliceTackleSeq(500, 8, false));
 
     // DownLeft (Y = 2000)
-    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(2000, 0, false));
-    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(2000, 4, false));
-    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(2000, 8, false));
+    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(1000, 0, false));
+    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(1000, 4, false));
+    m_tackleAnimations[Direction::DownLeft].push_back(sliceTackleSeq(1000, 8, false));
 
     // Left (Y = 3000)
-    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(3000, 0, false));
-    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(3000, 4, false));
-    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(3000, 8, false));
+    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(1500, 0, false));
+    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(1500, 4, false));
+    m_tackleAnimations[Direction::Left].push_back(sliceTackleSeq(1500, 8, false));
 
     // UpLeft (Y = 4000)
-    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(4000, 0, false));
-    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(4000, 4, false));
-    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(4000, 8, false));
+    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(2000, 0, false));
+    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(2000, 4, false));
+    m_tackleAnimations[Direction::UpLeft].push_back(sliceTackleSeq(2000, 8, false));
 
 
     // Flipped Directions
     // DownRight (Flipped DownLeft, Y = 2000)
-    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(2000, 0, true));
-    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(2000, 4, true));
-    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(2000, 8, true));
+    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(1000, 0, true));
+    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(1000, 4, true));
+    m_tackleAnimations[Direction::DownRight].push_back(sliceTackleSeq(1000, 8, true));
 
     // Right (Flipped Left, Y = 3000)
-    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(3000, 0, true));
-    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(3000, 4, true));
-    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(3000, 8, true));
+    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(1500, 0, true));
+    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(1500, 4, true));
+    m_tackleAnimations[Direction::Right].push_back(sliceTackleSeq(1500, 8, true));
 
     // UpRight (Flipped UpLeft, Y = 4000)
-    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(4000, 0, true));
-    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(4000, 4, true));
-    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(4000, 8, true));
+    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(2000, 0, true));
+    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(2000, 4, true));
+    m_tackleAnimations[Direction::UpRight].push_back(sliceTackleSeq(2000, 8, true));
 }
 
 Animation AnimationServer::sliceRow(int startY, int numFrames, int frameW, int frameH, bool flipX, int loopStart) {

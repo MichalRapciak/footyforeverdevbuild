@@ -26,15 +26,17 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     // ==========================================
     if (ctx.state == MatchState::HalfTime || ctx.state == MatchState::FullTime || ctx.state == MatchState::GoalScored)
     {
-        // Let the NPC naturally decelerate or walk slowly to their tactical spots.
-        // We don't 'return' here so they can still execute their off-ball positioning, 
-        // but ctx.ballInfluence is 0.0f and maxSpeed is capped in MatchReferee.
+        // --- STAMINA HOOK: Catching breath ---
+        npc.updateStamina(dt, false);
     }
     // ==========================================
     // 4. DEAD BALL STATE HANDLING (Set Pieces)
     // ==========================================
     else if (ctx.state != MatchState::InPlay)
     {
+        // --- STAMINA HOOK: Catching breath ---
+        npc.updateStamina(dt, false);
+
         if (isTaker) {
             // 1. KEEP THEM FROZEN ON THE SPOT
             npc.setVelocity({ 0.f, 0.f });
@@ -56,7 +58,6 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                         executePass(npc, ball, bestTarget, opposition);
                     }
                     else {
-                        // Safe tap backward if no one is open
                         float dirX = (npc.getTeam() == Team::Home) ? -1.f : 1.f;
                         ball.shoot({ dirX, 0.f }, 30.f, 0.f, 0.f, 0.f);
                         npc.resetKickCooldown();
@@ -74,12 +75,10 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                     sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
                     float distToGoal = dist(npc.getPosition(), goalPos);
 
-                    // A. Calculate the player's Free Kick Threat 
                     float fkSkill = (npc.getDeadBall() * 0.5f) + (npc.getFinishing() * 0.3f) + (npc.getCurl() * 0.2f);
                     float requiredSkill = 65.f + ((distToGoal - 2000.f) / 1500.f) * 20.f;
 
                     if (distToGoal < 3800.f && fkSkill >= requiredSkill) {
-                        // DIRECT SHOT (Over the wall!)
                         float targetY = (npc.getPosition().y < 3500.f) ? 3250.f : 3750.f;
                         sf::Vector2f cornerAim = normalize(sf::Vector2f(goalPos.x, targetY) - npc.getPosition());
 
@@ -92,7 +91,6 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                         npc.resetKickCooldown();
                     }
                     else {
-                        // INDIRECT PASS
                         Player* bestTarget = findBestPassOption(npc, team, opposition, user);
                         if (bestTarget) {
                             executePass(npc, ball, bestTarget, opposition);
@@ -121,12 +119,9 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                 }
             }
 
-            // Aim at the center of the pitch while waiting
             npc.setRotationToward(sf::Vector2f(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f));
             return;
         }
-
-        // Non-takers skip straight to off-ball movement in the block below.
     }
 
     // ==========================================
@@ -145,16 +140,18 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         float relativeHeight = ball.z - npc.z;
         bool isVolley = (relativeHeight >= 40.f && relativeHeight < 140.f);
 
-        // META NERF: Banning Midfield Volleys
         bool allowStrike = true;
         if (isVolley && distToOppGoal > 2500.f && distToMyGoal > 2500.f) {
             allowStrike = false;
         }
 
         if (allowStrike) {
-            // Set isShot = true ONLY if they are near the opponent's goal!
             bool isShooting = (distToOppGoal < 2500.f);
-            if (tryNPCAerialStrike(npc, ball, normalize(oppGoalPos - npc.getPosition()), isShooting)) return;
+            if (tryNPCAerialStrike(npc, ball, normalize(oppGoalPos - npc.getPosition()), isShooting)) {
+                // --- STAMINA HOOK: Aerial Strike ---
+                npc.deductStaminaAction(1.5f);
+                return;
+            }
         }
     }
 
@@ -190,7 +187,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                 npc.setPosition(targetPos);
                 npc.setVelocity({ 0.f, 0.f });
                 npc.setRotationToward(ball.getPosition());
-                return; // Skip the rest of the physics!
+                return;
             }
 
             sf::Vector2f toTarget = targetPos - npcPos;
@@ -198,13 +195,39 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
             sf::Vector2f separation = calculateSeparation(npc, team, opposition, ballPos);
             finalDirection = normalize(normalize(toTarget) + (separation * 0.8f));
 
-            float awarenessReach = 200.0f + ((npc.getAwareness() / 100.0f) * 800.0f);
-            isSprinting = (distToTarget > 600.f || (distToBall < awarenessReach && !ball.hasOwner()));
+            // ==========================================
+                        // --- NEW: URGENCY & STAMINA EVALUATION ---
+                        // ==========================================
+            AIUrgency urgency = AIUrgency::Recovery;
+
+            // Define emergency context
+            sf::Vector2f myGoalPos = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
+            float distToMyGoal = dist(npcPos, myGoalPos);
+
+            bool isEmergencyDefense = (distToMyGoal < 2500.f && ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam());
+            bool isChasingLooseBall = (!ball.hasOwner() && firstResponder == &npc);
+
+            // 1. Categorize the current situation
+            if (isEmergencyDefense || isChasingLooseBall) {
+                urgency = AIUrgency::Critical;
+            }
+            else if (ball.hasOwner() && ball.getOwner()->getTeam() == npc.getTeam()) {
+                urgency = AIUrgency::AttackingRun;
+            }
+            else if (ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam()) {
+                urgency = AIUrgency::Pressing;
+            }
+
+            // 2. Ask the stamina brain if we should sprint
+            isSprinting = evaluateSprintUrgency(npc, urgency, distToTarget, distToBall);
+            // ==========================================
 
             // Auto-Possess
             if (!ball.hasOwner() && distToBall < 70.f && ctx.canPossess) {
                 if (npc.getState() != PlayerState::Tackling &&
                     npc.getState() != PlayerState::Stunned &&
+                    npc.getState() != PlayerState::Stumbled && // <--- ADD THIS
+                    npc.getState() != PlayerState::FallOver && // <--- ADD THIS
                     ball.z < 40.f &&
                     npc.getKickCooldown() <= 0.0f) {
                     ball.possess(&npc);
@@ -220,21 +243,31 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                     float distToAttacker = dist(npcPos, attacker->getPosition());
                     float awareness = npc.getAwareness();
 
-                    // --- SMART FOUL AVOIDANCE ---
-                    // If we are significantly closer to the attacker's body than the ball itself (e.g. trailing from behind)
-                    // High awareness players will refuse to slide tackle!
+                    // SMART FOUL AVOIDANCE
                     bool trailingBehind = (distToAttacker < distToBall - 30.f);
-
                     bool safeToTackle = true;
+
+                    sf::Vector2f myGoalPos = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
+                    float distToMyGoal = dist(attacker->getPosition(), myGoalPos);
+
+                    bool isEmergency = (distToMyGoal < 2200.f);
+                    bool onYellow = (npc.getYellowCards() > 0);
+
                     if (trailingBehind) {
-                        // 99 Awareness = 1% chance to make a stupid tackle from behind.
-                        // 20 Awareness = 80% chance to hack them down.
                         if ((rand() % 100) < awareness) {
+                            safeToTackle = false;
+                        }
+
+                        if (onYellow && !isEmergency) {
+                            safeToTackle = false;
+                        }
+                    }
+                    else if (onYellow && !isEmergency) {
+                        if ((rand() % 100) < 60) {
                             safeToTackle = false;
                         }
                     }
 
-                    // We also only commit to the slide if we are within realistic striking distance (120px)
                     if (safeToTackle && distToBall < 120.f) {
                         sf::Vector2f futureBallPos = ballPos + (ball.getVelocity() * 0.24f);
                         npc.startTackle(normalize(futureBallPos - npcPos));
@@ -244,14 +277,12 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         }
 
         if (npc.getState() != PlayerState::Stunned && npc.getState() != PlayerState::Stumbled) {
-            // Check if the opponent keeper is holding it
             bool isKeeperBall = (ball.hasOwner() && ball.getOwner()->getPositionRole() == PositionRole::Goalkeeper);
 
             applyMovementPhysics(npc, finalDirection, isSprinting, dt, distToTarget, ball, firstResponder, pitch, isKeeperBall, ctx);
         }
     }
 
-    // Only force rotation toward the ball if we are standing still AND we don't own it
     if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f) {
         if (ball.getOwner() != &npc) {
             npc.setRotationToward(ball.getPosition());
@@ -263,6 +294,17 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     float dt, float distToTarget, Ball& ball, Player* firstResponder,
     const Pitch& pitch, bool keeperBall, TacticalContext ctx)
 {
+    // ==========================================
+    // --- STAMINA EXHAUSTION INTERCEPTOR ---
+    // ==========================================
+    if (npc.getCurrentStamina() < 2.0f) {
+        isSprinting = false; // Dead on their feet, cancel AI sprint!
+    }
+
+    // Update the gauge continuously based on their validated effort level
+    npc.updateStamina(dt, isSprinting);
+    // ==========================================
+
     sf::Vector2f vel = npc.getVelocity();
     float speed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
     float sprintSpeed = npc.getTopSpeed() * 10.f;
@@ -274,11 +316,18 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     // CONTEXT SPEED LIMIT
     maxSpeed = std::min(maxSpeed, ctx.maxSpeedLimit);
 
+    if (npc.getBallPossession())
+    {
+        maxSpeed *= 0.7f + ((npc.getBallControl() / 100) * 0.25f);
+    }
+
     float slowingRadius = 600.f;
     float stopRadius = 200.f;
     float distToBall = dist(npcPos, ball.getPosition());
 
-    bool isChasingBall = !keeperBall && ctx.ballInfluence > 0.0f && (&npc == firstResponder || (distToTarget < 450.f && distToBall < 300.f && npc.getState() != PlayerState::Tackling));
+    bool isChasingBall = !keeperBall && ctx.ballInfluence > 0.0f &&
+        (!ball.hasOwner() || ball.getOwner()->getTeam() != npc.getTeam()) &&
+        (&npc == firstResponder || (distToTarget < 450.f && distToBall < 300.f && npc.getState() != PlayerState::Tackling));
 
     if (isChasingBall) {
         maxSpeed = std::min(sprintSpeed, ctx.maxSpeedLimit);
@@ -311,13 +360,9 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
 
         maxSpeed *= jockeyClamp;
 
-        // ==========================================
-        // NEW: TACTICAL SLOWDOWN BYPASS 
-        // ==========================================
-        // If we are defending and the ball is in play, we NEVER want to slow down 
-        // as we approach our defensive mark. We want snappy, aggressive micro-adjustments!
+        // TACTICAL SLOWDOWN BYPASS 
         if (ctx.state == MatchState::InPlay && !ctx.canPossess) {
-            slowingRadius = 50.f; // Almost no slowdown radius!
+            slowingRadius = 50.f;
             stopRadius = 10.f;
         }
 
@@ -399,6 +444,10 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
         float sideAccel = npc.getAgility() * (finalMultiplier + 0.4f);
 
         if (isChasingBall) { fwdAccel *= 1.1f; sideAccel *= 1.1f; }
+        if (npc.getBallPossession())
+        {
+            fwdAccel *= 0.5f + ((npc.getBallControl() / 100) * 0.25f);
+        }
 
         sf::Vector2f accelVec = (forwardDir * inputForward * fwdAccel) + (rightDir * inputRight * sideAccel);
         float forwardSpeedAfterBrake = (vel.x * directionInput.x + vel.y * directionInput.y);
@@ -417,6 +466,51 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     speed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
     if (speed > maxSpeed && speed > 0.1f) vel = (vel / speed) * maxSpeed;
     npc.setVelocity(vel);
+}
+
+bool NPCController::evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall)
+{
+    float currentStamina = npc.getCurrentStamina();
+    float maxStamina = npc.getMaxStamina();
+    float stamRatio = currentStamina / maxStamina;
+
+    // Failsafe: If completely dead, never sprint
+    if (currentStamina < 2.0f) return false;
+
+    PositionRole role = npc.getPositionRole();
+    bool isAttacker = (role == PositionRole::Striker || role == PositionRole::LeftWing || role == PositionRole::RightWing);
+
+    switch (urgency)
+    {
+    case AIUrgency::Critical:
+        // Always sprint for passes, loose balls, or emergency defending! 
+        // This prevents the "looking bad" issue of jogging to a pass.
+        return true;
+
+    case AIUrgency::AttackingRun:
+        // Sprint to support the attack if we have decent stamina and need to cover ground
+        if (stamRatio > 0.3f && distToTarget > 400.f) return true;
+        return false;
+
+    case AIUrgency::Pressing:
+        // Attackers conserve energy while pressing. They give up sooner if tired.
+        if (isAttacker) {
+            // Only sprint to press if very healthy, AND the ball is close!
+            if (stamRatio > 0.6f && distToBall < 500.f) return true;
+            return false; // Otherwise, save legs and just walk/jog toward the press
+        }
+        else {
+            // Midfielders and Defenders commit to the press much harder
+            if (stamRatio > 0.35f && distToBall < 1000.f) return true;
+            return false;
+        }
+
+    case AIUrgency::Recovery:
+    default:
+        // Just getting back into formation. Save legs unless we are miles out of position.
+        if (stamRatio > 0.7f && distToTarget > 1200.f) return true;
+        return false;
+    }
 }
 
 sf::Vector2f NPCController::calculateSeparation(NPCPlayer& npc, const std::vector<Player*> team, const std::vector<Player*> opponents, sf::Vector2f ballPos)
@@ -638,7 +732,7 @@ sf::Vector2f NPCController::handlePossession(NPCPlayer& npc, Ball& ball,
     // 3. DRIBBLE
     // ==========================================
     if (matchstate == MatchState::InPlay) {
-        sf::Vector2f dribbleDir = calculateDribbleDirection(npc, goalPos, opposition);
+        sf::Vector2f dribbleDir = calculateDribbleDirection(npc, goalPos, opposition, pitch);
 
         float speedMult = 0.9f + (awareness * 0.1f);
         if (closestOppDist < 200.f) {
@@ -805,7 +899,7 @@ Player* NPCController::findBestPassOption(NPCPlayer& npc,
     return (bestScore > finalThreshold) ? bestOption : nullptr;
 }
 
-sf::Vector2f NPCController::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition)
+sf::Vector2f NPCController::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch)
 {
     sf::Vector2f npcPos = npc.getPosition();
     sf::Vector2f baseDir = normalize(goalPos - npcPos);
@@ -900,6 +994,17 @@ sf::Vector2f NPCController::calculateDribbleDirection(NPCPlayer& npc, sf::Vector
             }
         }
 
+        // ==========================================
+        // --- NEW: 4. PITCH BOUNDARY AWARENESS ---
+        // ==========================================
+        // Look ahead ~3 meters. If this angle takes us out of bounds, kill the score!
+        sf::Vector2f projectedPos = npcPos + testDir * 300.f;
+        if (projectedPos.x < pitch.margin || projectedPos.x > pitch.totalWidth - pitch.margin ||
+            projectedPos.y < pitch.margin || projectedPos.y > pitch.totalHeight - pitch.margin)
+        {
+            score -= 5000.f;
+        }
+
         if (score > bestScore) {
             bestScore = score;
             bestDir = testDir;
@@ -920,7 +1025,16 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
 
     // --- 1. DYNAMIC ARRIVAL SPEED & PREDICTION ---
     float distToTarget = dist(npcPos, targetPos);
-    float arrivalSpeed = 500.f - (std::clamp(distToTarget / 4000.f, 0.f, 1.f) * 300.f);
+    bool goHigh = (distToTarget > 2000.f); // Moved up here so we can use it for arrival speed
+
+    // FIX: High balls travel MUCH slower horizontally to create the balloon arc
+    float arrivalSpeed;
+    if (goHigh) {
+        arrivalSpeed = 450.f - (std::clamp(distToTarget / 4000.f, 0.f, 1.f) * 150.f);
+    }
+    else {
+        arrivalSpeed = 500.f - (std::clamp(distToTarget / 4000.f, 0.f, 1.f) * 300.f);
+    }
 
     float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * friction * distToTarget));
     float travelTime = (distToTarget > 1200.f) ? (distToTarget / v0_est) + 0.3f : distToTarget / ((v0_est + arrivalSpeed) * 0.5f);
@@ -935,7 +1049,6 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
 
     // --- 2. TRAJECTORY SELECTION: GROUND, CURL, OR HIGH? ---
     // Remove "Panic Chip"—AI now makes tactical choices based on space.
-    bool goHigh = (distToTarget > 2000.f);
     bool needsCurl = false;
     float curlSide = 0.f;
 
@@ -967,8 +1080,8 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
     // --- 3. POWER & STAT CALCULATION ---
     float finalRequiredV0_World = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * friction * finalDist));
 
-    // Driven ground passes move faster than lofts
-    float aiPowerBuff = goHigh ? 0.95f : 1.25f;
+// Apply the floaty modifier
+    float aiPowerBuff = goHigh ? 0.65f : 1.2f; 
     finalRequiredV0_World *= aiPowerBuff;
 
     float passingStat = goHigh ? npc.getLongPassing() : npc.getShortPassing();
@@ -986,11 +1099,13 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
     float finalBackspin = 0.f;
 
     if (goHigh) {
-        // Dynamic loft: shorter lobs stay lower (max 650), long crosses go higher (max 850)
-        float maxLoft = std::clamp(300.f + (distToTarget * 0.15f), 400.f, 850.f);
+        // Dynamic loft: shorter lobs stay lower, long crosses easily clear 6m (1150)
+        float maxLoft = std::clamp(500.f + (distToTarget * 0.25f), 700.f, 1150.f);
         requiredVz = maxLoft - (kickStrength * 150.f) - ((passingStat / 100.f) * 80.f);
-        finalBackspin = (passingStat * 0.5f) + (kickStrength * 45.f);
-        requiredVz = std::max(requiredVz, 220.f);
+
+        // Massive backspin allows the aerodynamic lift to hold the pass up longer
+        finalBackspin = 60.f + (passingStat * 0.5f) + (kickStrength * 80.f);
+        requiredVz = std::max(requiredVz, 300.f);
     }
 
     // --- 5. EXECUTE CURL ---
@@ -1019,6 +1134,7 @@ void NPCController::executePass(NPCPlayer& npc, Ball& ball, Player* target, cons
     ball.shoot(finalDir, finalStatUsed, finalSpin, requiredVz, finalBackspin);
     npc.resetKickCooldown();
 }
+
 void NPCController::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, float dt) {
     sf::Vector2f npcPos = npc.getPosition();
     bool isHome = (npc.getTeam() == Team::Home);
@@ -1048,7 +1164,7 @@ void NPCController::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos
     // C. Magnetism Strength
     // AI gets a very strong pull. 99 Finishing = 85% lock onto the perfect corner pixel.
     // 20 Finishing = only a 17% nudge toward the corner.
-    float magnetism = finishingNorm * 0.85f;
+    float magnetism = finishingNorm * 0.75f;
 
     // D. Blend the raw aim with the perfect corner aim
     sf::Vector2f directDir = (rawDir * (1.0f - magnetism)) + (perfectDir * magnetism);
@@ -1130,44 +1246,54 @@ void NPCController::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos
     // ==========================================
     // 4. SHOT TRAJECTORY (High vs Low Driven vs Chip)
     // ==========================================
-    float totalPower = npc.getKickPower() * simulatedCharge;
+    float basePower = npc.getKickPower() * simulatedCharge;
+    float totalPower = basePower;
     float verticalPower = 0.f;
     float finalBackspin = 0.f;
+
+    // FIX: Less severe float curve
+    float floatMultiplier = 1.1f - (simulatedCharge * 0.4f);
+
+    float distToGoalX = std::abs(goalPos.x - npcPos.x);
+    float gravity = 980.f;
 
     if (tryChip) {
         // --- THE CHIP SHOT ---
         float distToGoal = std::sqrt(std::pow(goalPos.x - npcPos.x, 2) + std::pow(goalPos.y - npcPos.y, 2));
+        float chipPowerNeeded = (distToGoal / 52.0f);
 
-        // Calculate a delicate power just strong enough to reach the goal line
-        float chipPowerNeeded = (distToGoal / 52.0f); // Engine multiplier approximation
-        totalPower = std::min(chipPowerNeeded * 0.85f, npc.getKickPower() * 0.6f); // Cap horizontal power so it drops in time
+        // Chip uses the float multiplier
+        totalPower = std::min(chipPowerNeeded * floatMultiplier, npc.getKickPower() * floatMultiplier);
 
-        // Massive vertical pop to get over the keeper's reach
-        verticalPower = 700.f + (finishingNorm * 150.f);
-
-        // Heavy backspin makes the ball "bite" and drop rapidly
-        finalBackspin = 60.f + (finishingNorm * 40.f);
+        verticalPower = 800.f + (finishingNorm * 80.f);
+        finalBackspin = 90.f + (finishingNorm * 50.f);
     }
     else {
-        // 50/50 chance for a high corner shot vs a low driven shot
         bool isHighShot = (rand() % 100 > 50);
 
         if (isHighShot) {
-            // --- HIGH SHOT (Inverted Logic Parity) ---
-            float maxLoft = 850.f;
-            float heightInversionFactor = 200.f;
+            // --- HIGH SHOT ---
+            // Uses the float multiplier, but retains more zip than a delicate chip
+            totalPower = basePower * floatMultiplier * 1.2f;
 
-            verticalPower = maxLoft - (simulatedCharge * heightInversionFactor);
-            verticalPower -= (finishingNorm * 80.f); // Stat dampening keeps it flatter
+            float horizontalSpeed = totalPower * 52.0f;
+            float timeToGoal = distToGoalX / std::max(horizontalSpeed, 1.f);
+            float perfectVz = (180.f + (0.5f * gravity * timeToGoal * timeToGoal)) / timeToGoal;
 
-            // Drops off faster with higher power
-            float spinIntensity = 120.f;
-            finalBackspin = (finishingStat * 0.8f) + (spinIntensity * (1.0f - simulatedCharge));
+            verticalPower = perfectVz * 1.15f;
+            finalBackspin = 50.f + (finishingStat * 0.8f);
         }
         else {
             // --- LOW DRIVEN SHOT ---
-            verticalPower = 5.f + (simulatedCharge * 50.f); // Tiny pop to escape friction
-            totalPower *= 1.5f; // Driven shots move 50% faster horizontally
+            // FIX: Ignores float multiplier entirely! 150% pure linear power!
+            totalPower = basePower * 1.2f;
+
+            // Re-calculate the perfect trajectory based on this BLISTERING new horizontal speed
+            float horizontalSpeed = totalPower * 52.0f;
+            float timeToGoal = distToGoalX / std::max(horizontalSpeed, 1.f);
+            float perfectVz = (180.f + (0.5f * gravity * timeToGoal * timeToGoal)) / timeToGoal;
+
+            verticalPower = perfectVz * 0.25f;
             finalBackspin = 0.f;
         }
     }
@@ -1187,7 +1313,7 @@ void NPCController::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos
 
     // Cap the final power at physical limits (bypass this limit if chipping so we don't accidentally overdrive it)
     if (!tryChip) {
-        totalPower = std::min(totalPower, npc.getKickPower() * (verticalPower > 100.f ? 1.0f : 1.5f));
+        totalPower = std::min(totalPower, npc.getKickPower() * (verticalPower > 100.f ? 1.0f : 1.1f));
     }
 
     // ==========================================
@@ -1695,24 +1821,69 @@ bool NPCController::shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder,
     Player* owner = ball.getOwner();
 
     // --- 1. THE KEEPER PROTECTION RULE ---
-    if ((owner != nullptr &&
-        owner->getTeam() != npc.getTeam() &&
-        owner->getPositionRole() == PositionRole::Goalkeeper) ||
+    if ((owner != nullptr && owner->getTeam() != npc.getTeam() && owner->getPositionRole() == PositionRole::Goalkeeper) ||
         matchstate != MatchState::InPlay)
     {
         return false;
     }
 
-    sf::Vector2f home = npc.getHomePosition(npc.getTeam() == Team::Home, TeamState::Defending);
-    sf::Vector2f ballPos = ball.getPosition();
+    // --- 2. IDENTIFY PLAYER ROLE ---
+    PositionRole role = npc.getPositionRole();
+    bool isAttacker = (role == PositionRole::Striker || role == PositionRole::LeftWing || role == PositionRole::RightWing);
+    bool isMidfielder = (role == PositionRole::CenterMid || role == PositionRole::DefensiveMid || role == PositionRole::AttackingMid);
+    bool isDefender = (role == PositionRole::LCenterBack || role == PositionRole::RCenterBack || role == PositionRole::LeftBack || role == PositionRole::RightBack);
 
-    // --- 2. STATS & ZONES ---
-    TacticalZone zone = getZoneForRole(npc.getPositionRole());
     float aggressionNorm = npc.getAggression() / 100.0f;
 
-    // Aggression expands how far they are willing to stretch their tactical shape
-    float xBuffer = 200.f + (aggressionNorm * 400.f);
-    float yBuffer = 200.f + (aggressionNorm * 300.f);
+    // --- 3. SMART PRESSING (Role-Based Distance Caps) ---
+    // If the opponent has the ball, we strictly limit how far we will sprint to tackle them.
+    if (owner && owner->getTeam() != npc.getTeam()) {
+
+        if (isAttacker) {
+            // ATTACKERS: Only press if the ball is basically given to them (e.g., bad touch).
+            // Otherwise, return false so they hold their shape and block passing lanes!
+            float maxAttackerPress = 250.f + (aggressionNorm * 100.f); // Max ~350px
+            if (distToBall > maxAttackerPress) return false;
+        }
+        else if (isMidfielder) {
+            // MIDFIELDERS: Willing to close down space, but won't chase forever.
+            float maxMidPress = 400.f + (aggressionNorm * 150.f); // Max ~550px
+            if (distToBall > maxMidPress) return false;
+        }
+        else if (isDefender) {
+            // CENTER BACKS: Absolute strict discipline. Never step out too far.
+            if (role == PositionRole::LCenterBack || role == PositionRole::RCenterBack) {
+                if (distToBall > 450.f) return false;
+            }
+        }
+
+        // --- 4. THE "LOST CAUSE" CHECK (Anti-Cat-and-Mouse) ---
+        sf::Vector2f npcPos = npc.getPosition();
+
+        // If we are trailing by a decent margin...
+        if (distToBall > 600.f) {
+            sf::Vector2f toBall = ball.getPosition() - npcPos;
+            sf::Vector2f ownerVel = owner->getVelocity();
+
+            // Calculate if the attacker is moving AWAY from us
+            float dot = (toBall.x * ownerVel.x + toBall.y * ownerVel.y);
+
+            if (dot > 0.f) {
+                // They are faster and running away. Give up the chase! 
+                // This saves stamina and passes the 'firstResponder' baton to the next defender.
+                return false;
+            }
+        }
+    }
+
+    // --- 5. STRICT TACTICAL BOUNDARIES (The Leash) ---
+    sf::Vector2f home = npc.getHomePosition(npc.getTeam() == Team::Home, TeamState::Defending);
+    sf::Vector2f ballPos = ball.getPosition();
+    TacticalZone zone = getZoneForRole(role);
+
+    // Aggression slightly expands how far they are willing to stretch their shape
+    float xBuffer = 150.f + (aggressionNorm * 250.f);
+    float yBuffer = 150.f + (aggressionNorm * 250.f);
 
     float dx = std::abs(home.x - ballPos.x);
     float dy = std::abs(home.y - ballPos.y);
@@ -1721,41 +1892,9 @@ bool NPCController::shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder,
     bool ballIsForward = isHomeTeam ? (ballPos.x > home.x) : (ballPos.x < home.x);
     float currentXLeash = ballIsForward ? zone.forwardLeash : zone.backwardLeash;
 
-    // --- 3. STRICT TACTICAL BOUNDARIES ---
-    // Instead of a massive circular radius, we check X and Y separately.
-    // This stops a Right Back from chasing a winger all the way to the left side of the pitch!
+    // Separate X and Y checks to stop players running diagonally across the whole pitch
     if (dx > currentXLeash + xBuffer || dy > zone.lateralLeash + yBuffer) {
         return false;
-    }
-
-    // --- 4. THE "LOST CAUSE" CHECK (Anti-Cat-and-Mouse) ---
-    if (owner && owner->getTeam() != npc.getTeam()) {
-        sf::Vector2f npcPos = npc.getPosition();
-
-        // If the defender is trailing behind by more than ~8 meters (800px)
-        if (distToBall > 800.f) {
-            sf::Vector2f toBall = ballPos - npcPos;
-            sf::Vector2f ownerVel = owner->getVelocity();
-
-            // Calculate the dot product to see if the attacker is moving AWAY from the defender
-            float dot = (toBall.x * ownerVel.x + toBall.y * ownerVel.y);
-
-            if (dot > 0.f) {
-                // The attacker is faster, moving away, and we are already far behind.
-                // Give up the chase! This allows the AI to fall back into shape and 
-                // seamlessly passes the "firstResponder" baton to the next defender in line.
-                return false;
-            }
-        }
-
-        // --- 5. CENTER BACK DISCIPLINE ---
-        // Center Backs are the last line of defense. If they step out and miss the tackle, 
-        // they should immediately drop off rather than chasing the guy from behind.
-        if (npc.getPositionRole() == PositionRole::LCenterBack || npc.getPositionRole() == PositionRole::RCenterBack) {
-            if (distToBall > 450.f) {
-                return false;
-            }
-        }
     }
 
     return true; // The chase is on!
@@ -1966,46 +2105,6 @@ void NPCController::handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& p
     attemptSave(npc, ball, dt);
 }
 
-void NPCController::attemptSave(NPCPlayer& npc, Ball& ball, float dt)
-{
-    sf::Vector2f ballVel = ball.getVelocity();
-    float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
-
-    // KEEPER FIX: Lowered the threshold so they dive for normal shots too!
-    if (ballSpeed < 300.0f) return;
-
-    sf::Vector2f ballPos = ball.getPosition();
-    sf::Vector2f keeperPos = npc.getPosition();
-
-    bool isHomeSide = (npc.getTeam() == Team::Home);
-    if (isHomeSide && ballVel.x >= -10.0f) return;
-    if (!isHomeSide && ballVel.x <= 10.0f) return;
-
-    float ballTTI = std::abs((keeperPos.x - ballPos.x) / ballVel.x);
-    if (ballTTI < 0.0f || ballTTI > 1.5f) return;
-
-    float interceptY = ballPos.y + (ballVel.y * ballTTI);
-    sf::Vector2f interceptPoint(keeperPos.x, interceptY);
-    float diveDistance = std::abs(keeperPos.y - interceptY);
-
-    float distToBall = dist(keeperPos, ballPos);
-    float activeStat = (distToBall < 600.0f) ? npc.getGkBlocking() : npc.getGkReactions();
-    float maxDiveSpeed = 600.0f + ((activeStat / 100.0f) * 1000.0f);
-
-    float keeperTTI = diveDistance / maxDiveSpeed;
-    if (ballTTI > keeperTTI + 0.15f) return;
-
-    float attemptDiveRadius = 500.0f; // Increased their reach slightly
-    if (diveDistance <= attemptDiveRadius && ball.z <= (npc.height + 100.0f))
-    {
-        float optimalSpeed = maxDiveSpeed;
-        if (ballTTI > 0.05f) optimalSpeed = diveDistance / ballTTI;
-        float finalSpeed = std::clamp(optimalSpeed, 150.0f, maxDiveSpeed);
-
-        triggerDive(npc, interceptPoint, finalSpeed);
-    }
-}
-
 sf::Vector2f NPCController::calculateGoaliePositioning(NPCPlayer& npc, sf::Vector2f ballPos, sf::Vector2f goalCenter, const Pitch& pitch)
 {
     sf::Vector2f goalToBall = ballPos - goalCenter;
@@ -2112,6 +2211,54 @@ bool NPCController::shouldGoalieRush(NPCPlayer& npc, Ball& ball, const std::vect
     return (perceivedKeeperTTI < (attackerTTI - 0.2f));
 }
 
+void NPCController::attemptSave(NPCPlayer& npc, Ball& ball, float dt)
+{
+    sf::Vector2f ballVel = ball.getVelocity();
+    float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+
+    if (ballSpeed < 300.0f) return;
+
+    sf::Vector2f ballPos = ball.getPosition();
+    sf::Vector2f keeperPos = npc.getPosition();
+
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    if (isHomeSide && ballVel.x >= -10.0f) return;
+    if (!isHomeSide && ballVel.x <= 10.0f) return;
+
+    float ballTTI = std::abs((keeperPos.x - ballPos.x) / ballVel.x);
+    if (ballTTI < 0.0f || ballTTI > 1.5f) return;
+
+    // --- NEW: PROJECT BALL HEIGHT AT INTERCEPT ---
+    // Use standard kinematic formula: z = z0 + vz*t - 0.5*g*t^2
+    float gravity = 980.f;
+    float interceptZ = ball.z + (ball.vz * ballTTI) - (0.5f * gravity * ballTTI * ballTTI);
+    interceptZ = std::max(0.f, interceptZ); // Ball can't be below ground
+
+    float interceptY = ballPos.y + (ballVel.y * ballTTI);
+    sf::Vector2f interceptPoint(keeperPos.x, interceptY);
+    float diveDistance = std::abs(keeperPos.y - interceptY);
+
+    float distToBall = dist(keeperPos, ballPos);
+    float activeStat = (distToBall < 600.0f) ? npc.getGkBlocking() : npc.getGkReactions();
+    float maxDiveSpeed = 600.0f + ((activeStat / 100.0f) * 1000.0f);
+
+    float keeperTTI = diveDistance / maxDiveSpeed;
+    if (ballTTI > keeperTTI + 0.15f) return;
+
+    float attemptDiveRadius = 800.0f;
+
+    // Check if the projected height is within reach
+    if (diveDistance <= attemptDiveRadius && interceptZ <= (npc.height + 120.0f))
+    {
+        float optimalSpeed = maxDiveSpeed;
+        if (ballTTI > 0.05f) optimalSpeed = diveDistance / ballTTI;
+        float finalSpeed = std::clamp(optimalSpeed, 150.0f, maxDiveSpeed);
+
+        // Pass the projected Z to the trigger
+        triggerDive(npc, interceptPoint, finalSpeed, interceptZ);
+    }
+}
+
 void NPCController::resolveSaveOutcome(NPCPlayer& npc, Ball& ball)
 {
     sf::Vector2f incomingVel = ball.getVelocity();
@@ -2186,6 +2333,33 @@ void NPCController::resolveSaveOutcome(NPCPlayer& npc, Ball& ball)
     }
 }
 
+void NPCController::triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed, float targetZ)
+{
+    sf::Vector2f diveDir = normalize(diveTarget - npc.getPosition());
+    npc.setVelocity(diveDir * jumpSpeed);
+
+    // --- NEW: CONTEXT-AWARE JUMP HEIGHT ---
+    if (targetZ < 40.f)
+    {
+        // LOW DRIVEN: Keeper stays on the deck or does a very shallow "pop"
+        // vz = 0 keeps the keeper's hitbox on the grass to block low shots.
+        npc.vz = 0.f;
+    }
+    else if (targetZ < 120.f)
+    {
+        // MEDIUM HEIGHT: Small hop to cover the mid-section
+        npc.vz = 140.f;
+    }
+    else
+    {
+        // HIGH SHOT: Full power jump
+        // We can even scale it: higher shots = slightly more Vz
+        npc.vz = 200.f + (targetZ * 0.2f);
+    }
+
+    npc.setState(PlayerState::Diving);
+}
+
 void NPCController::distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates)
 {
     // --- 1. FIND THE BEST COUNTER-ATTACK TARGET ---
@@ -2201,15 +2375,12 @@ void NPCController::distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std
         sf::Vector2f matePos = mate->getPosition();
         float d = dist(npcPos, matePos);
 
-        // Calculate a "Distribution Score"
-        // We prefer teammates further up the pitch (progress) but within range (max 50m / 5000px)
+        // Progress score: prefer teammates further up the pitch
         float progress = isHome ? (matePos.x - npcPos.x) : (npcPos.x - matePos.x);
         float score = (progress * 0.8f);
 
-        // Penalty for defenders being too close to the target
-        // (We'll reuse findNearestOpponent or a simple distance check here if possible)
-
-        if (d > 500.0f && d < 5000.0f) // Between 5m and 50m
+        // Keep it within a reasonable 50m range so the GK doesn't wildly over-kick
+        if (d > 500.0f && d < 5000.0f)
         {
             if (score > bestScore)
             {
@@ -2219,78 +2390,108 @@ void NPCController::distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std
         }
     }
 
-    // Failsafe: Short roll to the nearest defender
+    // Failsafe: Short roll to the nearest defender if no counter-attack is on
     if (!bestTarget && !teammates.empty()) {
         bestTarget = teammates[0];
     }
 
     if (!bestTarget) return;
 
-    // --- 2. PHYSICS & TRAJECTORY DECISION ---
+
+    // ==========================================
+    // 2. DYNAMIC PREDICTION & ARRIVAL MATH
+    // ==========================================
     sf::Vector2f targetPos = bestTarget->getPosition();
-    float finalDist = dist(npcPos, targetPos);
-    sf::Vector2f throwDir = normalize(targetPos - npcPos);
+    sf::Vector2f targetVel = bestTarget->getVelocity();
+    float rawDist = dist(npcPos, targetPos);
+
+    bool goHigh = (rawDist > 1500.f); // Anything over 15m is a lofted throw/kick
+
+    // Calculate how fast we want the ball traveling when it reaches the player
+    float arrivalSpeed;
+    if (goHigh) {
+        arrivalSpeed = 450.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 150.f);
+    }
+    else {
+        arrivalSpeed = 500.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 300.f);
+    }
+
+    float friction = 800.f;
+    float engineMultiplier = 52.0f;
+
+    // Estimate travel time to properly lead the running target
+    float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * friction * rawDist));
+    float travelTime = (rawDist > 1200.f) ? (rawDist / v0_est) + 0.3f : rawDist / ((v0_est + arrivalSpeed) * 0.5f);
+
+    sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
+    sf::Vector2f dirToTarget = normalize(predictedPos - npcPos);
+
+    // Lead the pass into space (more for long balls, directly to feet for short rolls)
+    sf::Vector2f aimSpot = predictedPos + (dirToTarget * (goHigh ? 200.f : 80.f));
+    float finalDist = dist(npcPos, aimSpot);
+    sf::Vector2f directDir = normalize(aimSpot - npcPos);
+
+
+    // ==========================================
+    // 3. POWER & TRAJECTORY (THE REVERSE CURVE)
+    // ==========================================
+    float finalRequiredV0_World = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * friction * finalDist));
+
+    // FIX: Apply the exact same Float Multipliers used by Outfield NPCs
+    // High kicks travel slower horizontally to form a lob, short rolls get zipped across the grass
+    float aiPowerBuff = goHigh ? 0.85f : 1.3f;
+    finalRequiredV0_World *= aiPowerBuff;
 
     float throwingStat = npc.getGkThrowing();
     float longPassStat = npc.getLongPassing();
 
+    float rawStatNeeded = finalRequiredV0_World / engineMultiplier;
+
+    // Apply stat-based weight error (Elite keepers rarely over-hit)
+    float weightErrorFactor = (1.0f - (throwingStat / 100.f)) * 0.12f;
+    float randomWeight = 1.0f + (((rand() % 200) - 100) / 100.f) * weightErrorFactor;
+
+    float finalPower = std::min(rawStatNeeded * randomWeight, npc.getKickPower());
+
     float vzPower = 0.f;
     float finalBackspin = 0.f;
-    float finalStatUsed = 0.f;
 
-    // --- CASE A: THE LONG LAUNCH (Goal Kick / Long Throw) ---
-    if (finalDist > 1500.f)
-    {
-        // Use a blend of throwing power and long passing technique
-        finalStatUsed = std::min(throwingStat, (finalDist / 5000.f) * 100.f);
-        finalStatUsed = std::max(finalStatUsed, 40.f);
+    if (goHigh) {
+        // --- CASE A: THE LONG LAUNCH ---
+        // Dynamically scale loft based on distance, peaking between 5m and 11.5m
+        float maxLoft = std::clamp(500.f + (finalDist * 0.25f), 700.f, 1150.f);
 
-        // High arc to clear the midfield press
-        vzPower = 400.f + (finalStatUsed * 2.5f);
+        vzPower = maxLoft - ((longPassStat / 100.f) * 80.f); // Better passers keep it slightly flatter
+        vzPower = std::max(vzPower, 300.f);
 
-        // Backspin helps the ball "die" when it hits the target (Long Passing stat)
-        finalBackspin = longPassStat * 0.8f;
+        // Massive backspin allows the aerodynamic lift to hold the kick up longer
+        finalBackspin = 60.f + (longPassStat * 0.5f) + ((finalPower / npc.getKickPower()) * 60.f);
     }
-    // --- CASE B: THE SHORT DISTRIBUTION (Hand Roll / Short Toss) ---
-    else
-    {
-        finalStatUsed = std::max(25.f, (finalDist / 1500.f) * 60.f);
-
-        // Flatter trajectory for a quick roll to a defender's feet
-        vzPower = 50.f + (finalStatUsed * 1.5f);
-        finalBackspin = 10.f; // Tiny bit of bite
+    else {
+        // --- CASE B: THE SHORT DISTRIBUTION ---
+        vzPower = 50.f + (finalPower * 0.5f); // Tiny hop so it clears immediate grass friction
+        finalBackspin = 10.f; // Bite so it stops at feet easily
     }
 
-    // --- 3. ACCURACY & ERROR ---
-    // Higher GkThrowing reduces the random spray
+
+    // ==========================================
+    // 4. ACCURACY ERROR & EXECUTION
+    // ==========================================
     float errorMagnitude = (1.0f - (throwingStat / 100.f));
-    float maxAngleError = 12.0f; // 12 degrees max error
-    float randomDeviation = ((rand() % 200) - 100) / 100.0f;
-    float radOffset = (errorMagnitude * maxAngleError * randomDeviation) * 3.14159f / 180.0f;
+    float maxAngleError = 12.0f;
+
+    float randError = ((rand() % 200) - 100) / 100.f * errorMagnitude * maxAngleError;
+    float rad = randError * 3.14159f / 180.f;
 
     sf::Vector2f finalDir(
-        throwDir.x * std::cos(radOffset) - throwDir.y * std::sin(radOffset),
-        throwDir.x * std::sin(radOffset) + throwDir.y * std::cos(radOffset)
+        directDir.x * std::cos(rad) - directDir.y * std::sin(rad),
+        directDir.x * std::sin(rad) + directDir.y * std::cos(rad)
     );
 
-    // --- 4. EXECUTE ---
     // direction, power, side-spin (0 for hands), vertical-speed, backspin
-    ball.shoot(finalDir, finalStatUsed, 0.0f, vzPower, finalBackspin);
+    ball.shoot(finalDir, finalPower, 0.0f, vzPower, finalBackspin);
 
     npc.resetKickCooldown();
-}
-
-void NPCController::triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed)
-{
-    // Find the direction (This will effectively be purely on the Y-axis now)
-    sf::Vector2f diveDir = normalize(diveTarget - npc.getPosition());
-
-    // Apply the perfectly calculated velocity
-    npc.setVelocity(diveDir * jumpSpeed);
-    npc.vz = 200.f;
-
-    // Lock AI state
-    npc.setState(PlayerState::Diving);
 }
 
 sf::Vector2f NPCController::calculateInterceptionPoint(NPCPlayer& npc, Ball& ball) {

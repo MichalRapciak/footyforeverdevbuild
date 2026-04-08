@@ -3,7 +3,7 @@
 #include "Entity.h"
 #include "UserPlayer.h"
 #include "UserController.h"
-#include "Level.h"
+#include "Stadium.h"
 #include "Ball.h"
 #include "NPCPlayer.h"
 #include "NPCController.h"
@@ -11,6 +11,8 @@
 #include "MatchReferee.h"
 #include <memory>
 #include "AnimationServer.h"
+#include "GameDatabase.h"
+#include "ReplayEngine.h"
 
 class GamePlay
 {
@@ -26,7 +28,6 @@ class GamePlay
 		void powerBarUpdate();
 		void powerBarDraw(sf::RenderWindow& t_window);
 		void handlePlayerCollisions(std::vector<Player*>& players, const Pitch& pitch);
-		void processTackle(Player* tackler, Player* victim, float dt);
 		void handleBallPlayerPhysics(std::vector<Player*>& players, Ball& ball);
 		void updateCamera(sf::RenderWindow& t_window);
 		void drawUI(sf::RenderWindow& t_window);
@@ -42,6 +43,8 @@ class GamePlay
 		void runStandardSystems(float dt, sf::RenderWindow& t_window);
 		Player* findFirstResponder(const std::vector<Player*>& t_team);
 		UserPlayer* getUserPlayer() { return m_userPlayer.get(); }
+
+		void setupMatch(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId);
 
 		std::unique_ptr<Ball> m_ball;
 		Pitch m_pitch;
@@ -62,6 +65,10 @@ class GamePlay
 		AnimationServer m_animServer;
 
 	private:
+		GameDatabase* m_db;
+		TeamData m_homeTeamData;
+		TeamData m_awayTeamData;
+
 		bool m_pause = false;
 		bool m_gameOver = false;
 		bool m_gameWon = false;
@@ -73,7 +80,7 @@ class GamePlay
 	sf::RectangleShape barFill;
 	sf::Vector2f barSize = { 200.f, 20.f };
 
-	Level m_level1;
+	Stadium m_stadium1;
 
 	std::unique_ptr<UserPlayer> m_userPlayer;
 	std::unique_ptr<UserController> m_userController;
@@ -83,9 +90,14 @@ class GamePlay
 	std::unique_ptr<NPCController> m_npcController;
 
 	std::vector<Entity*> m_entities;
-	void setupGame();
+
+	ReplayEngine m_replayEngine;
+	std::vector<Player*> m_allActivePlayers; // Helper list to feed the recorder
 	void refreshEntities();
-	void spawnTeam(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, bool isHomeSide);
+	void spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, TeamData& teamData, bool isHomeSide, const std::string& userPlayerId);
+	void renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity);
+
+	void triggerForfeit(bool isHomeForfeit);
 
 	// Pitch Constants (100px = 1m)
 	const float m_pitchWidth = 10000.f;

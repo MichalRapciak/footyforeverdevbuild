@@ -15,6 +15,10 @@ public:
 protected:
 	sf::Text m_helpText;
 	sf::Font m_font;
+
+	sf::Sprite bg_s;
+	sf::Texture bg_txt;
+
 	bool m_pressedExit{ false };
 };
 

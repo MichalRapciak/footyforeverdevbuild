@@ -37,10 +37,13 @@ void Ball::update(float dt)
             velocity = { 0.f, 0.f };
             shadow.setPosition(shape.getPosition());
 
-            // Reset the scales to their ground-level defaults 
-            // (Replace 'minScale' with your actual base scale if needed, usually 1.0f)
-            shape.setScale({ 1.0f, 1.0f });
+            // FIX: Use minScale instead of hardcoding 1.0f to prevent visual popping
+            shape.setScale({ minScale, minScale });
             shadow.setScale({ 1.0f, 1.0f });
+
+            // FIX: Explicitly kill Z-height during dead balls
+            z = 0.f;
+            vz = 0.f;
         }
         else {
             updateDribbling(dt);
@@ -62,9 +65,9 @@ void Ball::updateDribbling(float dt)
     // Start at the center (500, 500)
     sf::Vector2f feetPos = playerCenter;
 
-    // Shift 400 raw pixels down the sprite's local vertical axis (Y) to hit the boots,
+    // Shift 200 raw pixels down the sprite's local vertical axis (Y) to hit the boots,
     // perfectly multiplied by whatever their dynamic height scale is!
-    feetPos.x -= 400.0f * std::abs(playerScale.x);
+    feetPos.x -= 150.0f * std::abs(playerScale.x);
 
     sf::Vector2f playerVel = owner->getVelocity();
     float playerSpeed = std::sqrt(playerVel.x * playerVel.x + playerVel.y * playerVel.y);
@@ -123,8 +126,8 @@ void Ball::updateDribbling(float dt)
     // --- 4. CALCULATING THE DYNAMIC OFFSET ---
     float stepProgress = footTimer / stepInterval;
 
-    float basePush = 15.f;
-    float maxPushExt = 20.f + (errorFactor * 50.f);
+    float basePush = 25.f;
+    float maxPushExt = 40.f + (errorFactor * 50.f);
 
     float dynamicForwardPush = basePush + (maxPushExt * speedFactor * (1.0f - stepProgress));
 
@@ -194,13 +197,16 @@ void Ball::updateFreePhysics(float dt)
         sf::Vector2f perpendicular(-velocity.y, velocity.x);
         perpendicular /= speed;
 
-        // FIX: Severely nerfed the curl scaling and capped the height influence!
-        // The height factor is now clamped between 0.0 and 1.0 (maxes out at z=400)
         float heightFactor = std::clamp(z / 400.f, 0.0f, 1.0f);
 
-        // Base strength is 2.0f, and only increases to a maximum of 3.5f at peak height.
-        // (Your old formula was reaching 110.0f+ !)
-        float spinStrength = 15.0f + (heightFactor * 2.f);
+        // FIX 1: Decrease curl at high altitudes (thinner air) instead of increasing it!
+        float altitudeDampener = 1.0f - (heightFactor * 0.8f);
+
+        // FIX 2: Scale curl by the kick's forward momentum (assume 1000 is a fast kick)
+        float speedFactor = std::clamp(speed / 1000.f, 0.2f, 1.0f);
+
+        // Base strength is 15.0, scaled by speed and decayed by altitude
+        float spinStrength = 15.0f * altitudeDampener * speedFactor;
 
         velocity += perpendicular * spin * spinStrength * dt;
 
@@ -224,31 +230,19 @@ void Ball::updateFreePhysics(float dt)
     }
 
     // ==========================================
-    // FIX 2: REALISTIC AERODYNAMIC DRAG (THE DRAG CRISIS)
+    // FIX 3: REALISTIC AERODYNAMIC DRAG (THE DRAG CRISIS)
     // ==========================================
-    // We calculate the true 3D speed of the ball (X, Y, and Z axes combined)
     float trueSpeed = std::sqrt((speed * speed) + (vz * vz));
 
     if (z > 0.f && trueSpeed > 5.f)
     {
-        // 1. Calculate Dynamic Drag Coefficient (Cd)
-        // Laminar Flow (Slow ball): Cd is high (~0.25)
-        // Turbulent Flow (Fast ball): Cd drops significantly (~0.12)
         float Cd = 0.25f;
-
-        // The transition happens between roughly 12m/s (1200px) and 18m/s (1800px)
         if (trueSpeed > 1200.f) {
             float t = std::clamp((trueSpeed - 1200.f) / 600.f, 0.0f, 1.0f);
-            // Smoothly interpolate from 0.25 down to 0.12 as speed increases
             Cd = 0.25f - (0.13f * t);
         }
 
-        // 2. Calculate Aerodynamic Drag Force
-        // Formula: F = 0.5 * AirDensity * Cd * Area * Velocity^2
-        // We bake the constant physics properties (density, area, mass) into a single game-feel multiplier (0.0003f)
         float dragDecel = (trueSpeed * trueSpeed) * Cd * 0.0003f;
-
-        // 3. Apply Deceleration Proportionally to 3D Vectors
         float newTrueSpeed = std::max(0.f, trueSpeed - dragDecel * dt);
 
         if (trueSpeed > 0.1f) {
@@ -257,10 +251,9 @@ void Ball::updateFreePhysics(float dt)
             // Slow down the horizontal speed
             speed *= dragRatio;
 
-            // Slow down the vertical speed (This naturally acts as terminal velocity!)
-            vz *= dragRatio;
+            // FIX: Delete `vz *= 0.995f;`!
+            // Let pure gravity handle the Z-axis so the 3D Auto-Aim math is flawless.
 
-            // Re-apply the slowed speed to the X/Y velocity vector
             float currentLen = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
             if (currentLen > 0.1f) {
                 velocity = (velocity / currentLen) * speed;
@@ -349,43 +342,118 @@ void Ball::updateFreePhysics(float dt)
 
 void Ball::draw(sf::RenderWindow& window)
 {
-    // 1. Draw shadow at the ACTUAL ground position
-        // No need to setPosition here if you already set it in update()
+    sf::Vector2f groundPos = shape.getPosition();
+
+    // --- 1. DYNAMIC FLOODLIGHT SHADOWS ---
+    float zRatio = std::min(z / 100.f, 1.f);
+    float airFade = std::max(0.f, 1.0f - (z / 150.f));
+    float shadowScale = 1.f - (zRatio * 0.5f);
+    float currentRadius = 12.f * shadowScale; // Ball radius is 12
+
+    if (airFade > 0.01f)
+    {
+        sf::Vector2f lights[4] = {
+            {-500.f, -500.f},
+            {-500.f, 7500.f},
+            {10500.f, -500.f},
+            {10500.f, 7500.f}
+        };
+
+        const float lightHeight = 6000.f;
+        const float ballHeight = 24.f; // The physical diameter of the ball
+        const float maxLightDist = 12500.f;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            sf::Vector2f toBall = groundPos - lights[i];
+            float distXY = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
+
+            if (distXY > 0.1f) {
+                sf::Vector2f dir = toBall / distXY;
+                sf::Vector2f normal(-dir.y, dir.x);
+
+                float totalHeight = ballHeight + z;
+                float length = totalHeight * (distXY / lightHeight);
+                length = std::max(8.f, length);
+
+                float normalizedDist = std::min(distXY / maxLightDist, 1.0f);
+                float intensity = std::pow(1.0f - normalizedDist, 2.0f);
+
+                // Ball cast shadows are slightly fainter than player shadows
+                std::uint8_t alpha = static_cast<std::uint8_t>(45 * intensity * airFade);
+
+                if (alpha < 2) continue;
+
+                sf::Color baseColor(0, 0, 0, alpha);
+                sf::Color tipColor(0, 0, 0, 0);
+
+                float diffusion = 1.2f + (normalizedDist * 3.0f);
+                float width = 8.f * shadowScale; // Narrower shadow for the ball
+
+                sf::Vector2f start = groundPos + (dir * (currentRadius - 2.f));
+
+                sf::VertexArray floodShadow(sf::PrimitiveType::TriangleStrip, 4);
+                floodShadow[0].position = start + normal * width;
+                floodShadow[0].color = baseColor;
+                floodShadow[1].position = start - normal * width;
+                floodShadow[1].color = baseColor;
+                floodShadow[2].position = start + (dir * length) + normal * (width * diffusion);
+                floodShadow[2].color = tipColor;
+                floodShadow[3].position = start + (dir * length) - normal * (width * diffusion);
+                floodShadow[3].color = tipColor;
+
+                window.draw(floodShadow);
+            }
+        }
+    }
+
+    // 2. Draw ambient shadow at the ACTUAL ground position
     window.draw(shadow);
 
-    // 2. Calculate the visual (elevated) position for the ball
-    // We use a local variable so we don't mess up the ball's real position
-    sf::Vector2f groundPos = shape.getPosition();
-    sf::Vector2f visualPos = { groundPos.x + (z / 3.f), groundPos.y  };
+    // 3. Calculate the visual (elevated) position for the ball
+    sf::Vector2f visualPos = { groundPos.x + (z / 3.f), groundPos.y };
 
-    // 3. Move the VISUALS only
+    // 4. Move the VISUALS only
     sprite.setPosition(visualPos);
     sprite.setScale(shape.getScale() * 0.24f);
-
-    // If you use 'shape' as a placeholder/glow:
     shape.setPosition(visualPos);
 
     window.draw(shape);
     window.draw(sprite);
 
-    // 4. IMPORTANT: Reset shape to ground so update() logic stays correct
+    // 5. IMPORTANT: Reset shape to ground so update() logic stays correct
     shape.setPosition(groundPos);
 }
 
 void Ball::possess(Player* player)
 {
+    // Valid possession check
     if (player->isTackling() == false && z <= 40 && player->getState() != PlayerState::Stunned)
     {
         if (owner != nullptr && owner != player) {
             owner->setBallPossession(false);
             lastOwner = owner;
         }
+
         owner = player;
         owner->setBallPossession(true);
-        owner->changeFoot();
+
+        // --- SET INITIAL FOOT STATE ---
+        // We force the 'using foot' to match their preference. 
+        // Your existing update loop will take it from here!
+        bool prefersRight = (owner->getPreferredFoot() == "Right");
+        if (!prefersRight && owner->usingRightFoot())
+        {
+            owner->changeFoot();
+        }
+        else if (prefersRight && !owner->usingRightFoot())
+        {
+            owner->changeFoot();
+        }
+
+        // Reset physics
         footTimer = 0.f;
-        velocity = { 0,0 };
-        // FIX: Kill vertical momentum so it doesn't float up while dribbling!
+        velocity = { 0, 0 };
         vz = 0.f;
         z = 0.f;
     }

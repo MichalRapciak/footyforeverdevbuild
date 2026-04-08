@@ -3,6 +3,17 @@
 
 struct PlayerStats
 {
+	float naturalFitness = 0.0f;
+	float getFitness() const
+	{
+		return naturalFitness;
+	}
+	int weakFootAccuracy = 0;
+	int getWeakFootAccuracy() const
+	{
+		return weakFootAccuracy;
+	}
+
 	/// SHOOTING STATS
 	float finishing = 0.0f;
 	float heading = 0.0f;

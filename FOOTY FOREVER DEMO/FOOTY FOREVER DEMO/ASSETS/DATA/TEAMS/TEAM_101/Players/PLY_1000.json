@@ -1,0 +1,53 @@
+{
+    "PLY_1000": {
+        "age": 33,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#3000F2",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#9B5A46"
+        },
+        "height_cm": 176,
+        "loyalty": 96,
+        "name": "M. Salah",
+        "number": 10,
+        "position": "RightWing",
+        "preferred_foot": "Left",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 87.0,
+            "aggression": 26.0,
+            "agility": 82.0,
+            "awareness": 85.0,
+            "balancing": 85.0,
+            "ball_control": 87.0,
+            "blocking": 11.0,
+            "body_strength": 74.0,
+            "curl": 82.0,
+            "dead_ball": 71.0,
+            "finishing": 87.0,
+            "fitness": 95.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 60.0,
+            "jumping_strength": 61.0,
+            "kick_power": 81.0,
+            "long_passing": 82.0,
+            "short_passing": 83.0,
+            "top_speed": 88.0,
+            "weak_foot_accuracy": 3
+        },
+        "team_id": "TEAM_101",
+        "traits": [],
+        "weight_kg": 70
+    }
+}

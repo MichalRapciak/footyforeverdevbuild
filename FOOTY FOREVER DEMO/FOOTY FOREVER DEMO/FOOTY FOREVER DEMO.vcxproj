@@ -146,7 +146,10 @@
     <ClCompile Include="imgui-1.92.6\imgui_draw.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_tables.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_widgets.cpp" />
-    <ClCompile Include="Level.cpp" />
+    <ClCompile Include="MatchDayScreen.cpp" />
+    <ClCompile Include="ReplayEngine.cpp" />
+    <ClCompile Include="SoundManager.cpp" />
+    <ClCompile Include="Stadium.cpp" />
     <ClCompile Include="LicenseScreen.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MainMenu.cpp" />
@@ -178,7 +181,10 @@
     <ClInclude Include="imgui-1.92.6\imstb_rectpack.h" />
     <ClInclude Include="imgui-1.92.6\imstb_textedit.h" />
     <ClInclude Include="imgui-1.92.6\imstb_truetype.h" />
-    <ClInclude Include="Level.h" />
+    <ClInclude Include="MatchDayScreen.h" />
+    <ClInclude Include="ReplayEngine.h" />
+    <ClInclude Include="SoundManager.h" />
+    <ClInclude Include="Stadium.h" />
     <ClInclude Include="LicenseScreen.h" />
     <ClInclude Include="MainMenu.h" />
     <ClInclude Include="MatchContext.h" />

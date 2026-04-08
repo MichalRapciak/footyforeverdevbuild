@@ -3,7 +3,7 @@
 #include "GamePlay.h"
 #include <iostream>
 
-MainMenu::MainMenu() : m_mainMenuView(sf::FloatRect({ 0,0 }, { 1920,1080 }))
+MainMenu::MainMenu() : m_mainMenuView(sf::FloatRect({ 0,0 }, { 1920,1080 })), bg_s(bg_txt)
 {
 
 }
@@ -14,13 +14,13 @@ MainMenu::~MainMenu()
 
 void MainMenu::initialise(sf::Font& t_font)
 {
-	m_buttonWidth = 300;
+	m_buttonWidth = 400;
 	m_buttonHeight = 100;
-	m_yOffset = 200;
+	m_yOffset = 400;
 	m_xOffset = (m_mainMenuView.getSize().x / 2) - m_buttonWidth / 2;
 	m_buttonSpacing = 120;
 	int textDropOffset = 15;
-	sf::String m_Texts[] = { "Start Game", "Database Editor", "Exit Game" };
+	sf::String m_Texts[] = { "Go To Match Day", "Database Editor", "Exit Game" };
 
 	m_font = t_font;
 
@@ -43,12 +43,19 @@ void MainMenu::initialise(sf::Font& t_font)
 		auto& text = m_text.emplace_back(m_font);
 		text.setFont(m_font);
 		text.setString(m_Texts[i]);
-		text.setFillColor(sf::Color::White);
+		text.setFillColor(sf::Color::Black);
 		text.setCharacterSize(40);
 		sf::FloatRect textSize = text.getGlobalBounds();
 		float textOffset = (m_buttonWidth - textSize.size.x) / (2);
 		text.setPosition({ m_xOffset + textOffset, m_buttonSpacing * i + m_yOffset + textDropOffset });
 	}
+	if (!bg_txt.loadFromFile("ASSETS/IMAGES/mainmenu.png"))
+	{
+		std::cout << "couldn't load main menu background\n";
+	}
+	bg_s.setTexture(bg_txt);
+	bg_s.setTextureRect(sf::IntRect({ 0,0 }, { 1920,1080 }));
+	bg_s.setPosition({ 0,0 });
 }
 
 void MainMenu::processInput(sf::Event& t_event, sf::RenderWindow& t_window)
@@ -71,23 +78,23 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 	for (int i = 0; i < m_buttonCount; i++)
 	{
 		m_text[i].setFillColor(sf::Color::White);
-		m_buttonSprite[i].setColor(sf::Color::White);
+		m_buttonSprite[i].setColor(sf::Color{0,100,0,255});
 	}
 	if (mouseLocation.x > m_xOffset && mouseLocation.x < m_xOffset + m_buttonWidth)
 	{
 		if (mouseLocation.y > m_yOffset && mouseLocation.y < m_yOffset + m_buttonHeight)
 		{
-			m_buttonSprite[0].setColor(sf::Color{ 100,100,100,255 });
-			m_text[0].setFillColor(sf::Color{ 75,75,75,255 });
+			m_buttonSprite[0].setColor(sf::Color{ 0,50,0,255 });
+			//m_text[0].setFillColor(sf::Color{ 75,75,75,255 });
 			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
 			{
-				Game::currentState = GameState::GamePlay;
+				Game::currentState = GameState::MatchDay;
 			}
 		}
 		if (mouseLocation.y > m_yOffset + m_buttonSpacing && mouseLocation.y < m_yOffset + m_buttonHeight + m_buttonSpacing)
 		{
-			m_buttonSprite[1].setColor(sf::Color{ 100,100,100,255 });
-			m_text[1].setFillColor(sf::Color{ 75,75,75,255 });
+			m_buttonSprite[1].setColor(sf::Color{ 0,50,0,255 });
+			//m_text[1].setFillColor(sf::Color{ 75,75,75,255 });
 			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
 			{
 				Game::currentState = GameState::Editor;
@@ -95,8 +102,8 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		}
 		if (mouseLocation.y > m_yOffset + (m_buttonSpacing * 2) && mouseLocation.y < m_yOffset + m_buttonHeight + (m_buttonSpacing * 2))
 		{
-			m_buttonSprite[2].setColor(sf::Color{ 100,100,100,255 });
-			m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
+			m_buttonSprite[2].setColor(sf::Color{ 0,50,0,255 });
+			//m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
 			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
 			{
 				t_window.close();
@@ -108,6 +115,7 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 void MainMenu::render(sf::RenderWindow& t_window)
 {
 	t_window.setView(m_mainMenuView);
+	t_window.draw(bg_s);
 	for (int i = 0; i < m_buttonCount; i++)
 	{
 		t_window.draw(m_buttonSprite[i]);

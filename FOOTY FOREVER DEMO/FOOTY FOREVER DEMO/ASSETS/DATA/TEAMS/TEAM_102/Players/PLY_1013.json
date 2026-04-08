@@ -1,0 +1,53 @@
+{
+    "PLY_1013": {
+        "age": 22,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#FFE0BD"
+        },
+        "height_cm": 173,
+        "loyalty": 94,
+        "name": "E. Nash",
+        "number": 7,
+        "position": "LeftWing",
+        "preferred_foot": "Right",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 76.0,
+            "aggression": 50.0,
+            "agility": 74.0,
+            "awareness": 55.0,
+            "balancing": 68.0,
+            "ball_control": 70.0,
+            "blocking": 5.0,
+            "body_strength": 42.0,
+            "curl": 79.0,
+            "dead_ball": 62.0,
+            "finishing": 55.0,
+            "fitness": 49.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 37.0,
+            "jumping_strength": 36.0,
+            "kick_power": 73.0,
+            "long_passing": 62.0,
+            "short_passing": 56.0,
+            "top_speed": 74.0,
+            "weak_foot_accuracy": 3
+        },
+        "team_id": "TEAM_102",
+        "traits": [],
+        "weight_kg": 65
+    }
+}

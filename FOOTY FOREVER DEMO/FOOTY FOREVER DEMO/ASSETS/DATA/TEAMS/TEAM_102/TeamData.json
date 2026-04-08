@@ -1,0 +1,61 @@
+{
+    "TEAM_102": {
+        "badge_id": "Badge_Default",
+        "full_name": "Monasterevin AFC",
+        "kits": {
+            "shirt": {
+                "design_layers": [],
+                "primary_color": "#184C0D"
+            },
+            "shorts": {
+                "design_layers": [],
+                "primary_color": "#0E4514"
+            },
+            "socks": {
+                "design_layers": [],
+                "primary_color": "#19470D"
+            }
+        },
+        "manager_name": "Mark Whelan",
+        "roster": [
+            "PLY_1011",
+            "PLY_1012",
+            "PLY_1013",
+            "PLY_1014",
+            "PLY_1015",
+            "PLY_1016",
+            "PLY_1017",
+            "PLY_1018",
+            "PLY_1019",
+            "PLY_1020",
+            "PLY_1021"
+        ],
+        "short_name": "MVN",
+        "stadium_name": "Toughers Road",
+        "tactics": {
+            "attacking_width": 79,
+            "build_up_play": 63,
+            "captain_id": "PLY_1021",
+            "defensive_depth": 90,
+            "formation": "4-4-2",
+            "free_kick_taker_id": "PLY_1013",
+            "left_corner_taker_id": "PLY_1011",
+            "penalty_taker_id": "PLY_1012",
+            "right_corner_taker_id": "PLY_1011",
+            "starting_xi": {
+                "AttackingMid": "PLY_1014",
+                "CenterMid": "PLY_1015",
+                "DefensiveMid": "PLY_1016",
+                "Goalkeeper": "PLY_1021",
+                "LCenterBack": "PLY_1020",
+                "LeftBack": "PLY_1017",
+                "LeftWing": "PLY_1013",
+                "RCenterBack": "PLY_1019",
+                "RightBack": "PLY_1018",
+                "RightWing": "PLY_1011",
+                "Striker": "PLY_1012"
+            }
+        },
+        "ui_color": "#125121"
+    }
+}

@@ -14,7 +14,7 @@ void LicenseScreen::initialise(sf::Font& t_font)
 	m_font = t_font;
 	m_text.setCharacterSize(60U);
 	m_text.setFillColor(sf::Color::White);
-	m_text.setString("Protorai Games Presents");
+	m_text.setString("All names are purely fictional.\n any resemblance to real names\nis purely coincidental.");
 
 	sf::FloatRect textSize = m_text.getGlobalBounds();
 	float xPosition = 1920 / 2.0f - textSize.size.x / 2.0f; //middle of text put on middle of screen

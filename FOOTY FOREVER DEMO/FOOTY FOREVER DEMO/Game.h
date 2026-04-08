@@ -8,6 +8,7 @@
 #include "Help.h"
 #include "EditorScreen.h" // <-- NEW
 #include "GameDatabase.h"
+#include "MatchDayScreen.h"
 
 enum class
 	GameState
@@ -18,7 +19,8 @@ enum class
 	MainMenu,
 	Help,
 	GamePlay,
-	Editor
+	Editor,
+	MatchDay
 };
 
 
@@ -43,6 +45,7 @@ private:
 	void render();
 
 	void initialiseStates();
+	void ApplyBrazilTheme();
 
 	sf::Font m_font;
 	sf::RenderWindow m_window; // main SFML window
@@ -52,6 +55,7 @@ private:
 	MainMenu m_mainMenuScreen;
 	Help m_helpScreen;
 	EditorScreen m_editorScreen;
+	MatchDayScreen m_matchDayScreen;
 	std::unique_ptr<GamePlay> m_gamingScreen;
 
 	bool m_exitGame; // control exiting game

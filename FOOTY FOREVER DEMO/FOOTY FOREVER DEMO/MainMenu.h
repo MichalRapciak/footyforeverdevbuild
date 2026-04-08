@@ -18,6 +18,8 @@ protected:
 	std::vector<sf::Sprite> m_buttonSprite;
 	std::vector<sf::Text> m_text;
 	sf::Font m_font;
+	sf::Sprite bg_s;
+	sf::Texture bg_txt;
 
 	float m_yOffset{ 0.0f };
 	float m_xOffset{ 0.0f };

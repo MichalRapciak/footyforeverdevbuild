@@ -1,7 +1,7 @@
 #include "Help.h"
 #include "Game.h"
 
-Help::Help() : m_helpText(m_font)
+Help::Help() : m_helpText(m_font), bg_s(bg_txt)
 {
 }
 

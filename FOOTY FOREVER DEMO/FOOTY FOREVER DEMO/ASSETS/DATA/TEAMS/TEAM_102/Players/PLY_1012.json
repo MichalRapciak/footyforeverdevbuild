@@ -1,0 +1,53 @@
+{
+    "PLY_1012": {
+        "age": 23,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#DDA46D"
+        },
+        "height_cm": 190,
+        "loyalty": 88,
+        "name": "A. Kazarinovs",
+        "number": 13,
+        "position": "Striker",
+        "preferred_foot": "Right",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 57.0,
+            "aggression": 75.0,
+            "agility": 54.0,
+            "awareness": 47.0,
+            "balancing": 32.0,
+            "ball_control": 50.0,
+            "blocking": 4.0,
+            "body_strength": 61.0,
+            "curl": 67.0,
+            "dead_ball": 63.0,
+            "finishing": 70.0,
+            "fitness": 13.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 68.0,
+            "jumping_strength": 43.0,
+            "kick_power": 79.0,
+            "long_passing": 49.0,
+            "short_passing": 51.0,
+            "top_speed": 52.0,
+            "weak_foot_accuracy": 2
+        },
+        "team_id": "TEAM_102",
+        "traits": [],
+        "weight_kg": 75
+    }
+}

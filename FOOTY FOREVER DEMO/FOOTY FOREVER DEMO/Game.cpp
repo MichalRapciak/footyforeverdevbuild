@@ -91,6 +91,10 @@ void Game::processEvents()
 		case GameState::Editor:
 			ImGui::SFML::ProcessEvent(m_window, *event);
 			m_editorScreen.processEvents(*event);
+			break;
+		case GameState::MatchDay:
+			ImGui::SFML::ProcessEvent(m_window, *event);
+			break;
 		default:
 			break;
 		}
@@ -161,6 +165,22 @@ void Game::update(sf::Time t_deltaTime)
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_editorScreen.update(t_deltaTime, m_window);
 		break;
+	case GameState::MatchDay:
+		ImGui::SFML::Update(m_window, t_deltaTime);
+		m_matchDayScreen.update(t_deltaTime, m_window);
+
+		// --- INTERCEPT THE MATCH START ---
+		if (currentState == GameState::GamePlay)
+		{
+			// 1. Wipe the old match
+			m_gamingScreen.reset();
+			m_gamingScreen = std::make_unique<GamePlay>();
+			m_gamingScreen->initialise(m_font);
+
+			// 2. Load the specific matchup WITH the chosen player!
+			m_gamingScreen->setupMatch(m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
+		}
+		break;
 	default:
 		break;
 	}
@@ -195,6 +215,10 @@ void Game::render()
 		m_editorScreen.render(m_window);
 		ImGui::SFML::Render(m_window);
 		break;
+	case GameState::MatchDay:
+		m_matchDayScreen.render(m_window);
+		ImGui::SFML::Render(m_window);
+		break;
 	default:
 		break;
 	}
@@ -208,18 +232,60 @@ void Game::render()
 void Game::initialiseStates()
 {
     ImGui::SFML::Init(m_window);
-	m_database.loadPlayersFromFile("ASSETS/DATA/players.json");
-	m_database.loadTeamsFromFile("ASSETS/DATA/teams.json");
-	if (!m_font.openFromFile("ASSETS\\FONTS\\ariblk.ttf"))
+	ApplyBrazilTheme();
+	m_database.loadDatabase("ASSETS/DATA");
+	if (!m_font.openFromFile("ASSETS\\FONTS\\agencyr.ttf"))
 	{
-		std::cout << "problem loading arial black font" << std::endl;
+		std::cout << "problem loading agency r  font" << std::endl;
 	}
 	m_editorScreen.init(m_font, m_database);
+	m_matchDayScreen.init(m_font, m_database);
 	m_licenseScreen.initialise(m_font);
 	m_splashScreen.initialise(m_font);
 	m_mainMenuScreen.initialise(m_font);
 	m_helpScreen.initialise(m_font);
 	m_gamingScreen = std::make_unique<GamePlay>();
 	m_gamingScreen->initialise(m_font);
+}
+
+void Game::ApplyBrazilTheme()
+{
+	ImGuiStyle& style = ImGui::GetStyle();
+	ImVec4* colors = style.Colors;
+
+	// --- FRAMES (Input boxes, Dropdowns, Slider tracks) ---
+	// Faint Deep Blue
+	colors[ImGuiCol_FrameBg] = ImVec4(0.05f, 0.15f, 0.25f, 0.5f);
+	colors[ImGuiCol_FrameBgHovered] = ImVec4(0.1f, 0.25f, 0.35f, 0.7f);
+	colors[ImGuiCol_FrameBgActive] = ImVec4(0.15f, 0.35f, 0.45f, 0.8f);
+
+	// --- BUTTONS ---
+	// Muted Forest Green -> Gold when clicked
+	colors[ImGuiCol_Button] = ImVec4(0.1f, 0.35f, 0.2f, 0.7f);
+	colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.45f, 0.25f, 0.8f);
+	colors[ImGuiCol_ButtonActive] = ImVec4(0.6f, 0.5f, 0.1f, 0.9f);
+
+	// --- HEADERS (Selectable items in your lists, TreeNodes) ---
+	// Same as buttons: Green transitioning to Gold
+	colors[ImGuiCol_Header] = ImVec4(0.1f, 0.35f, 0.2f, 0.5f);
+	colors[ImGuiCol_HeaderHovered] = ImVec4(0.15f, 0.45f, 0.25f, 0.7f);
+	colors[ImGuiCol_HeaderActive] = ImVec4(0.6f, 0.5f, 0.1f, 0.8f);
+
+	// --- TABS ---
+	colors[ImGuiCol_Tab] = ImVec4(0.05f, 0.15f, 0.25f, 0.7f);
+	colors[ImGuiCol_TabHovered] = ImVec4(0.1f, 0.4f, 0.2f, 0.8f);
+	colors[ImGuiCol_TabActive] = ImVec4(0.6f, 0.5f, 0.1f, 0.9f);
+	colors[ImGuiCol_TabUnfocused] = ImVec4(0.05f, 0.15f, 0.25f, 0.7f);
+	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.4f, 0.35f, 0.1f, 0.8f);
+
+	// --- SLIDER GRABS (The little handle you drag) ---
+	// Soft Gold/Yellow so it pops against the dark background
+	colors[ImGuiCol_SliderGrab] = ImVec4(0.6f, 0.5f, 0.1f, 0.8f);
+	colors[ImGuiCol_SliderGrabActive] = ImVec4(0.8f, 0.7f, 0.1f, 0.9f);
+
+	// --- TITLE BARS (If you ever enable window dragging/titles) ---
+	colors[ImGuiCol_TitleBg] = ImVec4(0.05f, 0.15f, 0.25f, 0.8f);
+	colors[ImGuiCol_TitleBgActive] = ImVec4(0.1f, 0.35f, 0.2f, 0.8f);
+	colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.05f, 0.15f, 0.25f, 0.5f);
 }
 

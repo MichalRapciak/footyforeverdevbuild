@@ -1,0 +1,53 @@
+{
+    "PLY_1021": {
+        "age": 22,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#FFE0BD"
+        },
+        "height_cm": 190,
+        "loyalty": 92,
+        "name": "K. Ryan",
+        "number": 1,
+        "position": "Goalkeeper",
+        "preferred_foot": "Right",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 53.0,
+            "aggression": 69.0,
+            "agility": 37.0,
+            "awareness": 43.0,
+            "balancing": 58.0,
+            "ball_control": 35.0,
+            "blocking": 46.0,
+            "body_strength": 60.0,
+            "curl": 38.0,
+            "dead_ball": 19.0,
+            "finishing": 9.0,
+            "fitness": 67.0,
+            "gk_awareness": 73.0,
+            "gk_blocking": 71.0,
+            "gk_catching": 64.0,
+            "gk_coverage": 74.0,
+            "gk_reactions": 67.0,
+            "gk_throwing": 68.0,
+            "heading": 45.0,
+            "jumping_strength": 82.0,
+            "kick_power": 71.0,
+            "long_passing": 54.0,
+            "short_passing": 32.0,
+            "top_speed": 48.0,
+            "weak_foot_accuracy": 4
+        },
+        "team_id": "TEAM_102",
+        "traits": [],
+        "weight_kg": 70
+    }
+}

@@ -25,6 +25,18 @@
     <Filter Include="Resource Files\Menus">
       <UniqueIdentifier>{94016784-511e-44c7-a445-c0bdaa50c156}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\Engines">
+      <UniqueIdentifier>{e825e0c3-fe65-4994-9bb3-232e5ec9872e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Engines">
+      <UniqueIdentifier>{4bf38c0b-1588-41aa-acb6-16bbb23b1973}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Entities">
+      <UniqueIdentifier>{11843f51-f300-475a-9bca-f8639941e410}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Entities">
+      <UniqueIdentifier>{737def84-d8c0-444e-8add-d6a6edb299ea}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -36,28 +48,7 @@
     <ClCompile Include="GamePlay.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
-    <ClCompile Include="UserPlayer.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="UserController.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Level.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Ball.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="NPCPlayer.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="NPCController.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Player.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MatchReferee.cpp">
+    <ClCompile Include="Stadium.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
     <ClCompile Include="GameDatabase.cpp">
@@ -78,12 +69,6 @@
     <ClCompile Include="imgui-1.92.6\imgui-SFML.cpp">
       <Filter>Source Files\IMGUI</Filter>
     </ClCompile>
-    <ClCompile Include="AnimationServer.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Animator.cpp">
-      <Filter>Resource Files</Filter>
-    </ClCompile>
     <ClCompile Include="Help.cpp">
       <Filter>Resource Files\Menus</Filter>
     </ClCompile>
@@ -99,6 +84,42 @@
     <ClCompile Include="SplashScreen.cpp">
       <Filter>Resource Files\Menus</Filter>
     </ClCompile>
+    <ClCompile Include="MatchDayScreen.cpp">
+      <Filter>Resource Files\Menus</Filter>
+    </ClCompile>
+    <ClCompile Include="Animator.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimationServer.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="ReplayEngine.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="UserPlayer.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="UserController.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Player.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="NPCPlayer.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Ball.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="NPCController.cpp">
+      <Filter>Resource Files\Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="MatchReferee.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="SoundManager.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h">
@@ -107,40 +128,7 @@
     <ClInclude Include="GamePlay.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Entity.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="UserPlayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="PlayerStats.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="UserController.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Level.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Ball.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="NPCPlayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="PlayerState.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="NPCController.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Player.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Team.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MatchReferee.h">
+    <ClInclude Include="Stadium.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GameDatabase.h">
@@ -173,9 +161,6 @@
     <ClInclude Include="imgui-1.92.6\imstb_truetype.h">
       <Filter>Source Files\IMGUI</Filter>
     </ClInclude>
-    <ClInclude Include="Direction.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="EditorScreen.h">
       <Filter>Header Files\Menus</Filter>
     </ClInclude>
@@ -191,12 +176,6 @@
     <ClInclude Include="SplashScreen.h">
       <Filter>Header Files\Menus</Filter>
     </ClInclude>
-    <ClInclude Include="AnimationServer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Animator.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="TacticalZone.h">
       <Filter>Header Files\Tactical Info</Filter>
     </ClInclude>
@@ -211,6 +190,57 @@
     </ClInclude>
     <ClInclude Include="Pitch.h">
       <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="MatchDayScreen.h">
+      <Filter>Header Files\Menus</Filter>
+    </ClInclude>
+    <ClInclude Include="Animator.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimationServer.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="ReplayEngine.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="Team.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="Direction.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="Ball.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="NPCPlayer.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="UserPlayer.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="MatchReferee.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="Player.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="NPCController.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="UserController.h">
+      <Filter>Header Files\Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerState.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerStats.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
+    <ClInclude Include="SoundManager.h">
+      <Filter>Header Files\Engines</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

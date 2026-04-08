@@ -14,6 +14,8 @@ public:
 protected:
 	sf::Font m_font;
 	sf::Text m_splashText;
+	sf::Sprite bg_s;
+	sf::Texture bg_txt;
 
 	bool m_anyKeyPressed{ false }; //boolean for splash screen to close
 

@@ -20,6 +20,13 @@ enum class AIRole {
     Idle
 };
 
+enum class AIUrgency {
+    Recovery,      // Jogging back into formation (Low payoff)
+    Pressing,      // Closing down the opponent (Medium payoff)
+    AttackingRun,  // Making a run into space (High payoff)
+    Critical       // Receiving a pass, loose ball, or emergency defending (Must sprint)
+};
+
 class NPCController
 {
 public:
@@ -66,7 +73,7 @@ private:
         const std::vector<Player*> team, const std::vector<Player*> opposition,
         UserPlayer& user);
 
-    sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition);
+    sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch);
 
     void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition);
 
@@ -84,6 +91,8 @@ private:
     void updateNPCAirPhysics(NPCPlayer& npc, float dt);
     void handleNPCJumpLogic(NPCPlayer& npc, Ball& ball);
     bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot);
+
+    bool evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall);
 
     // --------------------------------------------------------
     // 3. GOALKEEPING LOGIC (New Section)
@@ -106,7 +115,7 @@ private:
     /// Uses GkThrowing: Handles distribution once the keeper has possession
     void distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates);
 
-    void triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed);
+    void triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed, float targetZ);
 
     // 4. UTILITY FUNCTIONS
     //float getDistance(sf::Vector2f a, sf::Vector2f b);

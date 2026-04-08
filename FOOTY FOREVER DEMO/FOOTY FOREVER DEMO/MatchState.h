@@ -11,5 +11,9 @@ enum class MatchState {
     Penalty,
     GoalScored,   // Celebration time!
     HalfTime,
-    FullTime
+    FullTime,
+    FoulDelay,
+    OutOfBoundsDelay,
+    RequestReplay,
+    ReplayPlaying
 };

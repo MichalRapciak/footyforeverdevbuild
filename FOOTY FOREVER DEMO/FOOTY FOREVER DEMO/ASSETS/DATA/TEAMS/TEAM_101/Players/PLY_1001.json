@@ -1,0 +1,53 @@
+{
+    "PLY_1001": {
+        "age": 22,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#B58354"
+        },
+        "height_cm": 187,
+        "loyalty": 48,
+        "name": "H. Ekitike",
+        "number": 22,
+        "position": "Striker",
+        "preferred_foot": "Right",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 76.0,
+            "aggression": 27.0,
+            "agility": 78.0,
+            "awareness": 84.0,
+            "balancing": 78.0,
+            "ball_control": 80.0,
+            "blocking": 7.0,
+            "body_strength": 77.0,
+            "curl": 75.0,
+            "dead_ball": 68.0,
+            "finishing": 82.0,
+            "fitness": 67.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 79.0,
+            "jumping_strength": 80.0,
+            "kick_power": 81.0,
+            "long_passing": 69.0,
+            "short_passing": 76.0,
+            "top_speed": 74.0,
+            "weak_foot_accuracy": 4
+        },
+        "team_id": "TEAM_101",
+        "traits": [],
+        "weight_kg": 73
+    }
+}

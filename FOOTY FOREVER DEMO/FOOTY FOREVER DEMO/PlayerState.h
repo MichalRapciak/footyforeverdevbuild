@@ -6,5 +6,6 @@ enum class PlayerState {
 	Stunned, // For when they miss a tackle or get hit
 	Diving,
 	Stumbled,
-	Jumping
+	Jumping,
+	FallOver
 };

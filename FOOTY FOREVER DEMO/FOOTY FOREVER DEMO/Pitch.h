@@ -85,9 +85,9 @@ struct Pitch {
 
 struct Goal {
     // --- 1. CORE PROPERTIES ---
-    Team team;                  // Home or Away
-    sf::Vector2f center;        // The center point of the goal line (3500.f)
-    bool isHomeGoal;            // Side of the pitch
+    Team team;
+    sf::Vector2f center;
+    bool isHomeGoal;
 
     // --- 2. THE POSTS (Physics & Visuals) ---
     sf::CircleShape topPost;
@@ -96,7 +96,6 @@ struct Goal {
     float crossbarHeight = 244.f;
     float barThickness = 24.f;
 
-    // NEW: We need uprights to connect the ground to the shifted crossbar!
     sf::RectangleShape visualCrossbar;
     sf::RectangleShape topUpright;
     sf::RectangleShape bottomUpright;
@@ -106,9 +105,89 @@ struct Goal {
     sf::FloatRect topSideNet;
     sf::FloatRect bottomSideNet;
 
-    // --- 4. VISUAL MESH ---
+    // --- 4. VISUAL MESHES ---
     sf::VertexArray netMesh;
+    sf::VertexArray shadowMesh; // Baked static shadows (Ambient + Floodlights)
     sf::Color netColor = sf::Color(255, 255, 255, 120);
+
+    // ==========================================
+    // --- SHADOW HELPERS ---
+    // ==========================================
+
+    // NEW: Helper to build baked ambient ground shadows (Ambient Occlusion)
+    void appendAmbientRect(sf::Vector2f center, sf::Vector2f size, std::uint8_t alpha = 100) {
+        sf::Color shadowColor(0, 0, 0, alpha); // Uses the custom alpha
+
+        float left = center.x - size.x / 2.f;
+        float right = center.x + size.x / 2.f;
+        float top = center.y - size.y / 2.f;
+        float bottom = center.y + size.y / 2.f;
+
+        // Two triangles making a flat rectangular quad on the grass
+        sf::Vertex v0{ {left, top}, shadowColor };
+        sf::Vertex v1{ {right, top}, shadowColor };
+        sf::Vertex v2{ {right, bottom}, shadowColor };
+        sf::Vertex v3{ {left, bottom}, shadowColor };
+
+        shadowMesh.append(v0);
+        shadowMesh.append(v1);
+        shadowMesh.append(v2);
+
+        shadowMesh.append(v0);
+        shadowMesh.append(v2);
+        shadowMesh.append(v3);
+    }
+
+    // Helper to build baked floodlight shadows
+    void appendPostShadow(sf::Vector2f postBase) {
+        sf::Vector2f lights[4] = {
+            {-500.f, -500.f},
+            {-500.f, 7500.f},
+            {10500.f, -500.f},
+            {10500.f, 7500.f}
+        };
+
+        const float lightHeight = 6000.f;
+        const float maxLightDist = 12500.f;
+
+        for (int i = 0; i < 4; ++i) {
+            sf::Vector2f toPost = postBase - lights[i];
+            float distXY = std::sqrt(toPost.x * toPost.x + toPost.y * toPost.y);
+
+            if (distXY > 0.1f) {
+                sf::Vector2f dir = toPost / distXY;
+                sf::Vector2f normal(-dir.y, dir.x);
+
+                float length = crossbarHeight * (distXY / lightHeight);
+                length = std::max(20.f, length);
+
+                float normalizedDist = std::min(distXY / maxLightDist, 1.0f);
+                float intensity = std::pow(1.0f - normalizedDist, 2.0f);
+                std::uint8_t alpha = static_cast<std::uint8_t>(70 * intensity);
+
+                if (alpha < 2) continue;
+
+                sf::Color baseColor(0, 0, 0, alpha);
+                sf::Color tipColor(0, 0, 0, 0);
+
+                float diffusion = 1.0f + (normalizedDist * 2.0f);
+                float width = postRadius;
+
+                sf::Vertex v0{ {postBase + normal * width}, baseColor };
+                sf::Vertex v1{ {postBase - normal * width}, baseColor };
+                sf::Vertex v2{ {postBase + (dir * length) + normal * (width * diffusion)}, tipColor };
+                sf::Vertex v3{ {postBase + (dir * length) - normal * (width * diffusion)}, tipColor };
+
+                shadowMesh.append(v0);
+                shadowMesh.append(v1);
+                shadowMesh.append(v2);
+
+                shadowMesh.append(v1);
+                shadowMesh.append(v2);
+                shadowMesh.append(v3);
+            }
+        }
+    }
 
     // --- 5. INITIALIZER ---
     void initialize(sf::Vector2f pos, bool homeSide)
@@ -118,14 +197,12 @@ struct Goal {
         float goalWidth = 732.0f;
         float netDepth = 225.0f;
         float step = 40.f;
-
-        // THE 3D MAGIC: Shift the top of the goal 120px in the +X direction
         float overhangX = 180.f;
 
         float topY = pos.y - (goalWidth / 2.f);
         float bottomY = pos.y + (goalWidth / 2.f);
 
-        // 1. Post Bases (Physical circles on the ground)
+        // 1. Post Bases 
         topPost.setRadius(postRadius);
         topPost.setOrigin({ postRadius, postRadius });
         topPost.setFillColor(sf::Color::White);
@@ -136,7 +213,7 @@ struct Goal {
         bottomPost.setFillColor(sf::Color::White);
         bottomPost.setPosition(sf::Vector2f{ pos.x, bottomY });
 
-        // 2. Uprights (Connecting the ground to the shifted crossbar)
+        // 2. Uprights 
         topUpright.setSize({ overhangX, barThickness });
         topUpright.setOrigin({ 0.f, barThickness / 2.f });
         topUpright.setFillColor(sf::Color::White);
@@ -151,9 +228,9 @@ struct Goal {
         visualCrossbar.setSize({ barThickness, goalWidth });
         visualCrossbar.setOrigin({ barThickness / 2.f, goalWidth / 2.f });
         visualCrossbar.setFillColor(sf::Color::White);
-        visualCrossbar.setPosition({ pos.x + overhangX, pos.y }); // Shifted!
+        visualCrossbar.setPosition({ pos.x + overhangX, pos.y });
 
-        // 4. Net Physics (Untouched, they stay flat on the grass!)
+        // 4. Net Physics 
         float netX = homeSide ? pos.x - netDepth : pos.x;
         float backX = homeSide ? pos.x - netDepth : pos.x + netDepth;
         backNet = sf::FloatRect({ backX, topY }, { 10.f, goalWidth });
@@ -164,13 +241,11 @@ struct Goal {
         netMesh.setPrimitiveType(sf::PrimitiveType::Lines);
         netMesh.clear();
 
-        // A. Sloped Back Net (From the overhang crossbar down to the back ground line)
         for (float y = topY; y <= bottomY; y += step) {
             netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + overhangX, y }, netColor });
             netMesh.append(sf::Vertex{ sf::Vector2f{ backX, y }, netColor });
         }
 
-        // B. Horizontal Net Lines (Following the slope)
         int numHorizLines = std::abs(backX - (pos.x + overhangX)) / step;
         for (int i = 0; i <= numHorizLines; ++i) {
             float t = (float)i / numHorizLines;
@@ -179,23 +254,49 @@ struct Goal {
             netMesh.append(sf::Vertex{ sf::Vector2f{ currX, bottomY }, netColor });
         }
 
-        // C. Side Netting (Fanning from the upright down to the back corner)
         for (float x = 0; x <= overhangX; x += step) {
-            // Top Side Net
             netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + x, topY }, netColor });
             netMesh.append(sf::Vertex{ sf::Vector2f{ backX, topY }, netColor });
-            // Bottom Side Net
             netMesh.append(sf::Vertex{ sf::Vector2f{ pos.x + x, bottomY }, netColor });
             netMesh.append(sf::Vertex{ sf::Vector2f{ backX, bottomY }, netColor });
         }
+
+        // ==========================================
+        // 6. BAKE ALL SHADOWS
+        // ==========================================
+        shadowMesh.setPrimitiveType(sf::PrimitiveType::Triangles);
+        shadowMesh.clear();
+
+        // A. Ambient Ground Shadows (The physical U-shaped footprint of the net)
+        // Main Goal Line (Shadow from crossbar & thick posts)
+        appendAmbientRect(pos, { barThickness + 6.f, goalWidth + barThickness + 6.f });
+
+        // Back Frame Line
+        appendAmbientRect({ backX, pos.y }, { 10.f, goalWidth + 10.f });
+
+        // Side Frame Lines
+        float sideCenterX = (pos.x + backX) / 2.f;
+        appendAmbientRect({ sideCenterX, topY }, { netDepth, 10.f });
+        appendAmbientRect({ sideCenterX, bottomY }, { netDepth, 10.f });
+
+        // --- NEW: The Faint Net Canopy Shadow ---
+        // Fills the entire interior of the frame with a very subtle (alpha 20) diffusion shadow
+        appendAmbientRect({ sideCenterX, pos.y }, { netDepth, goalWidth }, 20);
+
+        // B. Dynamic Floodlight Cast Shadows
+        appendPostShadow(topPost.getPosition());
+        appendPostShadow(bottomPost.getPosition());
     }
 
     void draw(sf::RenderWindow& window)
     {
+        // Draw the static baked shadows FIRST, so they lay perfectly on the grass
+        window.draw(shadowMesh);
+
         window.draw(netMesh);
         window.draw(topPost);
         window.draw(bottomPost);
-        window.draw(topUpright);    // Draw the new uprights!
+        window.draw(topUpright);
         window.draw(bottomUpright);
         window.draw(visualCrossbar);
     }

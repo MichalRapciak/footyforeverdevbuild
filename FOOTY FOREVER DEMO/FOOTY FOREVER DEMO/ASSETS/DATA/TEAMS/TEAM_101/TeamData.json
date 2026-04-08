@@ -1,0 +1,92 @@
+{
+    "TEAM_101": {
+        "badge_id": "Badge_LIV",
+        "full_name": "Liverpool FC",
+        "kits": {
+            "shirt": {
+                "badge_id": "Badge_LIV",
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shirt_VNeck_Collar"
+                    },
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shirt_SleeveCuffs"
+                    },
+                    {
+                        "color": "#B30E29",
+                        "texture_id": "Shirt_Pinstripes"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E",
+                "sponsor_id": "Logo_StandardChartered"
+            },
+            "shorts": {
+                "badge_id": "Badge_LIV",
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Shorts_SideStripe"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E"
+            },
+            "socks": {
+                "design_layers": [
+                    {
+                        "color": "#FFFFFF",
+                        "texture_id": "Socks_TopBand"
+                    }
+                ],
+                "manufacturer_id": "Logo_Nike",
+                "primary_color": "#C8102E"
+            }
+        },
+        "manager_name": "Jurgen Klopp",
+        "roster": [
+            "PLY_1000",
+            "PLY_1001",
+            "PLY_1002",
+            "PLY_1003",
+            "PLY_1004",
+            "PLY_1005",
+            "PLY_1006",
+            "PLY_1007",
+            "PLY_1008",
+            "PLY_1009",
+            "PLY_1010",
+            "PLY_1022",
+            "PLY_1023"
+        ],
+        "short_name": "LIV",
+        "stadium_name": "Anfield",
+        "tactics": {
+            "attacking_width": 79,
+            "build_up_play": 97,
+            "captain_id": "PLY_1007",
+            "defensive_depth": 29,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1004",
+            "left_corner_taker_id": "PLY_1002",
+            "penalty_taker_id": "PLY_1000",
+            "right_corner_taker_id": "PLY_1000",
+            "starting_xi": {
+                "AttackingMid": "PLY_1003",
+                "CenterMid": "PLY_1004",
+                "DefensiveMid": "PLY_1005",
+                "Goalkeeper": "PLY_1010",
+                "LCenterBack": "PLY_1007",
+                "LeftBack": "PLY_1006",
+                "LeftWing": "PLY_1002",
+                "RCenterBack": "PLY_1008",
+                "RightBack": "PLY_1009",
+                "RightWing": "PLY_1000",
+                "Striker": "PLY_1001"
+            }
+        },
+        "ui_color": "#FF102E"
+    }
+}

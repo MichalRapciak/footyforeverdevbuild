@@ -5,27 +5,37 @@
 #include <SFML/Graphics.hpp>
 #include <string>
 
-class EditorScreen
-{
+class EditorScreen {
 public:
     EditorScreen();
     ~EditorScreen();
 
-    // Pass the database in via reference so the editor can modify the live data
     void init(sf::Font& font, GameDatabase& database);
-
-    // Core loop functions
     void update(sf::Time dt, sf::RenderWindow& window);
     void render(sf::RenderWindow& window);
     void processEvents(sf::Event& event);
 
 private:
-    GameDatabase* m_db; // Pointer to the master database
-    sf::Font     m_font;
+    // --- UI Panel Helpers ---
+    void drawPlayerTab(float availableHeight);
+    void drawTeamTab(float availableHeight);
 
-    // Variables to track what we are currently looking at in the ImGui windows
+    // Team Sub-Tabs
+    void drawTeamGeneralTab(TeamData* t);
+    void drawTeamKitsTab(TeamData* t);
+    void drawTeamRosterTab(TeamData* t);
+    void drawTeamTacticsTab(TeamData* t);
+
+    // Global Footer
+    void drawFooter();
+
+    // --- State ---
+    sf::Font m_font;
+    GameDatabase* m_db;
     std::string m_selectedPlayerId;
     std::string m_selectedTeamId;
+    sf::Sprite bg_s;
+    sf::Texture bg_txt;
 };
 
 #endif // EDITORSCREEN_HPP

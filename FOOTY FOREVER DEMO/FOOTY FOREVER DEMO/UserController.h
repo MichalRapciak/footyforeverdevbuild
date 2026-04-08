@@ -1,5 +1,6 @@
 #pragma once
 #include <SFML/Graphics.hpp>
+#include "MatchState.h"
 
 class UserPlayer; // I call this class here so the PlayerController knows to expect a player when it's loaded, without having to load the class here.
 class GamePlay;
@@ -28,6 +29,12 @@ public:
 	float dist(sf::Vector2f p1, sf::Vector2f p2);
 
 private:
+	void executeKickRelease(GamePlay& game);
+	bool calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
+	void calculateGroundKick(float basePower, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
+	void applyPassingAssistance(GamePlay& game, sf::Vector2f& aimDir, float& finalPower, float basePower);
+	void applyShootingAimbot(GamePlay& game, sf::Vector2f& aimDir, float& vzPower, float finalPower);
+
 	UserPlayer& m_userPlayer;
 	sf::Vector2f m_speedVector{ 0,0 }; // Current speed vector
 	sf::Vector2f m_newPos{ 0,0 }; // New player position after speed vector is added on
@@ -63,6 +70,11 @@ private:
 	float decelMultiplier = 0;
 	float speed = 0;
 	float decelAmount = 0;
+
+	MatchState m_lastMatchState = MatchState::InPlay;
+	bool m_hadPossessionLastFrame = false;
+
+	void resetInputs();
 
 	bool isHighKick = false;
 	bool isJockeying = false;

@@ -1,0 +1,53 @@
+{
+    "PLY_1010": {
+        "age": 32,
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#DDB78C"
+        },
+        "height_cm": 189,
+        "loyalty": 84,
+        "name": "A. Becker",
+        "number": 1,
+        "position": "Goalkeeper",
+        "preferred_foot": "Right",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 60.0,
+            "aggression": 64.0,
+            "agility": 64.0,
+            "awareness": 74.0,
+            "balancing": 60.0,
+            "ball_control": 52.0,
+            "blocking": 72.0,
+            "body_strength": 77.0,
+            "curl": 75.0,
+            "dead_ball": 34.0,
+            "finishing": 8.0,
+            "fitness": 69.0,
+            "gk_awareness": 95.0,
+            "gk_blocking": 90.0,
+            "gk_catching": 90.0,
+            "gk_coverage": 92.0,
+            "gk_reactions": 87.0,
+            "gk_throwing": 92.0,
+            "heading": 36.0,
+            "jumping_strength": 92.0,
+            "kick_power": 88.0,
+            "long_passing": 87.0,
+            "short_passing": 67.0,
+            "top_speed": 51.0,
+            "weak_foot_accuracy": 3
+        },
+        "team_id": "TEAM_101",
+        "traits": [],
+        "weight_kg": 81
+    }
+}

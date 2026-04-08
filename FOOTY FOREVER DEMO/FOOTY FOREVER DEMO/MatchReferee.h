@@ -33,6 +33,16 @@ public:
     float getMatchMinute() const { return m_matchMinute; }
     int getHalf() const { return m_half; }
 
+    void applyForfeitScore(bool homeForfeited);
+    // Teleports the players but holds the game state
+    void setupReplayTeleports(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players);
+
+    Team getAwardedTo() { return m_awardedTo; }
+
+    // Releases the hold and officially starts the Set Piece
+    void resumeFromReplay();
+    void startMatch(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players);
+
 private:
     MatchState m_matchState = MatchState::KickOff;
     Team m_awardedTo;
@@ -47,6 +57,9 @@ private:
     float m_whistleTimer = 0.0f;
     int m_homeScore = 0;
     int m_awayScore = 0;
+
+    MatchState m_pendingState = MatchState::InPlay;
+    float m_foulDelayTimer = 0.f;
 
     TacticalContext m_attackCtx;
     TacticalContext m_defendCtx;

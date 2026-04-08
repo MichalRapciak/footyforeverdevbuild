@@ -13,3 +13,6 @@ enum class PositionRole {
     RightWing,
     Striker
 };
+
+PositionRole stringToRole(const std::string& str);
+std::string roleToString(PositionRole role);
