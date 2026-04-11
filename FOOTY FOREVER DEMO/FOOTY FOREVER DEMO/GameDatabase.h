@@ -5,6 +5,7 @@
 #include <SFML/Graphics.hpp>
 #include "PlayerStats.h"
 #include "PositionRole.h"
+#include "Playstyle.h"
 
 // --- SUB-STRUCTURES ---
 
@@ -39,7 +40,8 @@ struct TeamTactics {
 
     // --- 2. MATCHDAY SQUAD ---
     // Maps a specific spot on the pitch to a Player ID
-    std::map<PositionRole, std::string> startingXI;
+    std::map<int, std::string> startingXI; // <--- CHANGED HERE
+
 
     // The players sitting on the bench available for substitution
     std::vector<std::string> benchIds;
@@ -53,9 +55,12 @@ struct TeamTactics {
 
     // --- 4. TACTICAL SLIDERS (0 - 100) ---
     // These can feed directly into your PositioningMasks later!
-    int defensiveDepth = 50;  // 0 = Park the bus, 100 = High press
-    int buildUpPlay = 50;     // 0 = Short Tiki-Taka, 100 = Long Ball Counter
+    int defensiveDepth = 50;  // 0 = High Line, 100 = Low Block
+    int passingLength = 50;     // 0 = Long Passes Forward, 100 = Tiki Taka
     int attackingWidth = 50;  // 0 = Narrow, 100 = Hug touchlines
+    int pressingIntensity = 50; // 0 = Little to no Pressing, 100 = Gegenpressing
+    int positionalFreedom = 50; // 0 = Stay in shape, 100 = Full Fluidity and Rotations
+    int passingSpeed = 50; // 0 = slow, possession based, 100 = fast, counter attacks
 };
 
 // --- CORE ENTITIES ---
@@ -76,6 +81,7 @@ struct PlayerData {
 
     std::vector<std::string> traits;
     PositionRole positionRole; // <-- CHANGED to your Enum!
+    Playstyle playstyle;
     PlayerStats stats;        // <-- CHANGED to your Struct!
 
     PlayerGraphicsData graphics;
@@ -119,13 +125,10 @@ public:
     void saveTeam(const std::string& id, const std::string& baseDir);
     void deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId);
 
-    // --- TEMPORARY MIGRATION TOOL ---
-    //void migrateLegacyDatabase(const std::string& oldPlayersFile, const std::string& oldTeamsFile, const std::string& newBaseDir);
-
     // Helper getters
     PlayerData* getPlayer(const std::string& id);
     TeamData* getTeam(const std::string& id);
 };
 
 std::string roleToString(PositionRole role);
-std::vector<std::vector<PositionRole>> getFormationLayout(const std::string& formationName);
+std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const std::string& formationName);

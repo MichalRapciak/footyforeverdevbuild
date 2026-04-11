@@ -8,11 +8,12 @@
 class Ball;
 struct Pitch;
 class Player;
+struct Goal;
 
 // 2. The Referee Class
 class MatchReferee {
 public:
-    void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt);
+    void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal);
     void prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players);
 
     Player* getSetPieceTaker() const { return m_setPieceTaker; }
@@ -20,18 +21,19 @@ public:
 
     void updateMatchContexts();
     TacticalContext getTacticalContext(Team team, bool isTaker) const;
-    PositioningMask getPositioningMask(Team team, PositionRole role, const Pitch& pitch) const;
+    PositioningMask getPositioningMask(const Player* p, const Pitch& pitch) const;
     int getHomeScore() { return m_homeScore; }
     int getAwayScore() { return m_awayScore; }
 
 
     MatchState getMatchState() const { return m_matchState; }
     void setMatchState(MatchState newState) { m_matchState = newState; }
-    void checkBoundaries(Ball& ball, const Pitch& pitch);
-    bool checkGoalScored(Ball& ball, const Pitch& pitch);
+    void checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal);
+    bool checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal);
     void awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim);
     float getMatchMinute() const { return m_matchMinute; }
     int getHalf() const { return m_half; }
+    std::vector<Player*> getFlaggedPlayers() { return m_offsideSnapshot.flaggedPlayers; }
 
     void applyForfeitScore(bool homeForfeited);
     // Teleports the players but holds the game state
@@ -42,8 +44,22 @@ public:
     // Releases the hold and officially starts the Set Piece
     void resumeFromReplay();
     void startMatch(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players);
+    void checkOffsideLogic(Ball& ball, const std::vector<Player*>& players, float homeOffsideLine, float awayOffsideLine, const Pitch& pitch);
 
 private:
+
+    struct OffsideSnapshot {
+        Team attackingTeam;
+        std::vector<Player*> flaggedPlayers; // Players past the line during the kick
+        bool isActive = false;
+    };
+
+    OffsideSnapshot m_offsideSnapshot;
+    Player* m_prevBallOwner = nullptr; // To detect the exact frame of a pass
+
+    // Helper to award the specific offside restart
+    void awardOffside(Player* offender, Ball& ball, const Pitch& pitch);
+
     MatchState m_matchState = MatchState::KickOff;
     Team m_awardedTo;
     sf::Vector2f m_restartPos;

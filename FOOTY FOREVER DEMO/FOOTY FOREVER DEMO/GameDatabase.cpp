@@ -1,4 +1,5 @@
 #include "GameDatabase.h"
+#include "PlaystyleDatabase.h"
 #include "json.hpp"
 #include <fstream>
 #include <iostream>
@@ -10,58 +11,56 @@ namespace fs = std::filesystem;
 
 using json = nlohmann::json;
 
-// Maps a formation string into visual "Lines" (GK, DEF, MID, ATT) using the 11 available enums.
-// Since the GK is at the top attacking down, Right is on the Left of the screen, and Left is on the Right!
-std::vector<std::vector<PositionRole>> getFormationLayout(const std::string& formation) {
+// Maps a formation string into visual "Lines" (GK, DEF, MID, ATT).
+// Now includes the strict 0-10 Slot ID!
+std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const std::string& formation) {
     if (formation == "4-4-2") {
         return {
-            {PositionRole::Goalkeeper},
-            {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::LCenterBack, PositionRole::LeftBack},
-            {PositionRole::RightWing, PositionRole::CenterMid, PositionRole::DefensiveMid, PositionRole::LeftWing},
-            {PositionRole::Striker, PositionRole::AttackingMid} // AM acts as Second Striker
+            { {0, PositionRole::Goalkeeper} },
+            { {1, PositionRole::RightBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::LeftBack} },
+            { {5, PositionRole::RightMid}, {6, PositionRole::CenterMid}, {7, PositionRole::DefensiveMid}, {8, PositionRole::LeftMid} },
+            { {9, PositionRole::Striker}, {10, PositionRole::CenterForward} }
         };
     }
     else if (formation == "4-2-4") {
         return {
-            {PositionRole::Goalkeeper},
-            {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::LCenterBack, PositionRole::LeftBack},
-            {PositionRole::CenterMid, PositionRole::DefensiveMid},
-            {PositionRole::RightWing, PositionRole::Striker, PositionRole::AttackingMid, PositionRole::LeftWing}
+            { {0, PositionRole::Goalkeeper} },
+            { {1, PositionRole::RightBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::LeftBack} },
+            { {5, PositionRole::CenterMid}, {6, PositionRole::DefensiveMid} },
+            { {7, PositionRole::RightWing}, {8, PositionRole::Striker}, {9, PositionRole::AttackingMid}, {10, PositionRole::LeftWing} }
         };
     }
     else if (formation == "5-3-2") {
         return {
-            {PositionRole::Goalkeeper},
-            // DM drops to become the Central Center-Back (Sweeper)
-            {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::DefensiveMid, PositionRole::LCenterBack, PositionRole::LeftBack},
-            // Wingers drop to act as wide midfielders
-            {PositionRole::RightWing, PositionRole::CenterMid, PositionRole::LeftWing},
-            {PositionRole::Striker, PositionRole::AttackingMid}
+            { {0, PositionRole::Goalkeeper} },
+            { {1, PositionRole::RightWingBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::CenterBack}, {5, PositionRole::LeftWingBack} },
+            { {6, PositionRole::RightMid}, {7, PositionRole::CenterMid}, {8, PositionRole::LeftMid} },
+            { {9, PositionRole::Striker}, {10, PositionRole::CenterForward} }
         };
     }
     else if (formation == "5-2-3") {
         return {
-            {PositionRole::Goalkeeper},
-            {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::DefensiveMid, PositionRole::LCenterBack, PositionRole::LeftBack},
-            {PositionRole::AttackingMid, PositionRole::CenterMid},
-            {PositionRole::RightWing, PositionRole::Striker, PositionRole::LeftWing}
+            { {0, PositionRole::Goalkeeper} },
+            { {1, PositionRole::RightWingBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::CenterBack}, {5, PositionRole::LeftWingBack} },
+            { {6, PositionRole::AttackingMid}, {7, PositionRole::CenterMid} },
+            { {8, PositionRole::RightWing}, {9, PositionRole::Striker}, {10, PositionRole::LeftWing} }
         };
     }
     else if (formation == "5-4-1") {
         return {
-            {PositionRole::Goalkeeper},
-            {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::DefensiveMid, PositionRole::LCenterBack, PositionRole::LeftBack},
-            {PositionRole::RightWing, PositionRole::AttackingMid, PositionRole::CenterMid, PositionRole::LeftWing},
-            {PositionRole::Striker}
+            { {0, PositionRole::Goalkeeper} },
+            { {1, PositionRole::RightWingBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::CenterBack}, {5, PositionRole::LeftWingBack} },
+            { {6, PositionRole::RightMid}, {7, PositionRole::AttackingMid}, {8, PositionRole::CenterMid}, {9, PositionRole::LeftMid} },
+            { {10, PositionRole::Striker} }
         };
     }
 
     // Default to standard 4-3-3
     return {
-        {PositionRole::Goalkeeper},
-        {PositionRole::RightBack, PositionRole::RCenterBack, PositionRole::LCenterBack, PositionRole::LeftBack},
-        {PositionRole::AttackingMid, PositionRole::CenterMid, PositionRole::DefensiveMid},
-        {PositionRole::RightWing, PositionRole::Striker, PositionRole::LeftWing}
+        { {0, PositionRole::Goalkeeper} },
+        { {1, PositionRole::RightBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::LeftBack} },
+        { {5, PositionRole::AttackingMid}, {6, PositionRole::CenterMid}, {7, PositionRole::DefensiveMid} },
+        { {8, PositionRole::RightWing}, {9, PositionRole::Striker}, {10, PositionRole::LeftWing} }
     };
 }
 
@@ -69,14 +68,18 @@ PositionRole stringToRole(const std::string& str)
 {
     if (str == "Goalkeeper") return PositionRole::Goalkeeper;
     if (str == "LeftBack") return PositionRole::LeftBack;
-    if (str == "LCenterBack") return PositionRole::LCenterBack;
-    if (str == "RCenterBack") return PositionRole::RCenterBack;
+    if (str == "CenterBack") return PositionRole::CenterBack;
     if (str == "RightBack") return PositionRole::RightBack;
+    if (str == "LeftWingBack") return PositionRole::LeftWingBack;
+    if (str == "RightWingBack") return PositionRole::RightWingBack;
     if (str == "DefensiveMid") return PositionRole::DefensiveMid;
     if (str == "CenterMid") return PositionRole::CenterMid;
+    if (str == "LeftMid") return PositionRole::LeftMid;
+    if (str == "RightMid") return PositionRole::RightMid;
     if (str == "AttackingMid") return PositionRole::AttackingMid;
     if (str == "LeftWing") return PositionRole::LeftWing;
     if (str == "RightWing") return PositionRole::RightWing;
+    if (str == "CenterForward") return PositionRole::CenterForward;
     if (str == "Striker") return PositionRole::Striker;
     return PositionRole::CenterMid; // Default
 }
@@ -87,16 +90,115 @@ std::string roleToString(PositionRole role)
     {
     case PositionRole::Goalkeeper: return "Goalkeeper";
     case PositionRole::LeftBack: return "LeftBack";
-    case PositionRole::LCenterBack: return "LCenterBack";
-    case PositionRole::RCenterBack: return "RCenterBack";
+    case PositionRole::CenterBack: return "CenterBack";
     case PositionRole::RightBack: return "RightBack";
+    case PositionRole::LeftWingBack: return "LeftWingBack";
+    case PositionRole::RightWingBack: return "RightWingBack";
     case PositionRole::DefensiveMid: return "DefensiveMid";
     case PositionRole::CenterMid: return "CenterMid";
+    case PositionRole::LeftMid: return "LeftMid";
+    case PositionRole::RightMid: return "RightMid";
     case PositionRole::AttackingMid: return "AttackingMid";
     case PositionRole::LeftWing: return "LeftWing";
     case PositionRole::RightWing: return "RightWing";
+    case PositionRole::CenterForward: return "CenterForward";
     case PositionRole::Striker: return "Striker";
     default: return "CenterMid";
+    }
+}
+
+PlaystyleType stringToPlaystyle(const std::string& str)
+{
+    // Goalkeepers
+    if (str == "SweeperKeeper") return PlaystyleType::SweeperKeeper;
+    if (str == "OnTheLine") return PlaystyleType::OnTheLine;
+    if (str == "Distributor") return PlaystyleType::Distributor;
+    // Defenders
+    if (str == "Sweeper") return PlaystyleType::Sweeper;
+    if (str == "TheWall") return PlaystyleType::TheWall;
+    if (str == "TheKiller") return PlaystyleType::TheKiller;
+    if (str == "CalmAndCollected") return PlaystyleType::CalmAndCollected;
+    // Fullbacks
+    if (str == "DefensiveFB") return PlaystyleType::DefensiveFB;
+    if (str == "UpAndDown") return PlaystyleType::UpAndDown;
+    if (str == "TheRoamerFB") return PlaystyleType::TheRoamerFB;
+    if (str == "TheCrosser") return PlaystyleType::TheCrosser;
+    // DMs
+    if (str == "OrchestratorDM") return PlaystyleType::OrchestratorDM;
+    if (str == "TheKillerDM") return PlaystyleType::TheKillerDM;
+    if (str == "ThreeLungDM") return PlaystyleType::ThreeLungDM;
+    if (str == "DefensiveRoamer") return PlaystyleType::DefensiveRoamer;
+    if (str == "BacklineBrawler") return PlaystyleType::BacklineBrawler;
+    // CMs
+    if (str == "OrchestratorCM") return PlaystyleType::OrchestratorCM;
+    if (str == "BoxToBox") return PlaystyleType::BoxToBox;
+    if (str == "PlaymakerCM") return PlaystyleType::PlaymakerCM;
+    if (str == "ThreeLungCM") return PlaystyleType::ThreeLungCM;
+    if (str == "QuickPasser") return PlaystyleType::QuickPasser;
+    if (str == "RoamerCM") return PlaystyleType::RoamerCM;
+    // AMs
+    if (str == "PlaymakerAM") return PlaystyleType::PlaymakerAM;
+    if (str == "HardcorePress") return PlaystyleType::HardcorePress;
+    if (str == "TricksterAM") return PlaystyleType::TricksterAM;
+    if (str == "FinisherAM") return PlaystyleType::FinisherAM;
+    // Wide
+    if (str == "WideWinger") return PlaystyleType::WideWinger;
+    if (str == "FalseWinger") return PlaystyleType::FalseWinger;
+    if (str == "RoamerWinger") return PlaystyleType::RoamerWinger;
+    if (str == "ClassicWideMid") return PlaystyleType::ClassicWideMid;
+    if (str == "DefensiveWinger") return PlaystyleType::DefensiveWinger;
+    if (str == "InvertedWideMid") return PlaystyleType::InvertedWideMid;
+    // Strikers
+    if (str == "Finisher") return PlaystyleType::Finisher;
+    if (str == "TheTarget") return PlaystyleType::TheTarget;
+    if (str == "False9") return PlaystyleType::False9;
+    if (str == "SecondStriker") return PlaystyleType::SecondStriker;
+    if (str == "ShadowStriker") return PlaystyleType::ShadowStriker;
+
+    return PlaystyleType::BoxToBox; // Default Fallback
+}
+
+std::string playstyleToString(PlaystyleType type)
+{
+    switch (type) {
+    case PlaystyleType::SweeperKeeper: return "SweeperKeeper";
+    case PlaystyleType::OnTheLine: return "OnTheLine";
+    case PlaystyleType::Distributor: return "Distributor";
+    case PlaystyleType::Sweeper: return "Sweeper";
+    case PlaystyleType::TheWall: return "TheWall";
+    case PlaystyleType::TheKiller: return "TheKiller";
+    case PlaystyleType::CalmAndCollected: return "CalmAndCollected";
+    case PlaystyleType::DefensiveFB: return "DefensiveFB";
+    case PlaystyleType::UpAndDown: return "UpAndDown";
+    case PlaystyleType::TheRoamerFB: return "TheRoamerFB";
+    case PlaystyleType::TheCrosser: return "TheCrosser";
+    case PlaystyleType::OrchestratorDM: return "OrchestratorDM";
+    case PlaystyleType::TheKillerDM: return "TheKillerDM";
+    case PlaystyleType::ThreeLungDM: return "ThreeLungDM";
+    case PlaystyleType::DefensiveRoamer: return "DefensiveRoamer";
+    case PlaystyleType::BacklineBrawler: return "BacklineBrawler";
+    case PlaystyleType::OrchestratorCM: return "OrchestratorCM";
+    case PlaystyleType::BoxToBox: return "BoxToBox";
+    case PlaystyleType::PlaymakerCM: return "PlaymakerCM";
+    case PlaystyleType::ThreeLungCM: return "ThreeLungCM";
+    case PlaystyleType::QuickPasser: return "QuickPasser";
+    case PlaystyleType::RoamerCM: return "RoamerCM";
+    case PlaystyleType::PlaymakerAM: return "PlaymakerAM";
+    case PlaystyleType::HardcorePress: return "HardcorePress";
+    case PlaystyleType::TricksterAM: return "TricksterAM";
+    case PlaystyleType::FinisherAM: return "FinisherAM";
+    case PlaystyleType::WideWinger: return "WideWinger";
+    case PlaystyleType::FalseWinger: return "FalseWinger";
+    case PlaystyleType::RoamerWinger: return "RoamerWinger";
+    case PlaystyleType::ClassicWideMid: return "ClassicWideMid";
+    case PlaystyleType::DefensiveWinger: return "DefensiveWinger";
+    case PlaystyleType::InvertedWideMid: return "InvertedWideMid";
+    case PlaystyleType::Finisher: return "Finisher";
+    case PlaystyleType::TheTarget: return "TheTarget";
+    case PlaystyleType::False9: return "False9";
+    case PlaystyleType::SecondStriker: return "SecondStriker";
+    case PlaystyleType::ShadowStriker: return "ShadowStriker";
+    default: return "BoxToBox";
     }
 }
 
@@ -230,8 +332,11 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                         auto& tac = teamData["tactics"];
                         t.defaultTactics.formationName = tac.value("formation", "4-3-3");
                         t.defaultTactics.defensiveDepth = tac.value("defensive_depth", 50);
-                        t.defaultTactics.buildUpPlay = tac.value("build_up_play", 50);
+                        t.defaultTactics.passingLength = tac.value("passing_length", 50);
                         t.defaultTactics.attackingWidth = tac.value("attacking_width", 50);
+                        t.defaultTactics.pressingIntensity = tac.value("pressing_intensity", 50);
+                        t.defaultTactics.positionalFreedom = tac.value("positional_freedom", 50);
+                        t.defaultTactics.passingSpeed = tac.value("passing_speed", 50);
                         t.defaultTactics.captainId = tac.value("captain_id", "");
                         t.defaultTactics.penaltyTakerId = tac.value("penalty_taker_id", "");
                         t.defaultTactics.leftCornerTakerId = tac.value("left_corner_taker_id", "");
@@ -239,8 +344,16 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                         t.defaultTactics.freeKickTakerId = tac.value("free_kick_taker_id", "");
 
                         if (tac.contains("starting_xi")) {
-                            for (auto& [roleStr, pId] : tac["starting_xi"].items()) {
-                                t.defaultTactics.startingXI[stringToRole(roleStr)] = pId.get<std::string>();
+                            for (auto& [slotStr, pId] : tac["starting_xi"].items()) {
+                                try {
+                                    // Convert the JSON string key ("0", "1", "2") back to an integer
+                                    int slotId = std::stoi(slotStr);
+                                    t.defaultTactics.startingXI[slotId] = pId.get<std::string>();
+                                }
+                                catch (const std::invalid_argument&) {
+                                    // Catch old save files that still say "Goalkeeper" or "CenterMid"
+                                    std::cout << "Skipping legacy tactic key: " << slotStr << " for team " << t.id << "\n";
+                                }
                             }
                         }
                     }
@@ -260,6 +373,8 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                     p.weightKg = playerData.value("weight_kg", 75);
                     p.preferredFoot = playerData.value("preferred_foot", "Right");
                     p.positionRole = stringToRole(playerData.value("position", "CenterMid"));
+                    std::string psString = playerData.value("playstyle", "BoxToBox");
+                    p.playstyle = PlaystyleDatabase::getPlaystyle(stringToPlaystyle(psString));
                     p.sharpness = playerData.value("sharpness", 50);
                     p.loyalty = playerData.value("loyalty", 50);
 
@@ -354,6 +469,7 @@ void GameDatabase::savePlayer(const std::string& id, const std::string& baseDir)
     j[id]["weight_kg"] = p->weightKg;
     j[id]["preferred_foot"] = p->preferredFoot;
     j[id]["position"] = roleToString(p->positionRole);
+    j[id]["playstyle"] = playstyleToString(p->playstyle.type);
     j[id]["sharpness"] = p->sharpness;
     j[id]["loyalty"] = p->loyalty;
     j[id]["traits"] = p->traits;
@@ -424,8 +540,11 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     auto& tac = j[id]["tactics"];
     tac["formation"] = t->defaultTactics.formationName;
     tac["defensive_depth"] = t->defaultTactics.defensiveDepth;
-    tac["build_up_play"] = t->defaultTactics.buildUpPlay;
+    tac["passing_length"] = t->defaultTactics.passingLength;
     tac["attacking_width"] = t->defaultTactics.attackingWidth;
+    tac["pressing_intensity"] = t->defaultTactics.pressingIntensity;
+    tac["positional_freedom"] = t->defaultTactics.positionalFreedom;
+    tac["passing_speed"] = t->defaultTactics.passingSpeed;
 
     tac["captain_id"] = t->defaultTactics.captainId;
     tac["penalty_taker_id"] = t->defaultTactics.penaltyTakerId;
@@ -434,9 +553,10 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     tac["right_corner_taker_id"] = t->defaultTactics.rightCornerTakerId;
 
     tac["starting_xi"] = json::object();
-    for (const auto& [role, pId] : t->defaultTactics.startingXI) {
+    for (const auto& [slotId, pId] : t->defaultTactics.startingXI) {
         if (!pId.empty()) {
-            tac["starting_xi"][roleToString(role)] = pId;
+            // Convert the integer slot ID to a string for the JSON key
+            tac["starting_xi"][std::to_string(slotId)] = pId;
         }
     }
 

@@ -40,7 +40,8 @@ enum class FoulType {
     Obstruction, // Soft foul (Free Kick)
     Sliding,     // Reckless foul (Free Kick + Yellow)
     Violent,     // Dangerous (Free Kick + Red)
-    Handball     // Hand
+    Handball,    // Hand
+    Offside
 };
 
 struct FoulEvent {

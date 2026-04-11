@@ -113,13 +113,16 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                 ImGui::SetCursorPosX(startPosX);
 
                 for (size_t j = 0; j < line.size(); ++j) {
-                    PositionRole role = line[j];
+
+                    // --- NEW: UNPACK THE PAIR AND USE SLOT ID ---
+                    int slotId = line[j].first;
+                    PositionRole role = line[j].second;
                     std::string roleName = roleToString(role);
                     std::string currPlayerName = "Empty";
                     std::string pId = "";
 
-                    if (t->defaultTactics.startingXI.count(role)) {
-                        pId = t->defaultTactics.startingXI[role];
+                    if (t->defaultTactics.startingXI.count(slotId)) {
+                        pId = t->defaultTactics.startingXI[slotId];
                         PlayerData* p = m_db->getPlayer(pId);
                         if (p) {
                             size_t spacePos = p->name.find_last_of(' ');
@@ -128,7 +131,7 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                     }
 
                     std::string buttonText = roleName + "\n" + currPlayerName;
-                    std::string buttonId = "##H_" + roleName;
+                    std::string buttonId = "##H_Slot_" + std::to_string(slotId); // Use Slot ID for unique ImGui ID
 
                     bool isSelected = (m_userPlayerId == pId && !pId.empty());
                     bool isGK = (role == PositionRole::Goalkeeper);
@@ -244,12 +247,15 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                 ImGui::SetCursorPosX(startPosX);
 
                 for (size_t j = 0; j < line.size(); ++j) {
-                    PositionRole role = line[j];
+
+                    // --- NEW: UNPACK THE PAIR AND USE SLOT ID ---
+                    int slotId = line[j].first;
+                    PositionRole role = line[j].second;
                     std::string roleName = roleToString(role);
                     std::string currPlayerName = "Empty";
 
-                    if (t->defaultTactics.startingXI.count(role)) {
-                        PlayerData* p = m_db->getPlayer(t->defaultTactics.startingXI[role]);
+                    if (t->defaultTactics.startingXI.count(slotId)) {
+                        PlayerData* p = m_db->getPlayer(t->defaultTactics.startingXI[slotId]);
                         if (p) {
                             size_t spacePos = p->name.find_last_of(' ');
                             currPlayerName = (spacePos != std::string::npos) ? p->name.substr(spacePos + 1) : p->name;
@@ -257,7 +263,7 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                     }
 
                     std::string buttonText = roleName + "\n" + currPlayerName;
-                    std::string buttonId = "##A_" + roleName;
+                    std::string buttonId = "##A_Slot_" + std::to_string(slotId); // Use Slot ID for unique ImGui ID
 
                     // Style the buttons (Slightly more transparent for the Away team to show they are inactive)
                     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(teamColor.x * 0.6f, teamColor.y * 0.6f, teamColor.z * 0.6f, 0.6f));

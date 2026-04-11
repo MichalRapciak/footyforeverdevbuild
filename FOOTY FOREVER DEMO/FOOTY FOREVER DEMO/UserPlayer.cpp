@@ -82,11 +82,3 @@ void UserPlayer::updateAim(sf::Vector2f t_mouseWorldPos)
     // 4. Ask for the correct sprite direction based on the rotated visual vector
     m_currentDirection = get8WayDirection(visualVector);
 }
-
-/// <summary>
-/// This function is in charge of shooting
-/// </summary>
-/// <param name="dt"></param>
-void UserPlayer::shooting(float dt, GamePlay& game)
-{
-}

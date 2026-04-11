@@ -16,7 +16,8 @@
         "loyalty": 87,
         "name": "J. Noblett",
         "number": 11,
-        "position": "RightWing",
+        "playstyle": "BoxToBox",
+        "position": "CenterForward",
         "preferred_foot": "Left",
         "sharpness": 99,
         "stats": {

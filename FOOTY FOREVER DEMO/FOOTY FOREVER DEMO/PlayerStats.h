@@ -162,8 +162,7 @@ struct PlayerStats
 			s.gkCoverage = 86.0f; s.gkReactions = 86.0f; s.gkCatching = 87.0f; s.gkThrowing = 76.0f; s.gkAwareness = 85.0f; s.gkBlocking = 87.0f; // GOALKEEPING
 			break;
 
-		case PositionRole::LCenterBack:
-		case PositionRole::RCenterBack:
+		case PositionRole::CenterBack:
 			s.finishing = 30.0f; s.heading = 84.0f; // SHOOTING
 			s.ballControl = 58.0f; s.balancing = 52.0f; // DRIBBLING
 			s.curl = 35.0f; s.deadBall = 30.0f; // TECHNIQUE

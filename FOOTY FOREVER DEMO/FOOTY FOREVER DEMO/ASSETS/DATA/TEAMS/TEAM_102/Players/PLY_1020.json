@@ -16,7 +16,8 @@
         "loyalty": 91,
         "name": "P. Ryan",
         "number": 3,
-        "position": "LCenterBack",
+        "playstyle": "TheWall",
+        "position": "CenterBack",
         "preferred_foot": "Left",
         "sharpness": 99,
         "stats": {

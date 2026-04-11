@@ -3,6 +3,7 @@
 #include "PlayerStats.h"
 #include "PlayerState.h"
 #include "PositionRole.h"
+#include "Playstyle.h"
 #include "Team.h"
 #include "Animator.h"   // <-- NEW
 #include "Direction.h"
@@ -13,6 +14,7 @@
 struct PlayerData;
 
 class Player : public Entity {
+    friend class PhysicsEngine;
 public:
     Player(const sf::Texture& texture);
 
@@ -114,7 +116,9 @@ public:
         }
     }
 
+    Playstyle getPlaystyle() {  return m_playstyle; }
     Direction get8WayDirection(sf::Vector2f targetVector);
+    Direction getDirection() const{ return m_currentDirection; }
     bool canTackle() const { return m_tackleCooldownTimer <= 0.0f; }
     void updateCooldown(float dt) {
         if (m_tackleCooldownTimer > 0.0f) m_tackleCooldownTimer -= dt;
@@ -134,12 +138,15 @@ public:
     bool isTeammate() { return m_team == Team::Home; }
     void setTeam(Team t_team) { m_team = t_team; }
     sf::FloatRect getTackleHitbox();
-    Team getTeam() { return m_team; }
+    Team getTeam() const { return m_team; }
 
     void setPositionRole(PositionRole role) { m_positionRole = role; }
     PositionRole getPositionRole() const { return m_positionRole; }
-    sf::Vector2f getBaseTacticalCoordinate(bool isHomeTeam) const;
-    sf::Vector2f getHomePosition(bool isHomeTeam, TeamState teamState) const;
+    sf::Vector2f getBaseTacticalCoordinate(bool isHomeTeam, int slotId, const std::vector<std::vector<std::pair<int, PositionRole>>>& layout) const;
+    void setBaseHomePosition(sf::Vector2f pos) { m_baseHomePosition = pos; }
+
+    // Update the getter signature (Remove the arguments!)
+    sf::Vector2f getHomePosition() const;
 
     float getWeight() { return weight; }
 
@@ -183,6 +190,7 @@ public:
     float getGeneralMultiplier() const;
 
 protected:
+    sf::Vector2f m_baseHomePosition;
     bool m_tackleAnimTriggered = false;
     sf::Vector2f m_position;
     sf::Vector2f m_velocity;
@@ -212,7 +220,8 @@ protected:
     std::vector<std::string> m_traits;
 
     // --- TACTICAL & STATS ---
-    PositionRole m_positionRole = PositionRole::LCenterBack;
+    PositionRole m_positionRole = PositionRole::CenterBack;
+    Playstyle m_playstyle;
     PlayerStats m_stats;
     PlayerState m_currentState = PlayerState::Normal;
     Team m_team = Team::Home;
@@ -230,3 +239,20 @@ protected:
     float m_tackleCooldownTimer = 0.0f;
 
 };
+
+// Logic for scaling 0-5 accuracy
+inline float getWeakFootPenalty(int wfStars, float& powerMod, float& errorMod) {
+    // Power Penalty: 0 stars = 70% power, 5 stars = 100% power
+    powerMod = 0.7f + (wfStars / 5.0f) * 0.3f;
+
+    // Accuracy Penalty: 0 stars = 5x error, 5 stars = 1x error
+    errorMod = 1.0f + (5.0f - wfStars) * 0.8f;
+
+    // The "Mess Up" Chance (The shank factor)
+    float shankChance = (5.0f - wfStars) * 10.0f; // 0 stars = 50%, 5 stars = 0%
+    if ((rand() % 100) < shankChance) {
+        // WF 0-1 gets a massive extra error, WF 3 gets a medium one
+        return 15.0f + (5.0f - wfStars) * 5.0f;
+    }
+    return 0.0f;
+}

@@ -1,6 +1,7 @@
 #include "Ball.h"
 #include "Player.h"
 #include "UserPlayer.h"
+#include "PhysicsEngine.h"
 
 Ball::Ball() : sprite(texture)
 {
@@ -188,155 +189,20 @@ void Ball::updateDribbling(float dt)
 // =========================================================
 void Ball::updateFreePhysics(float dt)
 {
-    float speed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    float dynamicGravity = gravity;
+    const float PITCH_WIDTH = 10000.f;
+    const float PITCH_HEIGHT = 7000.f;
 
-    // --- 1. THE MAGNUS EFFECT (AIR ONLY) ---
-    if (z > 5.f && speed > 50.f && std::abs(spin) > 0.1f)
-    {
-        sf::Vector2f perpendicular(-velocity.y, velocity.x);
-        perpendicular /= speed;
+    // Ask the physics engine to calculate the 4 stages of free-flight!
+    PhysicsEngine::applyBallAerodynamics(*this, dt);
+    PhysicsEngine::applyBallFrictionAndSpin(*this, dt);
+    PhysicsEngine::updateBallPositionAndBounds(*this, dt, PITCH_WIDTH, PITCH_HEIGHT);
+    PhysicsEngine::applyBallGravityAndBounce(*this, dt);
 
-        float heightFactor = std::clamp(z / 400.f, 0.0f, 1.0f);
-
-        // FIX 1: Decrease curl at high altitudes (thinner air) instead of increasing it!
-        float altitudeDampener = 1.0f - (heightFactor * 0.8f);
-
-        // FIX 2: Scale curl by the kick's forward momentum (assume 1000 is a fast kick)
-        float speedFactor = std::clamp(speed / 1000.f, 0.2f, 1.0f);
-
-        // Base strength is 15.0, scaled by speed and decayed by altitude
-        float spinStrength = 15.0f * altitudeDampener * speedFactor;
-
-        velocity += perpendicular * spin * spinStrength * dt;
-
-        float newSpeed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-        velocity = (velocity / newSpeed) * speed;
-    }
-
-    // ==========================================
-    // FIX 1: THE LIFT NERF
-    // ==========================================
-    if (z > 5.f && speed > 100.f && bs > 0.1f)
-    {
-        // Lowered the multiplier by 10x so it requires immense spin to lift
-        float liftForce = (bs * speed * 0.0005f);
-
-        // Cap the lift at 25% of gravity (Max 245px/s lift)
-        // This ensures the ball ALWAYS feels 75% of Earth's gravity, dropping naturally!
-        liftForce = std::min(liftForce, gravity * 0.40f);
-
-        vz += liftForce * dt;
-    }
-
-    // ==========================================
-    // FIX 3: REALISTIC AERODYNAMIC DRAG (THE DRAG CRISIS)
-    // ==========================================
-    float trueSpeed = std::sqrt((speed * speed) + (vz * vz));
-
-    if (z > 0.f && trueSpeed > 5.f)
-    {
-        float Cd = 0.25f;
-        if (trueSpeed > 1200.f) {
-            float t = std::clamp((trueSpeed - 1200.f) / 600.f, 0.0f, 1.0f);
-            Cd = 0.25f - (0.13f * t);
-        }
-
-        float dragDecel = (trueSpeed * trueSpeed) * Cd * 0.0003f;
-        float newTrueSpeed = std::max(0.f, trueSpeed - dragDecel * dt);
-
-        if (trueSpeed > 0.1f) {
-            float dragRatio = newTrueSpeed / trueSpeed;
-
-            // Slow down the horizontal speed
-            speed *= dragRatio;
-
-            // FIX: Delete `vz *= 0.995f;`!
-            // Let pure gravity handle the Z-axis so the 3D Auto-Aim math is flawless.
-
-            float currentLen = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-            if (currentLen > 0.1f) {
-                velocity = (velocity / currentLen) * speed;
-            }
-        }
-    }
-
-    // --- 2. FRICTION & SPIN DECAY ---
-    float currentSpinFriction = (z <= 0.f) ? 150.0f : 0.5f;
-
-    // Decay side spin
-    if (spin > 0) spin = std::max(0.f, spin - currentSpinFriction * dt);
-    else if (spin < 0) spin = std::min(0.f, spin + currentSpinFriction * dt);
-
-    // Decay backspin (it lasts longer in the air than on the ground)
-    float bsDecay = (z <= 0.f) ? 200.f : 10.f;
-    bs = std::max(0.f, bs - bsDecay * dt);
-
-    if (z <= 0.f && speed > 0.f) {
-        float decel = friction * dt;
-        speed = std::max(0.f, speed - decel);
-        velocity = (velocity / std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y)) * speed;
-    }
-
-    // --- 3. MOVEMENT & PITCH BOUNDARIES ---
-    shape.move(velocity * dt);
-
-    const float pitchWidth = 10000.f;
-    const float pitchHeight = 7000.f;
-    const float bounciness = 0.5f;
-    const float radius = 12.f;
-
-    if (shape.getPosition().x - radius < 0.f) {
-        shape.setPosition({ radius, shape.getPosition().y });
-        velocity.x = -velocity.x * bounciness;
-    }
-    else if (shape.getPosition().x + radius > pitchWidth) {
-        shape.setPosition({ pitchWidth - radius, shape.getPosition().y });
-        velocity.x = -velocity.x * bounciness;
-    }
-
-    if (shape.getPosition().y - radius < 0.f) {
-        shape.setPosition({ shape.getPosition().x, radius });
-        velocity.y = -velocity.y * bounciness;
-    }
-    else if (shape.getPosition().y + radius > pitchHeight) {
-        shape.setPosition({ shape.getPosition().x , pitchHeight - radius });
-        velocity.y = -velocity.y * bounciness;
-    }
-
-    // --- 4. AIR PHYSICS & BOUNCING ---
-    if (z > 0.f || vz != 0.f) {
-
-        // REMOVED: The old "currentGravity += speed * 50" hack is gone!
-        // Our new 3D air drag handles vertical slowing perfectly and naturally.
-
-        vz -= gravity * dt;
-        z += vz * dt;
-
-        if (z < 0.f) {
-            z = 0.f;
-            spin = 0.f;
-            // --- THE BACKSPIN BRAKE ---
-            if (bs > 20.f && speed > 100.f) {
-                float biteAmount = (bs / 100.f) * 0.3f;
-                velocity *= (1.0f - biteAmount);
-                vz = -vz * (0.05f + (bs / 200.f));
-            }
-            else {
-                vz = -vz * 0.35f;
-                velocity *= 0.8f;
-            }
-
-            if (vz < 15.f) vz = 0.f;
-        }
-    }
-
-    // --- VISUAL SCALING ---
+    // --- VISUAL SCALING (Keep this here, since scaling is purely visual for the Ball class!) ---
     float t = std::min(z / 600.f, 1.f);
     float scale = minScale + (maxScale - minScale) * t;
     shape.setScale({ scale, scale });
     shadow.setPosition(shape.getPosition());
-    // THE SHADOW FIX: Shrink the shadow along the X-axis instead of Y
     shadow.setScale({ 1.f - (t * 0.5f), 1.f });
 }
 
@@ -428,6 +294,12 @@ void Ball::draw(sf::RenderWindow& window)
 void Ball::possess(Player* player)
 {
     // Valid possession check
+    if (!player) {
+        // If we passed nullptr, we treat it as releasing the ball
+        owner = nullptr;
+        return;
+    }
+
     if (player->isTackling() == false && z <= 40 && player->getState() != PlayerState::Stunned)
     {
         if (owner != nullptr && owner != player) {

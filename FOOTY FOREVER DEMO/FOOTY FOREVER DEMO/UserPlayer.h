@@ -28,7 +28,6 @@ public:
 	void setPlayerAim(sf::Vector2f t_mousePos) { m_playerAim = t_mousePos; }
 	void updateAim(sf::Vector2f t_mouseWorldPos);
 	void update(float dt, AnimationServer& animServer) override;
-	void shooting(float dt, GamePlay& game);
 
 private:
 

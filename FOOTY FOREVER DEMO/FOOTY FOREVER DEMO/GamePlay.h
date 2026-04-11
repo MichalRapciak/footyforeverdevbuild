@@ -13,6 +13,8 @@
 #include "AnimationServer.h"
 #include "GameDatabase.h"
 #include "ReplayEngine.h"
+#include "PhysicsEngine.h"
+#include "TeamAI.h"
 
 class GamePlay
 {
@@ -27,8 +29,6 @@ class GamePlay
 		void initialise(sf::Font& t_font);
 		void powerBarUpdate();
 		void powerBarDraw(sf::RenderWindow& t_window);
-		void handlePlayerCollisions(std::vector<Player*>& players, const Pitch& pitch);
-		void handleBallPlayerPhysics(std::vector<Player*>& players, Ball& ball);
 		void updateCamera(sf::RenderWindow& t_window);
 		void drawUI(sf::RenderWindow& t_window);
 
@@ -36,9 +36,6 @@ class GamePlay
 		bool getGameWon() { return m_gameWon; }
 		float distance(sf::Vector2f a, sf::Vector2f b);
 		sf::Vector2f normalize(sf::Vector2f source);
-
-		void handleGoalPhysics(Goal& goal);
-		void resolvePlayerGoalCollision(Player& player, Goal& goal);
 
 		void runStandardSystems(float dt, sf::RenderWindow& t_window);
 		Player* findFirstResponder(const std::vector<Player*>& t_team);
@@ -51,11 +48,13 @@ class GamePlay
 		Goal m_homeGoal;
 		Goal m_awayGoal;
 		MatchReferee m_referee;
+		std::unique_ptr<TeamAI> m_homeTeamAI;
+		std::unique_ptr<TeamAI> m_awayTeamAI;
 
 		// --- The Bodies ---
 // We use a vector of unique_ptrs so they are cleaned up automatically
-		std::vector<std::unique_ptr<NPCPlayer>> m_teammates;
-		std::vector<std::unique_ptr<NPCPlayer>> m_opponents;
+		std::vector<std::unique_ptr<NPCPlayer>> m_homeside;
+		std::vector<std::unique_ptr<NPCPlayer>> m_awayside;
 
 	protected:
 		sf::Font m_font;
@@ -106,4 +105,8 @@ class GamePlay
 	const float m_margin = 500.f; // Buffer from the screen edge
 	float minScale = 1.f;
 	float maxScale = 1.8f;
+
+	void drawDebugOffsideLines(sf::RenderWindow& window);
+	void drawDebugNames(sf::RenderWindow& window, const sf::Font& font);
+
 };

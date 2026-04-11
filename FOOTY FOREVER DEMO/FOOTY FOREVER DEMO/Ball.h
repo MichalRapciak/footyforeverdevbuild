@@ -7,6 +7,7 @@ class UserPlayer;
 
 class Ball : public Entity
 {
+    friend class PhysicsEngine;
 public:
     Ball();
 
@@ -40,11 +41,12 @@ public:
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
     float friction = 800.f;
-private:
+    float gravity = 980.f;   // pixels per second
+    sf::Vector2f velocity;
     sf::CircleShape shape;
+private:
     sf::Sprite sprite;
     sf::Texture texture;
-    sf::Vector2f velocity;
 
     Player* owner = nullptr;
     Player* lastOwner = nullptr;
@@ -61,7 +63,7 @@ private:
     float maxScale = 1.6f;
 
 
-    float gravity = 980.f;   // pixels per second
+
     sf::CircleShape shadow;   // shadow on the ground
 
     void updateDribbling(float dt);

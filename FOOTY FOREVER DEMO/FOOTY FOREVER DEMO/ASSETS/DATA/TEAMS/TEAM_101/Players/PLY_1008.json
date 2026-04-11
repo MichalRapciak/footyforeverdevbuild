@@ -16,7 +16,8 @@
         "loyalty": 71,
         "name": "I. Konate",
         "number": 5,
-        "position": "RCenterBack",
+        "playstyle": "TheWall",
+        "position": "CenterBack",
         "preferred_foot": "Right",
         "sharpness": 99,
         "stats": {

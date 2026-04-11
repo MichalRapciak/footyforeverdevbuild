@@ -4,24 +4,20 @@
 #include "Pitch.h"
 #include <iostream>
 
-
-void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt)
+void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal)
 {
     // ==========================================
     // 1. MATCH CLOCK LOGIC
     // ==========================================
     if (m_matchState == MatchState::InPlay || m_matchState == MatchState::GoalScored) {
-        // Advance the clock (dt is in seconds. Divide by 60 to get minutes)
         m_matchMinute += (dt * m_timeScale) / 60.0f;
 
-        // Check for Half Time (45 mins)
         if (m_matchMinute >= 45.0f && m_half == 1 && m_matchState == MatchState::InPlay) {
             m_matchState = MatchState::HalfTime;
-            m_whistleTimer = 5.0f; // Wait 5 seconds before auto-starting second half (or wait for UI button!)
+            m_whistleTimer = 5.0f;
             updateMatchContexts();
             std::cout << "HALF TIME!\n";
         }
-        // Check for Full Time (90 mins)
         else if (m_matchMinute >= 90.0f && m_half == 2 && m_matchState == MatchState::InPlay) {
             m_matchState = MatchState::FullTime;
             updateMatchContexts();
@@ -30,97 +26,61 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
     }
 
     // ==========================================
-        // 2. STATE HANDLING
-        // ==========================================
+    // 2. STATE HANDLING
+    // ==========================================
     if (m_matchState == MatchState::InPlay) {
-        checkBoundaries(ball, pitch);
+        checkBoundaries(ball, pitch, homeGoal, awayGoal);
         if (m_matchState != MatchState::InPlay) {
             prepareRestart(m_matchState, ball, pitch, players);
         }
     }
     else if (m_matchState == MatchState::FoulDelay) {
         m_foulDelayTimer -= dt;
-
-        if (m_foulDelayTimer <= 0.f) {
-            // The 2 seconds of sliding on the grass are over. 
-            // Ask the engine to roll the tape!
-            m_matchState = MatchState::RequestReplay;
-        }
+        if (m_foulDelayTimer <= 0.f) m_matchState = MatchState::RequestReplay;
     }
-    // ==========================================
-    // --- UPDATED: GOAL REPLAY TRANSITION ---
-    // ==========================================
     else if (m_matchState == MatchState::GoalScored) {
         m_whistleTimer -= dt;
-
         if (m_whistleTimer <= 0.f) {
-            // The 2.5 seconds of live celebration are over. 
-            // 1. Set the exact coordinates for the Kick-Off teleport
             m_restartPos = sf::Vector2f(pitch.totalWidth / 2.f, 3500.f);
-
-            // 2. Roll the tape!
             m_matchState = MatchState::RequestReplay;
         }
     }
-    // ==========================================
-    // --- NEW: OUT OF BOUNDS HIGHLIGHT CHECK ---
-    // ==========================================
     else if (m_matchState == MatchState::OutOfBoundsDelay) {
         m_whistleTimer -= dt;
-
         if (m_whistleTimer <= 0.f) {
-
-            // 30% chance to show a replay. 
-            // (You can also change this to check if ball.getVelocity() > 600 to only replay hard shots!)
-            if ((rand() % 100) < 30) {
-                // Roll the tape! The DVR will handle the teleports behind the scenes.
-                m_matchState = MatchState::RequestReplay;
-            }
-            else {
-                // Skip the replay entirely so the game doesn't get boring.
-                // Instantly set up the set piece and teleport everyone so play continues!
-                prepareRestart(m_pendingState, ball, pitch, players);
-            }
+            if ((rand() % 100) < 30) m_matchState = MatchState::RequestReplay;
+            else prepareRestart(m_pendingState, ball, pitch, players);
         }
     }
     else if (m_matchState == MatchState::HalfTime) {
-        // Wait for the half time break to finish
         m_whistleTimer -= dt;
         if (m_whistleTimer <= 0.f) {
-            // Start the Second Half!
             m_half = 2;
-            m_matchMinute = 45.0f; // Ensure it starts exactly at 45:00
-            m_awardedTo = Team::Away; // Away team usually kicks off second half
+            m_matchMinute = 45.0f;
+            m_awardedTo = Team::Away;
             m_restartPos = sf::Vector2f(pitch.totalWidth / 2.f, 3500.f);
-
-            // Swap sides logic can go here if you implement side-swapping!
-
             prepareRestart(MatchState::KickOff, ball, pitch, players);
         }
     }
     else if (m_matchState == MatchState::FullTime) {
-        // Game Over! Do nothing, wait for GamePlay to detect this state and pull up the End Screen UI.
+        // Handled by GamePlay
     }
     else {
-        // --- ALL DEAD BALL STATES (Free Kick, Corner, Penalty, etc) ---
+        // --- ALL DEAD BALL STATES ---
         m_whistleTimer -= dt;
 
-        // 1. CHECK FOR KICK-OFF / PLAY RESUMPTION
         if (m_whistleTimer <= 0.f) {
             sf::Vector2f bVel = ball.getVelocity();
             float speed = std::sqrt(bVel.x * bVel.x + bVel.y * bVel.y);
 
-            // Play ONLY resumes if the ball leaves the taker's feet!
             if (ball.getOwner() == nullptr && speed > 15.0f) {
                 m_matchState = MatchState::InPlay;
                 m_setPieceTaker = nullptr;
                 updateMatchContexts();
-                return; // <--- ADD THIS RETURN: Skip the forcefield this frame!
+                return;
             }
         }
 
-        // 2. LOCK THE BALL AND TAKER
-        // (Notice we removed the 'else' that used to be here!)
         if (m_setPieceTaker) {
             m_setPieceTaker->setVelocity({ 0.f, 0.f });
             ball.setVelocity({ 0.f, 0.f });
@@ -132,693 +92,393 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
         }
 
         // ==========================================
-        // 3. CONTINUOUS ENCROACHMENT FORCEFIELD & WALL
+        // 3. ENCROACHMENT FORCEFIELD & WALL
         // ==========================================
-        // Because this is no longer trapped in an 'else' block, it will hold the 
-        // AI back even after the whistle blows, right up until you strike the ball!
         if (m_matchState == MatchState::FreeKick || m_matchState == MatchState::Corner ||
             m_matchState == MatchState::Penalty || m_matchState == MatchState::KickOff)
         {
-                sf::Vector2f targetGoal = (m_awardedTo == Team::Home) ? pitch.awayGoalCenter : pitch.homeGoalCenter;
-                float distToTargetGoal = std::sqrt(std::pow(m_restartPos.x - targetGoal.x, 2) + std::pow(m_restartPos.y - targetGoal.y, 2));
-                bool needsWall = (m_matchState == MatchState::FreeKick && distToTargetGoal < 2500.f);
+            sf::Vector2f targetGoal = (m_awardedTo == Team::Home) ? pitch.awayGoalCenter : pitch.homeGoalCenter;
+            float distToTargetGoal = std::sqrt(std::pow(m_restartPos.x - targetGoal.x, 2) + std::pow(m_restartPos.y - targetGoal.y, 2));
+            bool needsWall = (m_matchState == MatchState::FreeKick && distToTargetGoal < 2500.f);
 
-                int wallCount = 0;
-                int maxWallPlayers = (distToTargetGoal < 1800.f) ? 4 : 3;
+            int wallCount = 0;
+            int maxWallPlayers = (distToTargetGoal < 1800.f) ? 4 : 3;
 
-                sf::Vector2f toGoal = targetGoal - m_restartPos;
-                float lenToGoal = std::sqrt(toGoal.x * toGoal.x + toGoal.y * toGoal.y);
-                if (lenToGoal > 0.1f) toGoal /= lenToGoal;
-                sf::Vector2f wallCenter = m_restartPos + (toGoal * 915.f);
-                sf::Vector2f perp(-toGoal.y, toGoal.x);
+            sf::Vector2f toGoal = targetGoal - m_restartPos;
+            float lenToGoal = std::sqrt(toGoal.x * toGoal.x + toGoal.y * toGoal.y);
+            if (lenToGoal > 0.1f) toGoal /= lenToGoal;
+            sf::Vector2f wallCenter = m_restartPos + (toGoal * 915.f);
+            sf::Vector2f perp(-toGoal.y, toGoal.x);
 
-                for (Player* p : players) 
+            for (Player* p : players)
+            {
+                if (p == m_setPieceTaker || p->getTeam() == m_awardedTo) continue;
+
+                bool isDefenderOrMid = (p->getPositionRole() != PositionRole::Goalkeeper &&
+                    p->getPositionRole() != PositionRole::Striker &&
+                    p->getPositionRole() != PositionRole::CenterForward &&
+                    p->getPositionRole() != PositionRole::LeftWing &&
+                    p->getPositionRole() != PositionRole::RightWing);
+
+                // 1. HARD-LOCK THE WALL
+                if (needsWall && wallCount < maxWallPlayers && isDefenderOrMid)
                 {
-                    if (p == m_setPieceTaker || p->getTeam() == m_awardedTo) continue;
+                    float offset = (wallCount - (maxWallPlayers / 2.0f) + 0.5f) * 60.f;
+                    sf::Vector2f targetPos = wallCenter + (perp * offset);
 
-                    // 1. HARD-LOCK THE WALL
-                    if (needsWall && wallCount < maxWallPlayers &&
-                        p->getPositionRole() != PositionRole::Goalkeeper &&
-                        p->getPositionRole() != PositionRole::LCenterBack &&
-                        p->getPositionRole() != PositionRole::RCenterBack)
-                    {
-                        float offset = (wallCount - (maxWallPlayers / 2.0f) + 0.5f) * 60.f;
-                        sf::Vector2f targetPos = wallCenter + (perp * offset);
+                    targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
+                    targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
 
-                        // Failsafe: Wall players cannot stand in the stands
-                        targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
-                        targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
+                    p->setPosition(targetPos);
+                    p->setVelocity({ 0.f, 0.f });
+                    wallCount++;
+                    continue;
+                }
 
-                        p->setPosition(targetPos);
-                        p->setVelocity({ 0.f, 0.f }); // Kill momentum
-                        wallCount++;
-                        continue;
-                    }
+                // 2. INVISIBLE 9.15m FORCEFIELD
+                if (m_matchState != MatchState::Penalty) {
+                    sf::Vector2f pPos = p->getPosition();
+                    float dx = pPos.x - m_restartPos.x;
+                    float dy = pPos.y - m_restartPos.y;
+                    float distSq = dx * dx + dy * dy;
 
-                    // 2. INVISIBLE 9.15m FORCEFIELD
-                    if (m_matchState != MatchState::Penalty) {
-                        sf::Vector2f pPos = p->getPosition();
-                        float dx = pPos.x - m_restartPos.x;
-                        float dy = pPos.y - m_restartPos.y;
-                        float distSq = dx * dx + dy * dy;
+                    if (distSq < (915.f * 915.f)) {
+                        float dist = std::sqrt(distSq);
+                        if (dist > 0.1f) {
+                            sf::Vector2f pushDir = { dx / dist, dy / dist };
+                            sf::Vector2f targetPos = m_restartPos + (pushDir * 915.f);
 
-                        // If they encroach closer than 9.15m...
-                        if (distSq < (915.f * 915.f)) {
-                            float dist = std::sqrt(distSq);
-                            if (dist > 0.1f) {
-                                sf::Vector2f pushDir = { dx / dist, dy / dist };
-                                sf::Vector2f targetPos = m_restartPos + (pushDir * 915.f);
+                            if (targetPos.x < pitch.margin || targetPos.x > pitch.totalWidth - pitch.margin ||
+                                targetPos.y < pitch.margin || targetPos.y > pitch.totalHeight - pitch.margin)
+                            {
+                                sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
+                                sf::Vector2f toCenter = center - pPos;
+                                float centerLen = std::sqrt(toCenter.x * toCenter.x + toCenter.y * toCenter.y);
 
-                                // FAILSAFE: Bending the Vector
-                                // If the push sends them off the grass, blend the vector towards the pitch center!
-                                if (targetPos.x < pitch.margin || targetPos.x > pitch.totalWidth - pitch.margin ||
-                                    targetPos.y < pitch.margin || targetPos.y > pitch.totalHeight - pitch.margin)
-                                {
-                                    sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
-                                    sf::Vector2f toCenter = center - pPos;
-                                    float centerLen = std::sqrt(toCenter.x * toCenter.x + toCenter.y * toCenter.y);
-
-                                    if (centerLen > 0.1f) {
-                                        pushDir += (toCenter / centerLen) * 0.8f; // Strong blend to slide them inward
-                                        float newLen = std::sqrt(pushDir.x * pushDir.x + pushDir.y * pushDir.y);
-                                        pushDir /= newLen;
-                                        targetPos = m_restartPos + (pushDir * 915.f);
-                                    }
+                                if (centerLen > 0.1f) {
+                                    pushDir += (toCenter / centerLen) * 0.8f;
+                                    float newLen = std::sqrt(pushDir.x * pushDir.x + pushDir.y * pushDir.y);
+                                    pushDir /= newLen;
+                                    targetPos = m_restartPos + (pushDir * 915.f);
                                 }
-
-                                // Final Safety Clamp (Guarantees they physically cannot render out of bounds)
-                                targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
-                                targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
-
-                                p->setPosition(targetPos);
-                                p->setVelocity({ 0.f, 0.f }); // Kill momentum
                             }
+
+                            targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
+                            targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
+
+                            p->setPosition(targetPos);
+                            p->setVelocity({ 0.f, 0.f });
                         }
                     }
                 }
+            }
         }
     }
 }
 
-void MatchReferee::checkBoundaries(Ball& ball, const Pitch& pitch) {
+void MatchReferee::checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal)
+{
     sf::Vector2f bPos = ball.getPosition();
     Player* lastOwner = ball.getLastOwner();
 
-    // --- 1. SIDELINE CHECK ---
+    // 1. SIDELINE CHECK
     if (bPos.y < pitch.margin || bPos.y > pitch.totalHeight - pitch.margin) {
         m_matchState = MatchState::ThrowIn;
-
-        // Push the ball 25 pixels INSIDE the line so it doesn't trigger again instantly
         float safeY = (bPos.y < pitch.margin) ? pitch.margin + 25.f : pitch.totalHeight - pitch.margin - 25.f;
-
-        // Clamp X so it doesn't accidentally spawn in the corner flags out of bounds
         float safeX = std::clamp(bPos.x, pitch.margin + 25.f, pitch.totalWidth - pitch.margin - 25.f);
-
         m_restartPos = sf::Vector2f(safeX, safeY);
 
-        if (lastOwner != nullptr) {
-            m_awardedTo = (lastOwner->getTeam() == Team::Home) ? Team::Away : Team::Home;
-        }
-        else {
-            m_awardedTo = (bPos.x > pitch.halfwayLineX) ? Team::Home : Team::Away;
-        }
+        if (lastOwner != nullptr) m_awardedTo = (lastOwner->getTeam() == Team::Home) ? Team::Away : Team::Home;
+        else m_awardedTo = (bPos.x > pitch.halfwayLineX) ? Team::Home : Team::Away;
         return;
     }
 
-    // --- 2. ENDLINE CHECK ---
+    // 2. ENDLINE CHECK
     if (bPos.x < pitch.margin || bPos.x > pitch.totalWidth - pitch.margin) {
 
-        // A. Did it fully cross the goal line?
-        if (checkGoalScored(ball, pitch)) {
-            m_matchState = MatchState::GoalScored;
+        // 2. ENDLINE CHECK
+        if (bPos.x < pitch.margin || bPos.x > pitch.totalWidth - pitch.margin) {
 
-            // --- NEW: REPLAY SYNC ---
-            m_pendingState = MatchState::KickOff; // Tell the DVR what state to teleport to!
-            m_whistleTimer = 2.5f;                // Let them celebrate for 2.5 seconds before triggering the replay
+            // Pass the goals down into the checker
+            if (checkGoalScored(ball, pitch, homeGoal, awayGoal)) {
+                m_matchState = MatchState::GoalScored;
+                m_pendingState = MatchState::KickOff;
+                m_whistleTimer = 2.5f;
+                return;
+            }
 
-            return;
-        }
+            // Dynamically grab the Y coordinates of the specific goal we are behind
+            bool isHomeEnd = (bPos.x < pitch.margin);
+            const Goal& activeGoal = isHomeEnd ? homeGoal : awayGoal;
 
-        // B. Is it inside the posts but hasn't fully crossed the 24px buffer yet?
-        float goalTopY = 3500.f - 366.f;
-        float goalBottomY = 3500.f + 366.f;
-        if (bPos.y > goalTopY && bPos.y < goalBottomY && ball.z <= 249.f) {
-            return; // DO NOTHING! Let the physics engine roll it into the net!
-        }
+            float goalTopY = activeGoal.center.y - 366.f;
+            float goalBottomY = activeGoal.center.y + 366.f;
 
-        // C. If we reach here, it went wide of the posts. Set up Goal Kick or Corner.
-        bool isHomeEnd = (bPos.x < pitch.margin);
+            // Wait for the ball to settle if it's currently rattling around inside the net
+            if (bPos.y > goalTopY && bPos.y < goalBottomY && ball.z <= 249.f) {
+                return;
+            }
 
-        // FALLBACK: If lastOwner is null, assume Goal Kick
-        if (lastOwner == nullptr) {
-            m_pendingState = MatchState::GoalKick;     // <--- CHANGED
-            m_awardedTo = isHomeEnd ? Team::Home : Team::Away;
-            m_restartPos = isHomeEnd ? sf::Vector2f(pitch.margin + 600.f, 3500.f)
-                : sf::Vector2f(pitch.totalWidth - pitch.margin - 600.f, 3500.f);
-        }
-        else {
-            // STANDARD LOGIC
-            bool lastTouchedByHome = (lastOwner->getTeam() == Team::Home);
+            if (lastOwner == nullptr) {
+                m_pendingState = MatchState::GoalKick;
+                m_awardedTo = isHomeEnd ? Team::Home : Team::Away;
+                m_restartPos = isHomeEnd ? sf::Vector2f(pitch.margin + 600.f, 3500.f)
+                    : sf::Vector2f(pitch.totalWidth - pitch.margin - 600.f, 3500.f);
+            }
+            else {
+                bool lastTouchedByHome = (lastOwner->getTeam() == Team::Home);
 
-            if (isHomeEnd) {
-                if (lastTouchedByHome) {
-                    m_pendingState = MatchState::Corner;   // <--- CHANGED
-                    m_awardedTo = Team::Away;
-                    m_restartPos = (bPos.y < 3500.f) ? sf::Vector2f(pitch.margin + 50, pitch.margin + 50)
-                        : sf::Vector2f(pitch.margin + 50, pitch.totalHeight - pitch.margin - 50);
+                if (isHomeEnd) {
+                    if (lastTouchedByHome) {
+                        m_pendingState = MatchState::Corner;
+                        m_awardedTo = Team::Away;
+                        m_restartPos = (bPos.y < 3500.f) ? sf::Vector2f(pitch.margin + 50, pitch.margin + 50)
+                            : sf::Vector2f(pitch.margin + 50, pitch.totalHeight - pitch.margin - 50);
+                    }
+                    else {
+                        m_pendingState = MatchState::GoalKick;
+                        m_awardedTo = Team::Home;
+                        m_restartPos = sf::Vector2f(pitch.margin + 600.f, 3500.f);
+                    }
                 }
                 else {
-                    m_pendingState = MatchState::GoalKick; // <--- CHANGED
-                    m_awardedTo = Team::Home;
-                    m_restartPos = sf::Vector2f(pitch.margin + 600.f, 3500.f);
+                    if (lastTouchedByHome) {
+                        m_pendingState = MatchState::GoalKick;
+                        m_awardedTo = Team::Away;
+                        m_restartPos = sf::Vector2f(pitch.totalWidth - pitch.margin - 600.f, 3500.f);
+                    }
+                    else {
+                        m_pendingState = MatchState::Corner;
+                        m_awardedTo = Team::Home;
+                        m_restartPos = (bPos.y < 3500.f) ? sf::Vector2f(pitch.totalWidth - pitch.margin - 50, pitch.margin + 50)
+                            : sf::Vector2f(pitch.totalWidth - pitch.margin - 50, pitch.totalHeight - pitch.margin - 50);
+                    }
                 }
             }
-            else { // Away End
-                if (lastTouchedByHome) {
-                    m_pendingState = MatchState::GoalKick; // <--- CHANGED
-                    m_awardedTo = Team::Away;
-                    m_restartPos = sf::Vector2f(pitch.totalWidth - pitch.margin - 600.f, 3500.f);
-                }
-                else {
-                    m_pendingState = MatchState::Corner;   // <--- CHANGED
-                    m_awardedTo = Team::Home;
-                    m_restartPos = (bPos.y < 3500.f) ? sf::Vector2f(pitch.totalWidth - pitch.margin - 50, pitch.margin + 50)
-                        : sf::Vector2f(pitch.totalWidth - pitch.margin - 50, pitch.totalHeight - pitch.margin - 50);
-                }
-            }
-        }
 
-        // --- NEW: TRIGGER THE DELAY ---
-        // We have set up the pending state above. Now we freeze open play!
-        m_matchState = MatchState::OutOfBoundsDelay;
-        m_whistleTimer = 1.5f; // Wait 1.5 seconds before deciding to replay or teleport
+            m_matchState = MatchState::OutOfBoundsDelay;
+            m_whistleTimer = 1.5f;
+        }
     }
 }
 
-bool MatchReferee::checkGoalScored(Ball& ball, const Pitch& pitch) {
+bool MatchReferee::checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal) {
     sf::Vector2f bPos = ball.getPosition();
-    float bZ = ball.z;
+    if (ball.z > 244.f + 5.f) return false;
 
-    // 1. Vertical Check: Over the crossbar
-    if (bZ > 244.f + 5.f) return false;
-
-    // 2. Horizontal Check: Between the posts
-    float goalTopY = 3500.f - 366.f;
-    float goalBottomY = 3500.f + 366.f;
-    bool withinPosts = (bPos.y > goalTopY && bPos.y < goalBottomY);
-    if (!withinPosts) return false;
-
-    // 3. Depth Check: Requires the ball to fully cross
+    float bRadius = 12.f;
     float goalLineBuffer = 24.f;
 
-    // HOME GOAL (Left side of screen)
+    // --- CHECK HOME GOAL (Away Team Scoring) ---
     if (bPos.x < pitch.margin - goalLineBuffer) {
-        m_awayScore++;            // Away team scored!
-        m_awardedTo = Team::Home; // Home team gets the Kick-Off
-        return true;
+        float goalTopY = homeGoal.center.y - 366.f + bRadius;
+        float goalBottomY = homeGoal.center.y + 366.f - bRadius;
+
+        if (bPos.y > goalTopY && bPos.y < goalBottomY) {
+            m_awayScore++;
+            m_awardedTo = Team::Home;
+            return true;
+        }
     }
 
-    // AWAY GOAL (Right side of screen)
+    // --- CHECK AWAY GOAL (Home Team Scoring) ---
     if (bPos.x > pitch.totalWidth - pitch.margin + goalLineBuffer) {
-        m_homeScore++;            // Home team scored!
-        m_awardedTo = Team::Away; // Away team gets the Kick-Off
-        return true;
+        float goalTopY = awayGoal.center.y - 366.f + bRadius;
+        float goalBottomY = awayGoal.center.y + 366.f - bRadius;
+
+        if (bPos.y > goalTopY && bPos.y < goalBottomY) {
+            m_homeScore++;
+            m_awardedTo = Team::Away;
+            return true;
+        }
     }
 
     return false;
 }
 
-void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players) {
-    updateMatchContexts();
-
-    m_matchState = state;
-    m_whistleTimer = 5.0f;
-
-// ==========================================
-	// EARLY EXITS (No ball placement needed)
-	// ==========================================
-	if (state == MatchState::GoalScored || state == MatchState::HalfTime || 
-        state == MatchState::FullTime || state == MatchState::OutOfBoundsDelay) {
-		return;
-	}
-
-    ball.release();
-    ball.setSetPiece(true);
-    // 1. Reset the ball
-    ball.setPosition(m_restartPos);
-    ball.setVelocity({ 0.f, 0.f });
-    ball.z = 0.f;
-    ball.vz = 0.f;
-
-
-
-    // 2. Find the Taker
-    float closestDist = 99999.f;
-    m_setPieceTaker = nullptr;
-
-    for (Player* p : players) {
-        p->setVelocity({ 0.f, 0.f });
-        p->setState(PlayerState::Normal);
-
-        if (p->getTeam() == m_awardedTo) {
-            // --- 0. KICK OFF LOGIC ---
-            if (state == MatchState::KickOff) {
-                if (p->getPositionRole() == PositionRole::Striker) {
-                    m_setPieceTaker = p;
-                    ball.possess(m_setPieceTaker);
-                    break;
-                }
-            }
-            // --- 1. GOAL KICK LOGIC ---
-            else if (state == MatchState::GoalKick) {
-                if (p->getPositionRole() == PositionRole::Goalkeeper) {
-                    m_setPieceTaker = p;
-                    ball.possess(m_setPieceTaker);
-                    break;
-                }
-            }
-            // --- 2. PENALTY LOGIC ---
-            else if (state == MatchState::Penalty) { // FIX: Was checking if p == nullptr
-                    m_setPieceTaker = m_fouledPlayer;
-                    ball.possess(m_setPieceTaker);
-                    break;
-            }
-            // --- 3. THROW-IN LOGIC ---
-            else if (state == MatchState::ThrowIn) {
-                if (p->getPositionRole() != PositionRole::Goalkeeper) {
-                    float d = std::sqrt(std::pow(p->getPosition().x - m_restartPos.x, 2) + std::pow(p->getPosition().y - m_restartPos.y, 2));
-                    if (d < closestDist) {
-                        closestDist = d;
-                        m_setPieceTaker = p;
-                        ball.possess(m_setPieceTaker);
-                    }
-                }
-            }
-            // --- 4. CORNER & FREE KICK LOGIC ---
-            else if (state == MatchState::Corner) {
-                if (p->getPositionRole() != PositionRole::Goalkeeper &&
-                    p->getPositionRole() != PositionRole::LCenterBack &&
-                    p->getPositionRole() != PositionRole::RCenterBack) {
-                    float d = std::sqrt(std::pow(p->getPosition().x - m_restartPos.x, 2) + std::pow(p->getPosition().y - m_restartPos.y, 2));
-                    if (d < closestDist) {
-                        closestDist = d;
-                        m_setPieceTaker = p;
-                        ball.possess(m_setPieceTaker);
-                    }
-                }
-            }
-            else if (state == MatchState::FreeKick) {
-                if (p->getPositionRole() != PositionRole::Goalkeeper &&
-                    p->getPositionRole() != PositionRole::LCenterBack &&
-                    p->getPositionRole() != PositionRole::RCenterBack) {
-                    float d = std::sqrt(std::pow(p->getPosition().x - m_restartPos.x, 2) + std::pow(p->getPosition().y - m_restartPos.y, 2));
-                    if (d < closestDist) {
-                        closestDist = d;
-                        m_setPieceTaker = m_fouledPlayer;
-                        ball.possess(m_setPieceTaker);
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. Position the Taker 
-    if (m_setPieceTaker) {
-        bool isRightFooted = (m_setPieceTaker->getPreferredFoot() == "Right"); // Adjust string/enum to match your data
-        bool attackingAway = (m_awardedTo == Team::Home);
-
-        // --- X OFFSET (Stand behind the ball) ---
-        // If attacking Away (X+), stand further Down (X-).
-        float xOffset = attackingAway ? -45.f : 45.f;
-
-        // --- Y OFFSET (Align favored foot with ball) ---
-        float yOffset = 0.f;
-
-        if (attackingAway) {
-            // Facing X+: Right foot is Y+, Left foot is Y-
-            // To put ball at Right foot, player must shift Left (Y-)
-            yOffset = isRightFooted ? -15.f : 15.f;
-        }
-        else {
-            // Facing X-: Right foot is Y-, Left foot is Y+
-            // To put ball at Right foot, player must shift "Right" relative to pitch (Y+)
-            yOffset = isRightFooted ? 15.f : -15.f;
-        }
-
-        // Apply position
-        m_setPieceTaker->setPosition(m_restartPos + sf::Vector2f(xOffset, yOffset));
-
-        // Lock the ball to the taker
-        ball.setPosition(m_restartPos);
-        ball.possess(m_setPieceTaker);
-    }
-
-    // ==========================================
-    // 4. PITCH RULES & DEFENSIVE WALL
-    // ==========================================
-    sf::Vector2f targetGoal = (m_awardedTo == Team::Home) ? pitch.awayGoalCenter : pitch.homeGoalCenter;
-    float distToTargetGoal = std::sqrt(std::pow(m_restartPos.x - targetGoal.x, 2) + std::pow(m_restartPos.y - targetGoal.y, 2));
-
-    bool needsWall = (state == MatchState::FreeKick && distToTargetGoal < 2500.f); // 25 meters
-    int wallCount = 0;
-    int maxWallPlayers = (distToTargetGoal < 1800.f) ? 4 : 3; // Thicker wall if closer
-
-    // Wall Math
-    sf::Vector2f toGoal = targetGoal - m_restartPos;
-    float lenToGoal = std::sqrt(toGoal.x * toGoal.x + toGoal.y * toGoal.y);
-    if (lenToGoal > 0.1f) toGoal /= lenToGoal;
-    sf::Vector2f wallCenter = m_restartPos + (toGoal * 915.f);
-    sf::Vector2f perp(-toGoal.y, toGoal.x); // Perpendicular axis to line them up
-
-    for (Player* p : players) {
-        if (p == m_setPieceTaker) continue;
-
-        // Do not put sent-off players in the wall or push them around!
-        if (p->isSentOff()) continue;
-
-        // ==========================================
-        // --- NEW: TACTICAL SNAP (Teleport to Box) ---
-        // ==========================================
-        // For major set pieces where play has completely stopped, instantly teleport 
-        // everyone to their tactical zones rather than making them run there.
-        if (state == MatchState::Corner || state == MatchState::GoalKick) {
-            PositioningMask mask = getPositioningMask(p->getTeam(), p->getPositionRole(), pitch);
-
-            if (mask.useManualTarget) {
-                // Add a tiny random scatter (±50px) so players don't perfectly stack on each other
-                float offsetX = (rand() % 100 - 50) * 1.0f;
-                float offsetY = (rand() % 100 - 50) * 1.0f;
-
-                sf::Vector2f snapPos = mask.manualTarget + sf::Vector2f(offsetX, offsetY);
-
-                // Failsafe clamp to keep them on the grass
-                snapPos.x = std::clamp(snapPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
-                snapPos.y = std::clamp(snapPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
-
-                p->setPosition(snapPos);
-                p->setVelocity({ 0.f, 0.f });
-            }
-        }
-
-        // Grab the position AFTER the snap so the Encroachment logic below pushes them away 
-        // correctly if the mask accidentally spawned them too close to the corner flag!
-        sf::Vector2f pPos = p->getPosition();
-
-        if (state == MatchState::Penalty) {
-            if (p->getPositionRole() == PositionRole::Goalkeeper && p->getTeam() != m_awardedTo) {
-                p->setPosition(m_awardedTo == Team::Home ? pitch.awayGoalCenter : pitch.homeGoalCenter);
-            }
-            else {
-                bool homeDefending = (m_awardedTo == Team::Away);
-                bool inBox = homeDefending ? pitch.homePenaltyBox.contains(pPos) : pitch.awayPenaltyBox.contains(pPos);
-                bool inArc = pitch.isInPenaltyArc(pPos, homeDefending);
-
-                if (inBox || inArc) {
-                    p->setPosition({ pPos.x + (homeDefending ? 600.f : -600.f), pPos.y });
-                }
-            }
-        }
-        else if (p->getTeam() != m_awardedTo && state != MatchState::ThrowIn && state != MatchState::GoalKick) {
-
-            // A. Build the Wall
-            if (needsWall && wallCount < maxWallPlayers &&
-                p->getPositionRole() != PositionRole::Goalkeeper &&
-                p->getPositionRole() != PositionRole::LCenterBack &&
-                p->getPositionRole() != PositionRole::RCenterBack)
-            {
-                float offset = (wallCount - (maxWallPlayers / 2.0f) + 0.5f) * 60.f;
-                sf::Vector2f targetPos = wallCenter + (perp * offset);
-
-                // Failsafe clamp
-                targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
-                targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
-
-                p->setPosition(targetPos);
-                p->setVelocity({ 0.f, 0.f }); // Kill momentum
-                wallCount++;
-                continue;
-            }
-
-            // B. Generic 9.15m push for everyone else
-            float distToBall = std::sqrt(std::pow(pPos.x - m_restartPos.x, 2) + std::pow(pPos.y - m_restartPos.y, 2));
-            if (distToBall < 915.f) {
-                sf::Vector2f pushDir = pPos - m_restartPos;
-                float len = std::sqrt(pushDir.x * pushDir.x + pushDir.y * pushDir.y);
-                if (len > 0.1f) {
-                    pushDir /= len;
-                    sf::Vector2f targetPos = m_restartPos + (pushDir * 920.f); // Give them a tiny 5px buffer
-
-                    // FAILSAFE: Bend the Vector
-                    if (targetPos.x < pitch.margin || targetPos.x > pitch.totalWidth - pitch.margin ||
-                        targetPos.y < pitch.margin || targetPos.y > pitch.totalHeight - pitch.margin)
-                    {
-                        sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
-                        sf::Vector2f toCenter = center - pPos;
-                        float centerLen = std::sqrt(toCenter.x * toCenter.x + toCenter.y * toCenter.y);
-
-                        if (centerLen > 0.1f) {
-                            pushDir += (toCenter / centerLen) * 0.8f;
-                            float newLen = std::sqrt(pushDir.x * pushDir.x + pushDir.y * pushDir.y);
-                            pushDir /= newLen;
-                            targetPos = m_restartPos + (pushDir * 920.f);
-                        }
-                    }
-
-                    // Final Safety Clamp
-                    targetPos.x = std::clamp(targetPos.x, pitch.margin, pitch.totalWidth - pitch.margin);
-                    targetPos.y = std::clamp(targetPos.y, pitch.margin, pitch.totalHeight - pitch.margin);
-
-                    p->setPosition(targetPos);
-                }
-            }
-        }
-    }
-}
-
 void MatchReferee::updateMatchContexts() {
-    // RESET TO DEFAULTS
     m_attackCtx = TacticalContext();
     m_defendCtx = TacticalContext();
     m_attackMask = PositioningMask();
     m_defendMask = PositioningMask();
 
+    // REMOVED all the massive `homeOffset` hacks that were clashing with TeamAI.
+    // The TeamAI now handles the macro pitch compression naturally.
+
     switch (m_matchState) {
     case MatchState::InPlay:
         break;
-
-    case MatchState::GoalKick:
-
-        m_attackCtx.maxSpeedLimit = 300.f;
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 450.f;
-        m_defendCtx.ballInfluence = 0.2f;
-        m_defendMask.homeOffset = (m_awardedTo == Team::Home) ? sf::Vector2f(-2000.f, 0.f) : sf::Vector2f(2000.f, 0.f);
-        break;
-
-    case MatchState::ThrowIn:
-        m_attackCtx.maxSpeedLimit = 400.f;
-        m_attackCtx.ballInfluence = 0.5f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 400.f;
-        m_defendCtx.awarenessMod = 1.5f;
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
-
-    case MatchState::FreeKick:
-    case MatchState::Corner:
-        m_attackCtx.maxSpeedLimit = 350.f;
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 350.f;
-        m_defendCtx.ballInfluence = 0.0f;   // CRITICAL FIX: Stop them from hunting the taker!
-        m_defendCtx.canTackle = false;
-        break;
-
-    case MatchState::Penalty:
-        m_attackCtx.maxSpeedLimit = 400.f;
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 400.f;
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
-
-    case MatchState::GoalScored:
-        m_attackCtx.maxSpeedLimit = 500.f;
-        m_attackCtx.ballInfluence = 0.0f;   // Ignore the ball during celebration
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 800.f;  // <--- INCREASED: Briskly jog back to center for KickOff!
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
-
-    case MatchState::HalfTime:
-    case MatchState::FullTime:
-        // EVERYONE STOPS PLAYING
-        m_attackCtx.maxSpeedLimit = 250.f;  // Slow walk
-        m_attackCtx.ballInfluence = 0.0f;   // Completely ignore the ball
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 250.f;  // Slow walk
-        m_defendCtx.ballInfluence = 0.0f;   // Completely ignore the ball
-        m_defendCtx.canTackle = false;
-        break;
-    case MatchState::KickOff:               // <--- NEW: Stop players from swarming the center circle
-        m_attackCtx.maxSpeedLimit = 800.f;  // <--- INCREASED: Let them jog to their starting formations!
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 800.f;  // <--- INCREASED
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
-    case MatchState::FoulDelay:
-    case MatchState::OutOfBoundsDelay: // <--- ADD HERE
-        // Stop sprinting and ignore the ball while we wait for the set piece.
-        m_attackCtx.maxSpeedLimit = 250.f;
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 250.f;
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
-    case MatchState::RequestReplay:
-    case MatchState::ReplayPlaying:
-        // Completely freeze the AI behind the scenes. No moving, no touching the ball.
-        m_attackCtx.maxSpeedLimit = 0.f;
-        m_attackCtx.ballInfluence = 0.0f;
-        m_attackCtx.canTackle = false;
-
-        m_defendCtx.maxSpeedLimit = 0.f;
-        m_defendCtx.ballInfluence = 0.0f;
-        m_defendCtx.canTackle = false;
-        break;
+        // ... we don't need all the individual cases here anymore because we handle 
+        // the constraints flawlessly inside getTacticalContext now!
     }
 }
 
 TacticalContext MatchReferee::getTacticalContext(Team team, bool isTaker) const {
-    // 1. Grab the base context for this team (Attacking or Defending)
     TacticalContext ctx = (team == m_awardedTo) ? m_attackCtx : m_defendCtx;
-
-    // CRITICAL FIX: Give the context the actual state!
     ctx.state = m_matchState;
 
-    // 2. Apply strict Overrides
     if (m_matchState != MatchState::InPlay) {
-
-        // --- NEW: REPLAY SAFETY LOCK ---
-        // If we are transitioning or holding for a replay, deny possession to EVERYONE.
         if (m_matchState == MatchState::RequestReplay || m_matchState == MatchState::ReplayPlaying) {
             ctx.isTaker = false;
             ctx.canPossess = false;
             ctx.ballInfluence = 0.0f;
             ctx.canTackle = false;
+            ctx.maxSpeedLimit = 0.f; // Freeze
         }
         else if (isTaker) {
             ctx.isTaker = true;
             ctx.canPossess = true;
             ctx.ballInfluence = 1.0f;
-            ctx.maxSpeedLimit = 500.f;
+            ctx.maxSpeedLimit = 300.f; // Let the taker walk to the ball
             ctx.canTackle = false;
         }
         else {
             ctx.isTaker = false;
             ctx.canPossess = false;
             ctx.canTackle = false;
+
+            // ==========================================
+            // --- THE "TURN YOUR BACK" FIX ---
+            // ==========================================
+            // Explicitly set ball influence to zero. This strips the ball's gravity 
+            // from the spatial engine, forcing players to walk purely to their tactical/manual targets.
+            ctx.ballInfluence = 0.0f;
+
+            // Notice we check m_matchState here, not effectiveState!
+            // This means during OutOfBoundsDelay and FoulDelay, they jog (350.f) towards their new masks.
+            // Once the state actually ticks over to KickOff/Penalty/FreeKick, they freeze (0.f) on their spots.
+            if (m_matchState == MatchState::KickOff || m_matchState == MatchState::Penalty || m_matchState == MatchState::FreeKick) {
+                ctx.maxSpeedLimit = 0.f;
+            }
+            else {
+                ctx.maxSpeedLimit = 350.f;
+            }
         }
     }
 
     return ctx;
 }
 
-PositioningMask MatchReferee::getPositioningMask(Team team, PositionRole role, const Pitch& pitch) const {
-    PositioningMask mask; // Defaults
+PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& pitch) const {
+    PositioningMask mask;
+    Team team = p->getTeam();
+    PositionRole role = p->getPositionRole();
+    sf::Vector2f homePos = p->getHomePosition(); // <--- The magic key!
+
     bool isAttacking = (team == m_awardedTo);
     bool isHome = (team == Team::Home);
-    bool attackingHomeEnd = (m_awardedTo == Team::Away); 
+    bool attackingHomeEnd = (m_awardedTo == Team::Away);
 
     float attackingGoalX = attackingHomeEnd ? pitch.margin : pitch.totalWidth - pitch.margin;
+    float defendingGoalX = attackingHomeEnd ? pitch.totalWidth - pitch.margin : pitch.margin;
     float boxEdgeX = attackingHomeEnd ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
     float halfwayX = pitch.totalWidth / 2.f;
     float centerY = pitch.totalHeight / 2.f;
 
-    // ==========================================
-    // --- NEW: EFFECTIVE STATE ---
-    // If we are holding for a replay, players need to line up for the UPCOMING set piece!
-    // ==========================================
-    MatchState effectiveState = (m_matchState == MatchState::ReplayPlaying) ? m_pendingState : m_matchState;
+    // --- THE DELAY PREVIEW FIX ---
+        // If we are waiting for a restart, pretend we are already in that restart state!
+    MatchState effectiveState = (m_matchState == MatchState::ReplayPlaying ||
+        m_matchState == MatchState::OutOfBoundsDelay ||
+        m_matchState == MatchState::FoulDelay)
+        ? m_pendingState : m_matchState;
 
-    // 1. UNIVERSAL TAKER POSITIONING (Preferred Foot)
-    if (m_setPieceTaker && isAttacking && role == m_setPieceTaker->getPositionRole() && effectiveState != MatchState::InPlay) {
+    // --- TAKER LOGIC ---
+    if (m_setPieceTaker && isAttacking && p == m_setPieceTaker && effectiveState != MatchState::InPlay) {
         mask.useManualTarget = true;
-
         bool isRightFooted = (m_setPieceTaker->getPreferredFoot() == "Right");
-        bool attackingAway = (m_awardedTo == Team::Home); 
+        bool attackingAway = (m_awardedTo == Team::Home);
 
         float xOff = attackingAway ? -45.f : 45.f;
-        float yOff = 0.f;
-        
-        if (attackingAway) {
-            yOff = isRightFooted ? -15.f : 15.f;
-        } else {
-            yOff = isRightFooted ? 15.f : -15.f;
-        }
+        float yOff = (attackingAway) ? (isRightFooted ? -15.f : 15.f) : (isRightFooted ? 15.f : -15.f);
 
         mask.manualTarget = m_restartPos + sf::Vector2f(xOff, yOff);
         return mask;
     }
 
-    // 2. STATE-SPECIFIC POSITIONING (Non-Takers)
-    // NOTE: We now check 'effectiveState' instead of 'm_matchState'
+    // ==========================================
+       // --- FORMATION-RELATIVE CORNERS ---
+       // ==========================================
+// ==========================================
+    // --- FORMATION-RELATIVE CORNERS ---
+    // ==========================================
     if (effectiveState == MatchState::Corner) {
         mask.useManualTarget = true;
 
+        bool isFullback = (role == PositionRole::LeftBack || role == PositionRole::RightBack || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack);
+        bool isStriker = (role == PositionRole::Striker || role == PositionRole::CenterForward);
+        bool isCB = (role == PositionRole::CenterBack);
+
+        // Compress their Y distance to keep the formation shape inside the penalty box
+        float relativeY = (homePos.y - centerY) * 0.6f;
+
+        // Directional multipliers to handle both sides of the pitch
+        // 1.0 pushes right (into pitch from Home goal), -1.0 pushes left (into pitch from Away goal)
+        float sign = attackingHomeEnd ? 1.0f : -1.0f;
+        // -1.0 pushes left (into Home half), 1.0 pushes right (into Away half)
+        float ownHalfDir = isHome ? -1.0f : 1.0f;
+
+        // Create a realistic "Cluster" scatter so they don't form straight lines
+        int seed = static_cast<int>(role) * 7 + (isHome ? 13 : 31);
+        float scatterX = static_cast<float>((seed % 400) - 200);
+        float scatterY = static_cast<float>((seed % 300) - 150);
+
         if (isAttacking) {
-            if (role == PositionRole::LCenterBack || role == PositionRole::RCenterBack || role == PositionRole::Striker) {
-                mask.manualTarget.x = attackingGoalX + (attackingHomeEnd ? 800.f : -800.f);
-                mask.manualTarget.y = centerY + ((role == PositionRole::LCenterBack) ? -350.f : ((role == PositionRole::RCenterBack) ? 350.f : 0.f));
-            }
-            else if (role == PositionRole::LeftBack || role == PositionRole::RightBack) {
-                mask.manualTarget.x = halfwayX + (isHome ? -400.f : 400.f);
-                mask.manualTarget.y = (role == PositionRole::LeftBack) ? centerY - 1500.f : centerY + 1500.f;
-            }
-            else if (role != PositionRole::Goalkeeper) {
-                mask.manualTarget.x = boxEdgeX + (attackingHomeEnd ? 200.f : -200.f);
-                float yOffset = (role == PositionRole::LeftWing) ? -800.f : ((role == PositionRole::RightWing) ? 800.f : 0.f);
-                mask.manualTarget.y = centerY + yOffset;
-            }
-        }
-        else {
-            if (role == PositionRole::Striker) {
-                mask.manualTarget.x = halfwayX + (isHome ? 500.f : -500.f);
+            if (role == PositionRole::Goalkeeper) {
+                // Attacking GK stays all the way back in their own net
+                mask.manualTarget.x = defendingGoalX;
                 mask.manualTarget.y = centerY;
             }
-            else if (role == PositionRole::LeftWing || role == PositionRole::RightWing) {
-                mask.manualTarget.x = boxEdgeX + (attackingHomeEnd ? -300.f : 300.f);
-                mask.manualTarget.y = centerY + ((role == PositionRole::LeftWing) ? -1000.f : 1000.f);
+            else if (isFullback) {
+                // Fullbacks stay back to defend counters, safely inside their OWN half
+                mask.manualTarget.x = halfwayX + (ownHalfDir * 400.f);
+                mask.manualTarget.y = homePos.y;
             }
-            else if (role != PositionRole::Goalkeeper) {
-                mask.manualTarget.x = attackingGoalX + (attackingHomeEnd ? 500.f : -500.f);
-                float yOffset = 0.f;
-                if (role == PositionRole::LCenterBack) yOffset = -350.f;
-                if (role == PositionRole::RCenterBack) yOffset = 350.f;
-                if (role == PositionRole::LeftBack) yOffset = -750.f;
-                if (role == PositionRole::RightBack) yOffset = 750.f;
-                mask.manualTarget.y = centerY + yOffset;
+            else if (isCB) {
+                // Tall Center Backs crash the 6-yard box and penalty spot
+                mask.manualTarget.x = attackingGoalX + (sign * 800.f) + scatterX;
+                mask.manualTarget.y = centerY + (relativeY * 0.5f) + scatterY;
+            }
+            else {
+                // Midfielders and Strikers loiter around the penalty spot to the edge of the box
+                mask.manualTarget.x = attackingGoalX + (sign * 1300.f) + scatterX;
+                mask.manualTarget.y = centerY + relativeY + scatterY;
+            }
+        }
+        else { // Defending
+            if (role == PositionRole::Goalkeeper) {
+                // Defending GK stands right in the middle of the goal being attacked
+                mask.manualTarget.x = attackingGoalX;
+                mask.manualTarget.y = centerY;
+            }
+            else if (isStriker) {
+                // Strikers wait near the halfway line, inside their OWN half so they aren't offside!
+                mask.manualTarget.x = halfwayX + (ownHalfDir * 400.f);
+                mask.manualTarget.y = homePos.y;
+            }
+            else if (isCB) {
+                // Defending Center Backs heavily pack the 6-yard box
+                mask.manualTarget.x = attackingGoalX + (sign * 400.f) + (scatterX * 0.5f);
+                mask.manualTarget.y = centerY + (relativeY * 0.5f) + scatterY;
+            }
+            else {
+                // Defending Midfielders and Fullbacks mark the 12-yard penalty spot area
+                mask.manualTarget.x = attackingGoalX + (sign * 1000.f) + scatterX;
+                mask.manualTarget.y = centerY + relativeY + scatterY;
             }
         }
     }
+    // ==========================================
+    // --- STRICT PENALTY LINEUP ---
+    // ==========================================
     else if (effectiveState == MatchState::Penalty) {
-        if (role != PositionRole::Goalkeeper && role != PositionRole::Striker) {
-            mask.homeOffset.x = isHome ? (attackingHomeEnd ? 2200.f : -2200.f) : (attackingHomeEnd ? 2200.f : -2200.f);
+        if (role != PositionRole::Goalkeeper && p != m_setPieceTaker) {
+            mask.useManualTarget = true;
+
+            // Compress their formation Y position to fit perfectly along the D-Arc!
+            float relativeY = (homePos.y - centerY) * 0.8f;
+
+            float dArcEdgeX = attackingHomeEnd ? pitch.margin + 2200.f : pitch.totalWidth - pitch.margin - 2200.f;
+            mask.manualTarget = sf::Vector2f(dArcEdgeX + (attackingHomeEnd ? 100.f : -100.f), centerY + relativeY);
         }
     }
     else if (effectiveState == MatchState::KickOff) {
@@ -828,6 +488,128 @@ PositioningMask MatchReferee::getPositioningMask(Team team, PositionRole role, c
     return mask;
 }
 
+void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players) {
+    updateMatchContexts();
+
+    m_matchState = state;
+    m_whistleTimer = 5.0f;
+
+    if (state == MatchState::GoalScored || state == MatchState::HalfTime ||
+        state == MatchState::FullTime || state == MatchState::OutOfBoundsDelay) {
+        return;
+    }
+
+    ball.release();
+    ball.setSetPiece(true);
+    ball.setPosition(m_restartPos);
+    ball.setVelocity({ 0.f, 0.f });
+    ball.z = 0.f;
+    ball.vz = 0.f;
+
+    float closestDist = 99999.f;
+    m_setPieceTaker = nullptr;
+
+    for (Player* p : players) {
+        p->setVelocity({ 0.f, 0.f });
+        p->setState(PlayerState::Normal);
+
+        if (p->getTeam() == m_awardedTo) {
+            if (state == MatchState::KickOff) {
+                if (p->getPositionRole() == PositionRole::Striker || p->getPositionRole() == PositionRole::CenterForward) {
+                    m_setPieceTaker = p;
+                    ball.possess(m_setPieceTaker);
+                    break;
+                }
+            }
+            else if (state == MatchState::GoalKick) {
+                if (p->getPositionRole() == PositionRole::Goalkeeper) {
+                    m_setPieceTaker = p;
+                    ball.possess(m_setPieceTaker);
+                    break;
+                }
+            }
+            else if (state == MatchState::Penalty || state == MatchState::FreeKick) {
+                m_setPieceTaker = m_fouledPlayer;
+                ball.possess(m_setPieceTaker);
+                break;
+            }
+            else if (state == MatchState::ThrowIn || state == MatchState::Corner) {
+                if (p->getPositionRole() != PositionRole::Goalkeeper) {
+                    float d = std::sqrt(std::pow(p->getPosition().x - m_restartPos.x, 2) + std::pow(p->getPosition().y - m_restartPos.y, 2));
+                    if (d < closestDist) {
+                        closestDist = d;
+                        m_setPieceTaker = p;
+                        ball.possess(m_setPieceTaker);
+                    }
+                }
+            }
+        }
+    }
+    // ==========================================
+    // --- THE FIX: ENSURE TAKER IS FOUND ---
+    // ==========================================
+    if (m_setPieceTaker == nullptr) {
+        // If we couldn't find the "ideal" role, just grab the first available player on the team
+        for (Player* p : players) {
+            if (p->getTeam() == m_awardedTo && p->getPositionRole() != PositionRole::Goalkeeper) {
+                m_setPieceTaker = p;
+                break;
+            }
+        }
+    }
+
+    if (m_setPieceTaker) {
+        bool isRightFooted = (m_setPieceTaker->getPreferredFoot() == "Right");
+        bool attackingAway = (m_awardedTo == Team::Home);
+
+        float xOffset = attackingAway ? -45.f : 45.f;
+        float yOffset = 0.f;
+
+        if (attackingAway) yOffset = isRightFooted ? -15.f : 15.f;
+        else yOffset = isRightFooted ? 15.f : -15.f;
+
+        m_setPieceTaker->setPosition(m_restartPos + sf::Vector2f(xOffset, yOffset));
+        ball.setPosition(m_restartPos);
+        ball.possess(m_setPieceTaker);
+    }
+
+    // ==========================================
+    // --- TACTICAL TELEPORT FIXES ---
+    // ==========================================
+    for (Player* p : players) {
+        if (p == m_setPieceTaker || p->isSentOff()) continue;
+
+        if (state == MatchState::KickOff) {
+            p->setPosition(p->getHomePosition());
+            p->setVelocity({ 0.f, 0.f });
+        }
+        else if (state == MatchState::Corner) {
+            // Pass the player object explicitly to the mask!
+            PositioningMask mask = getPositioningMask(p, pitch);
+            if (mask.useManualTarget) {
+                p->setPosition(mask.manualTarget);
+                p->setVelocity({ 0.f, 0.f });
+            }
+        }
+
+        sf::Vector2f pPos = p->getPosition();
+
+        if (state == MatchState::Penalty) {
+            if (p->getPositionRole() == PositionRole::Goalkeeper && p->getTeam() != m_awardedTo) {
+                p->setPosition(m_awardedTo == Team::Home ? pitch.awayGoalCenter : pitch.homeGoalCenter);
+            }
+            else {
+                // Pass the player explicitly to the mask to snap them to the D-Arc
+                PositioningMask mask = getPositioningMask(p, pitch);
+                if (mask.useManualTarget) {
+                    p->setPosition(mask.manualTarget);
+                    p->setVelocity({ 0.f, 0.f });
+                }
+            }
+        }
+    }
+}
+
 void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim) {
     if (m_matchState != MatchState::InPlay) return;
 
@@ -835,9 +617,11 @@ void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, con
     m_awardedTo = isHomeDefending ? Team::Away : Team::Home;
     m_fouledPlayer = victim;
 
-    // ==========================================
-    // --- DISCIPLINARY ACTIONS (CARDS) ---
-    // ==========================================
+    if (foul.type == FoulType::Offside) {
+        awardOffside(foul.offender, ball, pitch);
+        return;
+    }
+
     if (foul.type == FoulType::Sliding) {
         foul.offender->giveYellowCard();
         std::cout << "YELLOW CARD: " << foul.offender->getName() << "\n";
@@ -847,8 +631,6 @@ void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, con
         std::cout << "STRAIGHT RED CARD: " << foul.offender->getName() << "\n";
     }
 
-    // --- DELAY THE TELEPORT ---
-    // We don't teleport the sent-off player here anymore. We wait until the delay finishes.
 
     bool inBox = false;
     if (isHomeDefending && pitch.homePenaltyBox.contains(foul.location)) inBox = true;
@@ -863,19 +645,14 @@ void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, con
         m_restartPos = foul.location;
     }
 
-    // --- TRIGGER THE DELAY ---
-    // 2.0 seconds gives us enough time to see the player fall over and slide on the grass
     m_foulDelayTimer = 2.0f;
     m_matchState = MatchState::FoulDelay;
 
-    // Stop the ball dead so it doesn't roll into the net and trigger a goal during the delay!
     ball.setVelocity({ 0.f, 0.f });
-
     updateMatchContexts();
 }
 
 void MatchReferee::applyForfeitScore(bool homeForfeited) {
-    // Standard rule: A forfeited match is recorded as a 3-0 loss
     if (homeForfeited) {
         m_homeScore = 0;
         m_awayScore = 3;
@@ -889,7 +666,6 @@ void MatchReferee::applyForfeitScore(bool homeForfeited) {
 
 void MatchReferee::setupReplayTeleports(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players)
 {
-    // 1. Hide sent-off players
     for (Player* p : players) {
         if (p->isSentOff() && p->getPosition().x > 0.f) {
             p->setPosition({ -5000.f, -5000.f });
@@ -897,33 +673,108 @@ void MatchReferee::setupReplayTeleports(Ball& ball, const Pitch& pitch, const st
         }
     }
 
-    // 2. Setup the Set Piece (Teleports the taker, ball, and defensive wall)
     prepareRestart(m_pendingState, ball, pitch, players);
-
-    // 3. OVERRIDE THE STATE! 
-    // prepareRestart just set the state to FreeKick/Penalty. We force it into the Holding State.
     m_matchState = MatchState::ReplayPlaying;
-    m_whistleTimer = 5.0f; // Freeze the timer just to be safe
+    m_whistleTimer = 5.0f;
 }
 
 void MatchReferee::resumeFromReplay()
 {
-    // The replay is officially over. NOW we start the actual set piece!
     m_matchState = m_pendingState;
-    m_whistleTimer = 5.0f; // Start the 5-second countdown!
-
-    // (Optional: You can trigger your Referee Whistle sound effect right here!)
+    m_whistleTimer = 5.0f;
 }
 
 void MatchReferee::startMatch(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players)
 {
     m_half = 1;
     m_matchMinute = 0.0f;
-    m_awardedTo = Team::Home; // Home team traditionally kicks off first
-
-    // Set the target to the exact dead-center of the pitch
+    m_awardedTo = Team::Home;
     m_restartPos = sf::Vector2f(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
-
-    // Call the restart logic to assign the taker and build the formations!
     prepareRestart(MatchState::KickOff, ball, pitch, players);
+}
+
+void MatchReferee::checkOffsideLogic(Ball& ball, const std::vector<Player*>& players, float homeOffsideLine, float awayOffsideLine, const Pitch& pitch) {
+    Player* currentOwner = ball.getOwner();
+
+    // ==========================================
+    // 0. EXEMPTION CHECK
+    // ==========================================
+    // You cannot be offside directly from these restarts.
+    // If the ball is kicked during these states, we do NOT take a snapshot.
+    bool isExemptRestart = (m_matchState == MatchState::Corner ||
+        m_matchState == MatchState::GoalKick ||
+        m_matchState == MatchState::ThrowIn ||
+        m_matchState == MatchState::Penalty ||
+        m_matchState == MatchState::KickOff);
+
+    // ==========================================
+    // 1. THE SNAPSHOT (Detecting the Pass)
+    // ==========================================
+    if (m_prevBallOwner != nullptr && currentOwner == nullptr) {
+
+        // Only flag players if it's a standard pass in open play (not an exempt restart)
+        if (!isExemptRestart) {
+            Team attackingTeam = m_prevBallOwner->getTeam();
+            float currentLine = (attackingTeam == Team::Home) ? homeOffsideLine : awayOffsideLine;
+
+            m_offsideSnapshot.flaggedPlayers.clear();
+            m_offsideSnapshot.attackingTeam = attackingTeam;
+            m_offsideSnapshot.isActive = true;
+
+            for (Player* p : players) {
+                if (p->getTeam() != attackingTeam || p == m_prevBallOwner) continue;
+
+                // Rule: You cannot be offside in your own half
+                float halfwayX = pitch.totalWidth / 2.f;
+                bool inOpponentHalf = (attackingTeam == Team::Home) ? (p->getPosition().x > halfwayX) : (p->getPosition().x < halfwayX);
+
+                if (inOpponentHalf) {
+                    bool isOffsidePos = (attackingTeam == Team::Home) ? (p->getPosition().x > currentLine) : (p->getPosition().x < currentLine);
+
+                    if (isOffsidePos) {
+                        m_offsideSnapshot.flaggedPlayers.push_back(p);
+                    }
+                }
+            }
+        }
+        else {
+            // It was a Corner/Throw-in/etc. Reset the snapshot so the next touch is clean.
+            m_offsideSnapshot.isActive = false;
+            m_offsideSnapshot.flaggedPlayers.clear();
+        }
+    }
+
+    // ==========================================
+    // 2. THE TRAP (Detecting the Reception)
+    // ==========================================
+    if (m_prevBallOwner == nullptr && currentOwner != nullptr) {
+        if (m_offsideSnapshot.isActive && currentOwner->getTeam() == m_offsideSnapshot.attackingTeam) {
+            for (Player* flagged : m_offsideSnapshot.flaggedPlayers) {
+                if (currentOwner == flagged) {
+                    awardOffside(currentOwner, ball, pitch);
+                    break;
+                }
+            }
+        }
+        // Possession has changed or ball was received; snapshot is now spent.
+        m_offsideSnapshot.isActive = false;
+        m_offsideSnapshot.flaggedPlayers.clear();
+    }
+
+    m_prevBallOwner = currentOwner;
+}
+
+void MatchReferee::awardOffside(Player* offender, Ball& ball, const Pitch& pitch) {
+    // Reset ball physics
+    ball.setVelocity({ 0.f, 0.f });
+    ball.z = 0.f;
+
+    // Restart position is where the offside player was when they touched it
+    m_restartPos = ball.getPosition();
+    m_awardedTo = (offender->getTeam() == Team::Home) ? Team::Away : Team::Home;
+
+    // Offside is ALWAYS a free kick, never a penalty, even if in the box!
+    m_pendingState = MatchState::FreeKick;
+    m_matchState = MatchState::FoulDelay;
+    m_foulDelayTimer = 2.0f;
 }

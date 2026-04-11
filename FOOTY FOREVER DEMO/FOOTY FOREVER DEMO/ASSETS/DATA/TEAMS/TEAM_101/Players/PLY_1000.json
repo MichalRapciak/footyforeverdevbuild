@@ -16,6 +16,7 @@
         "loyalty": 96,
         "name": "M. Salah",
         "number": 10,
+        "playstyle": "DefensiveWinger",
         "position": "RightWing",
         "preferred_foot": "Left",
         "sharpness": 99,

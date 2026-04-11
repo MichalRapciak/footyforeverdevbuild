@@ -16,6 +16,7 @@
         "loyalty": 93,
         "name": "D. Szoboszlai",
         "number": 8,
+        "playstyle": "BoxToBox",
         "position": "CenterMid",
         "preferred_foot": "Right",
         "sharpness": 99,

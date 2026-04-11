@@ -1,5 +1,6 @@
 #include "EditorScreen.h"
 #include "imgui-1.92.6/imgui.h"
+#include "PlaystyleDatabase.h"
 #include "Game.h"
 #include <cstdint>
 #include <algorithm>
@@ -236,9 +237,36 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             int footIdx = (p->preferredFoot == "Left") ? 1 : (p->preferredFoot == "Both" ? 2 : 0);
             if (ImGui::Combo("Preferred Foot", &footIdx, feet, IM_ARRAYSIZE(feet))) p->preferredFoot = feet[footIdx];
 
-            const char* roles[] = { "Goalkeeper", "LeftBack", "LCenterBack", "RCenterBack", "RightBack", "DefensiveMid", "CenterMid", "AttackingMid", "LeftWing", "RightWing", "Striker" };
+            // --- UPDATED POSITION ROLES ---
+            const char* roles[] = {
+                "Goalkeeper", "LeftBack", "CenterBack", "RightBack",
+                "LeftWingBack", "RightWingBack", "DefensiveMid", "CenterMid",
+                "LeftMid", "RightMid", "AttackingMid", "LeftWing", "RightWing",
+                "CenterForward", "Striker"
+            };
             int roleIdx = static_cast<int>(p->positionRole);
-            if (ImGui::Combo("Position Role", &roleIdx, roles, IM_ARRAYSIZE(roles))) p->positionRole = static_cast<PositionRole>(roleIdx);
+            if (ImGui::Combo("Position Role", &roleIdx, roles, IM_ARRAYSIZE(roles))) {
+                p->positionRole = static_cast<PositionRole>(roleIdx);
+            }
+
+            // --- NEW: PLAYSTYLE SELECTOR ---
+            const char* playstyles[] = {
+                "SweeperKeeper", "OnTheLine", "Distributor",
+                "Sweeper", "TheWall", "TheKiller", "CalmAndCollected",
+                "DefensiveFB", "UpAndDown", "TheRoamerFB", "TheCrosser",
+                "OrchestratorDM", "TheKillerDM", "ThreeLungDM", "DefensiveRoamer", "BacklineBrawler",
+                "OrchestratorCM", "BoxToBox", "PlaymakerCM", "ThreeLungCM", "QuickPasser", "RoamerCM",
+                "PlaymakerAM", "OrchestratorAM", "HardcorePress", "QuickPasserAM", "TricksterAM", "RoamerAM", "FinisherAM",
+                "WideWinger", "FalseWinger", "RoamerWinger", "TricksterWinger",
+                "ClassicWideMid", "DefensiveWinger", "InvertedWideMid",
+                "Finisher", "TheTarget", "TricksterStriker", "False9", "PlaymakerStriker",
+                "SecondStriker", "ShadowStriker"
+            };
+            int playstyleIdx = static_cast<int>(p->playstyle.type);
+            if (ImGui::Combo("Playstyle", &playstyleIdx, playstyles, IM_ARRAYSIZE(playstyles))) {
+                // When changed, immediately load the new Tactical Zone and Behaviors into the PlayerData!
+                p->playstyle = PlaystyleDatabase::getPlaystyle(static_cast<PlaystyleType>(playstyleIdx));
+            }
 
             // Stats
             ImGui::Separator(); ImGui::Text("Physical & Speed");
@@ -341,7 +369,7 @@ void EditorScreen::drawTeamTab(float availableHeight)
         newTeam.socks.primaryColor = sf::Color::White;
         newTeam.defaultTactics.formationName = "4-3-3";
         newTeam.defaultTactics.defensiveDepth = 50;
-        newTeam.defaultTactics.buildUpPlay = 50;
+        newTeam.defaultTactics.passingLength = 50;
         newTeam.defaultTactics.attackingWidth = 50;
 
         m_db->teams[newId] = newTeam;
@@ -538,9 +566,13 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
         t->defaultTactics.formationName = formations[formIdx];
     }
 
+    // --- TACTICAL SLIDERS ---
     ImGui::SliderInt("Defensive Depth", &t->defaultTactics.defensiveDepth, 0, 100);
-    ImGui::SliderInt("Build-up Play", &t->defaultTactics.buildUpPlay, 0, 100);
+    ImGui::SliderInt("Passing Length", &t->defaultTactics.passingLength, 0, 100);
     ImGui::SliderInt("Attacking Width", &t->defaultTactics.attackingWidth, 0, 100);
+    ImGui::SliderInt("Pressing Intensity", &t->defaultTactics.pressingIntensity, 0, 100);
+    ImGui::SliderInt("Positional Freedom", &t->defaultTactics.positionalFreedom, 0, 100);
+    ImGui::SliderInt("Passing Speed", &t->defaultTactics.passingSpeed, 0, 100);
 
     ImGui::Spacing();
     ImGui::Text("Set Piece Takers");
@@ -597,33 +629,31 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
         ImGui::SetCursorPosX(startPosX);
 
         for (size_t j = 0; j < line.size(); ++j) {
-            PositionRole role = line[j];
+            int slotId = line[j].first;            // <--- NEW: Grab the Slot ID (0-10)
+            PositionRole role = line[j].second;    // <--- The tactical role for the pitch
             std::string roleName = roleToString(role);
 
             // Format the display string: "Role\nPlayerName"
             std::string currPlayerName = "Empty";
-            if (t->defaultTactics.startingXI.count(role)) {
-                PlayerData* p = m_db->getPlayer(t->defaultTactics.startingXI[role]);
+            if (t->defaultTactics.startingXI.count(slotId)) {   // <--- Check map by slotId
+                PlayerData* p = m_db->getPlayer(t->defaultTactics.startingXI[slotId]);
                 if (p) {
-                    // Extract just the last name for UI brevity if there's a space
                     size_t spacePos = p->name.find_last_of(' ');
                     currPlayerName = (spacePos != std::string::npos) ? p->name.substr(spacePos + 1) : p->name;
                 }
             }
 
+            // Hidden ID ensures ImGui knows which button is which, even if names are identical
             std::string buttonText = roleName + "\n" + currPlayerName;
-            std::string buttonId = "##" + roleName; // Hidden ID
+            std::string buttonId = "##Slot_" + std::to_string(slotId);
 
-            // Highlight empty slots in red so they stand out
             if (currPlayerName == "Empty") {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
             }
 
-            // --- NEW: THE CLEAR BUTTON LOGIC ---
-            // If the user left-clicks this button, and it has a player in it, erase them!
             if (ImGui::Button((buttonText + buttonId).c_str(), ImVec2(buttonWidth, 40))) {
                 if (currPlayerName != "Empty") {
-                    t->defaultTactics.startingXI.erase(role);
+                    t->defaultTactics.startingXI.erase(slotId); // <--- Erase by slotId
                 }
             }
 
@@ -631,7 +661,6 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
                 ImGui::PopStyleColor();
             }
             else if (ImGui::IsItemHovered()) {
-                // Add a helpful tooltip so they know clicking it clears the slot
                 ImGui::SetTooltip("Click to remove %s from XI", currPlayerName.c_str());
             }
 
@@ -639,7 +668,7 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ROSTER_PLAYER")) {
                     std::string droppedId = static_cast<const char*>(payload->Data);
-                    t->defaultTactics.startingXI[role] = droppedId;
+                    t->defaultTactics.startingXI[slotId] = droppedId; // <--- Assign by slotId
                 }
                 ImGui::EndDragDropTarget();
             }

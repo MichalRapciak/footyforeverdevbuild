@@ -3,14 +3,18 @@
 enum class PositionRole {
     Goalkeeper,
     LeftBack,
-    LCenterBack,
-    RCenterBack,
+    CenterBack,
     RightBack,
+    LeftWingBack,
+    RightWingBack,
     DefensiveMid,
     CenterMid,
+    LeftMid,
+    RightMid,
     AttackingMid,
     LeftWing,
     RightWing,
+    CenterForward,
     Striker
 };
 

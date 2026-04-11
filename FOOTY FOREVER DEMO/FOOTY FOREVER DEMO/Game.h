@@ -23,7 +23,6 @@ enum class
 	MatchDay
 };
 
-
 class Game
 {
 

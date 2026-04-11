@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include "GameDatabase.h" 
+#include "PlaystyleDatabase.h"
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -26,6 +27,7 @@ void Player::loadFromData(const PlayerData& data)
     m_age = data.age;
     m_preferredFoot = data.preferredFoot;
     m_traits = data.traits;
+    m_playstyle = PlaystyleDatabase::getPlaystyle(data.playstyle.type);
 
     height = static_cast<float>(data.heightCm);
     weight = static_cast<float>(data.weightKg);
@@ -300,43 +302,115 @@ sf::FloatRect Player::getTackleHitbox()
     return sf::FloatRect({ pos.x - (width / 2), pos.y - (width / 2) }, { width + reach, width + reach });
 }
 
-sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam) const
+sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, const std::vector<std::vector<std::pair<int, PositionRole>>>& layout) const
 {
     float pitchCenterY = 3500.f;
+
+    // Y-Axis Offsets
     float cbOffset = 800.f;
-    float wingOffset = 2200.f;
     float fullbackOffset = 1800.f;
+    float wingbackOffset = 1900.f;
+    float wideMidOffset = 2000.f;
+    float wingOffset = 2200.f;
 
     sf::Vector2f pos;
 
+    // ==========================================
+    // 1. SET X-AXIS (DEPTH)
+    // ==========================================
     switch (m_positionRole) {
-    case PositionRole::Goalkeeper:   pos = { 700.f,  pitchCenterY }; break;
+    case PositionRole::Goalkeeper:    pos.x = 700.f;  break;
 
-    case PositionRole::LeftBack:     pos = { 2500.f, pitchCenterY - fullbackOffset }; break;
-    case PositionRole::LCenterBack:   pos = { 2000.f, pitchCenterY - cbOffset }; break;
-    case PositionRole::RCenterBack:   pos = { 2000.f, pitchCenterY + cbOffset }; break;
-    case PositionRole::RightBack:    pos = { 2500.f, pitchCenterY + fullbackOffset }; break;
+    case PositionRole::CenterBack:    pos.x = 2000.f; break;
+    case PositionRole::LeftBack:
+    case PositionRole::RightBack:     pos.x = 2500.f; break;
+    case PositionRole::LeftWingBack:
+    case PositionRole::RightWingBack: pos.x = 3000.f; break;
 
-    case PositionRole::DefensiveMid: pos = { 2500.f, pitchCenterY }; break;
-    case PositionRole::CenterMid:    pos = { 3200.f, pitchCenterY }; break;
-    case PositionRole::AttackingMid: pos = { 3900.f, pitchCenterY }; break;
+    case PositionRole::DefensiveMid:  pos.x = 2500.f; break;
+    case PositionRole::CenterMid:     pos.x = 3200.f; break;
+    case PositionRole::LeftMid:
+    case PositionRole::RightMid:      pos.x = 3500.f; break;
+    case PositionRole::AttackingMid:  pos.x = 3900.f; break;
 
-    case PositionRole::LeftWing:     pos = { 4400.f, pitchCenterY - wingOffset }; break;
-    case PositionRole::RightWing:    pos = { 4400.f, pitchCenterY + wingOffset }; break;
-    case PositionRole::Striker:      pos = { 4400.f, pitchCenterY }; break;
+    case PositionRole::CenterForward: pos.x = 4150.f; break;
+    case PositionRole::Striker:       pos.x = 4400.f; break;
+    case PositionRole::LeftWing:
+    case PositionRole::RightWing:     pos.x = 4400.f; break;
 
-    default: pos = { 5000.f, pitchCenterY }; break;
+    default:                          pos.x = 5000.f; break;
     }
 
+    // ==========================================
+    // 2. SET Y-AXIS (WIDTH)
+    // ==========================================
+    // A. Explicitly Wide Roles
+    if (m_positionRole == PositionRole::RightBack)          pos.y = pitchCenterY + fullbackOffset;
+    else if (m_positionRole == PositionRole::LeftBack)      pos.y = pitchCenterY - fullbackOffset;
+    else if (m_positionRole == PositionRole::RightWingBack) pos.y = pitchCenterY + wingbackOffset;
+    else if (m_positionRole == PositionRole::LeftWingBack)  pos.y = pitchCenterY - wingbackOffset;
+    else if (m_positionRole == PositionRole::RightMid)      pos.y = pitchCenterY + wideMidOffset;
+    else if (m_positionRole == PositionRole::LeftMid)       pos.y = pitchCenterY - wideMidOffset;
+    else if (m_positionRole == PositionRole::RightWing)     pos.y = pitchCenterY + wingOffset;
+    else if (m_positionRole == PositionRole::LeftWing)      pos.y = pitchCenterY - wingOffset;
+    else if (m_positionRole == PositionRole::Goalkeeper)    pos.y = pitchCenterY;
+
+    // B. Central Roles (Dynamically spaced based on Formation Layout)
+    else {
+        int roleCount = 0;
+        int myIndex = 0;
+
+        // Count how many players share this exact role, and find our index among them
+        for (const auto& line : layout) {
+            for (const auto& slot : line) {
+                if (slot.second == m_positionRole) {
+                    if (slot.first == slotId) myIndex = roleCount;
+                    roleCount++;
+                }
+            }
+        }
+
+        if (roleCount <= 1) {
+            // Exactly one player (e.g., solo Striker or solo DM) sits dead center
+            pos.y = pitchCenterY;
+        }
+        else {
+            // If there are multiple, spread them out symmetrically!
+            float spreadSpacing = 1400.f; // Default gap
+
+            if (m_positionRole == PositionRole::CenterBack) spreadSpacing = cbOffset * 2.f; // 1600 gap
+            else if (m_positionRole == PositionRole::Striker) spreadSpacing = 1200.f; // Strikers stay closer together
+
+            float totalWidth = (roleCount - 1) * spreadSpacing;
+            float startY = pitchCenterY + (totalWidth / 2.f); // Start on the Right side (Positive Y)
+
+            // Our layout arrays process Right-to-Left, so index 0 is Right, index 1 is Left
+            pos.y = startY - (myIndex * spreadSpacing);
+        }
+    }
+
+    // ==========================================
+    // 3. MIRROR FOR AWAY TEAM
+    // ==========================================
     if (!isHomeTeam) {
+        // Mirror the Depth
         pos.x = 10000.f - pos.x;
+
+        // BUG FIX: You must mirror the Width (Y-axis) too! 
+        // A "Right Back" is always on the right side from the Goalkeeper's perspective.
+        // If the away team is defending the right side of the screen (X=10000), 
+        // their Right Back needs to be at the top of the screen (Y-), not the bottom (Y+)!
+        pos.y = 7000.f - pos.y;
     }
+
     return pos;
 }
 
-sf::Vector2f Player::getHomePosition(bool isHomeTeam, TeamState teamState) const {
-    sf::Vector2f pos = getBaseTacticalCoordinate(isHomeTeam);
+// Replace your old getHomePosition with this:
+sf::Vector2f Player::getHomePosition() const {
+    sf::Vector2f pos = m_baseHomePosition;
 
+    // Keep your pitch bounds clamping!
     pos.x = std::clamp(pos.x, 600.f, 9400.f);
     pos.y = std::clamp(pos.y, 600.f, 6400.f);
 

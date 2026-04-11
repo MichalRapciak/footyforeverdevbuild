@@ -37,6 +37,15 @@
     <Filter Include="Resource Files\Entities">
       <UniqueIdentifier>{737def84-d8c0-444e-8add-d6a6edb299ea}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Resource Files\Tactical Info">
+      <UniqueIdentifier>{e60d543f-6dc2-4a5f-9ff4-e275e021725e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Tactical Info\Player Tactics">
+      <UniqueIdentifier>{c77e5d36-b6af-4625-9ee4-5dfdabcc5f6e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Tactical Info\Team Tactics">
+      <UniqueIdentifier>{be3e71e7-79c2-46a3-8130-bec67c82cd23}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -120,6 +129,21 @@
     <ClCompile Include="SoundManager.cpp">
       <Filter>Resource Files\Engines</Filter>
     </ClCompile>
+    <ClCompile Include="PhysicsEngine.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="AimAssist.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="TeamAI.cpp">
+      <Filter>Resource Files\Tactical Info</Filter>
+    </ClCompile>
+    <ClCompile Include="PlaystyleDatabase.cpp">
+      <Filter>Resource Files\Tactical Info</Filter>
+    </ClCompile>
+    <ClCompile Include="PlayerAI.cpp">
+      <Filter>Resource Files\Tactical Info</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h">
@@ -176,12 +200,6 @@
     <ClInclude Include="SplashScreen.h">
       <Filter>Header Files\Menus</Filter>
     </ClInclude>
-    <ClInclude Include="TacticalZone.h">
-      <Filter>Header Files\Tactical Info</Filter>
-    </ClInclude>
-    <ClInclude Include="PositionRole.h">
-      <Filter>Header Files\Tactical Info</Filter>
-    </ClInclude>
     <ClInclude Include="MatchState.h">
       <Filter>Header Files\Tactical Info</Filter>
     </ClInclude>
@@ -202,9 +220,6 @@
     </ClInclude>
     <ClInclude Include="ReplayEngine.h">
       <Filter>Header Files\Engines</Filter>
-    </ClInclude>
-    <ClInclude Include="Team.h">
-      <Filter>Header Files\Tactical Info</Filter>
     </ClInclude>
     <ClInclude Include="Direction.h">
       <Filter>Header Files\Tactical Info</Filter>
@@ -233,14 +248,44 @@
     <ClInclude Include="UserController.h">
       <Filter>Header Files\Entities</Filter>
     </ClInclude>
-    <ClInclude Include="PlayerState.h">
-      <Filter>Header Files\Tactical Info</Filter>
-    </ClInclude>
-    <ClInclude Include="PlayerStats.h">
-      <Filter>Header Files\Tactical Info</Filter>
-    </ClInclude>
     <ClInclude Include="SoundManager.h">
       <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="PhysicsEngine.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="AimAssist.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="PositionRole.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="Playstyle.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerBehavior.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerStats.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerState.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerAI.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="TacticalZone.h">
+      <Filter>Header Files\Tactical Info\Team Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="TeamAI.h">
+      <Filter>Header Files\Tactical Info\Team Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="Team.h">
+      <Filter>Header Files\Tactical Info\Team Tactics</Filter>
+    </ClInclude>
+    <ClInclude Include="PlaystyleDatabase.h">
+      <Filter>Header Files\Tactical Info\Player Tactics</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

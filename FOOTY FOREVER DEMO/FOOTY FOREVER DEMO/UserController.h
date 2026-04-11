@@ -24,7 +24,6 @@ public:
 	void playerShooting(float dt, GamePlay& game);
 	float getKickStrength() const { return kickStrength; }
 	void updateTargetScanning(GamePlay& game);
-	void updatePlayerAirPhysics(UserPlayer& user, float dt);
 
 	float dist(sf::Vector2f p1, sf::Vector2f p2);
 
@@ -32,8 +31,7 @@ private:
 	void executeKickRelease(GamePlay& game);
 	bool calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
 	void calculateGroundKick(float basePower, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
-	void applyPassingAssistance(GamePlay& game, sf::Vector2f& aimDir, float& finalPower, float basePower);
-	void applyShootingAimbot(GamePlay& game, sf::Vector2f& aimDir, float& vzPower, float finalPower);
+	void attemptSave(float dt, GamePlay& game);
 
 	UserPlayer& m_userPlayer;
 	sf::Vector2f m_speedVector{ 0,0 }; // Current speed vector

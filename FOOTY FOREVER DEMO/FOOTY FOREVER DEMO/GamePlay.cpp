@@ -1,5 +1,6 @@
 #include "GamePlay.h"
 #include "Game.h"
+#include "imgui-1.92.6/imgui.h"
 
 GamePlay::GamePlay() : m_pauseText(m_font), m_gameOverText(m_font), m_gameWonText(m_font)
 {
@@ -148,6 +149,7 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 {
 	float dt = t_deltaTime.asSeconds();
 
+
 	// ==========================================
 	// 1. THE SMOKE AND MIRRORS REPLAY MEDIATOR
 	// ==========================================
@@ -157,8 +159,8 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 
 		std::vector<Player*> allPlayers;
 		allPlayers.push_back(m_userPlayer.get());
-		for (auto& tm : m_teammates) allPlayers.push_back(tm.get());
-		for (auto& opp : m_opponents) allPlayers.push_back(opp.get());
+		for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+		for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
 		// Instantly teleport everyone, but hold the state in ReplayPlaying
 		m_referee.setupReplayTeleports(*m_ball, m_pitch, allPlayers);
@@ -182,18 +184,22 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
     // 1. Gather all players
 	std::vector<Player*> homeFriends;
 	homeFriends.push_back(m_userPlayer.get());
-	for (auto& npc : m_teammates) homeFriends.push_back(npc.get());
+	for (auto& npc : m_homeside) homeFriends.push_back(npc.get());
 
 	std::vector<Player*> homeEnemies;
-	for (auto& opp : m_opponents) homeEnemies.push_back(opp.get());
+	for (auto& opp : m_awayside) homeEnemies.push_back(opp.get());
 	
     std::vector<Player*> allPlayers = homeFriends;
 	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
 
+	m_homeTeamAI->update(homeEnemies, *m_ball, m_pitch);
+	m_awayTeamAI->update(homeFriends, *m_ball, m_pitch);
+
 	if (!m_pause && !m_gameOver)
 	{
 		// 2. THE REFEREE UPDATES THE CONTEXTS FIRST
-		m_referee.update(*m_ball, m_pitch, allPlayers, dt);
+		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal);
+		m_referee.checkOffsideLogic(*m_ball, allPlayers, m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), m_pitch);
 		// 3. RUN THE SIMULATION
         // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
         runStandardSystems(dt, t_window);
@@ -281,6 +287,10 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	m_homeGoal.draw(t_window);
 	m_awayGoal.draw(t_window);
 
+	//drawDebugOffsideLines(t_window);
+	drawDebugNames(t_window, m_font); // Pass whatever font you use for your UI here!
+	// (Optional) Draw a red ring under players who are currently flagged for offside
+
 	if (!m_replayEngine.isReplaying()) {
 		m_userController->draw(t_window); // Don't draw the aiming arrow during a replay
 	}
@@ -290,6 +300,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	// ==========================================
 	drawUI(t_window);
 	powerBarDraw(t_window);
+
 
 	t_window.setView(t_window.getDefaultView()); // Switch to screen-space for Overlays
 
@@ -437,10 +448,13 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_homeTeamData = *homeTeam;
 	m_awayTeamData = *awayTeam;
 
+	m_homeTeamAI = std::make_unique<TeamAI>(true, m_homeTeamData.defaultTactics);
+	m_awayTeamAI = std::make_unique<TeamAI>(false, m_awayTeamData.defaultTactics);
+
 	// 1. Clear memory in case this is a restart/reload
 	m_entities.clear();
-	m_teammates.clear();
-	m_opponents.clear();
+	m_homeside.clear();
+	m_awayside.clear();
 
 	// 2. SETUP USER (Basic instantiation, stats assigned during spawn)
 	m_userPlayer = std::make_unique<UserPlayer>((m_animServer.getPlayerTexture()));
@@ -455,8 +469,8 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_npcController = std::make_unique<NPCController>();
 
 	// Pass the actual TeamData struct to the dynamic spawner!
-	spawnTeamDynamic(m_teammates, m_entities, m_homeTeamData, true, userPlayerId);
-	spawnTeamDynamic(m_opponents, m_entities, m_awayTeamData, false, "");
+	spawnTeamDynamic(m_homeside, m_entities, m_homeTeamData, true, userPlayerId);
+	spawnTeamDynamic(m_awayside, m_entities, m_awayTeamData, false, "");
 
 	m_ball->setPosition(m_pitch.centerSpot);
 
@@ -478,8 +492,8 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 
 	std::vector<Player*> allPlayers;
 	allPlayers.push_back(m_userPlayer.get());
-	for (auto& tm : m_teammates) allPlayers.push_back(tm.get());
-	for (auto& opp : m_opponents) allPlayers.push_back(opp.get());
+	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
 	m_referee.startMatch(*m_ball, m_pitch, allPlayers);
 }
@@ -488,11 +502,26 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 {
 	bool userAssigned = false;
 
-	// Loop through exactly the 11 positions designated in the Matchday Tactics
-	for (const auto& [role, playerId] : teamData.defaultTactics.startingXI)
+	// 1. Fetch the tactical layout for this specific formation ONCE
+	auto layout = getFormationLayout(teamData.defaultTactics.formationName);
+
+	// 2. Loop through exactly the 11 slots designated in the Matchday Tactics
+	// Notice we are grabbing 'slotId' (int) now instead of 'role'
+	for (const auto& [slotId, playerId] : teamData.defaultTactics.startingXI)
 	{
 		PlayerData* pData = m_db->getPlayer(playerId);
 		if (!pData) continue;
+
+		// 3. Find the specific Match Role for this Slot ID from the layout
+		PositionRole matchRole = PositionRole::CenterMid; // Fallback
+		for (const auto& line : layout) {
+			for (const auto& slot : line) {
+				if (slot.first == slotId) {
+					matchRole = slot.second;
+					break;
+				}
+			}
+		}
 
 		// --- NEW HIJACK LOGIC ---
 		bool isTargetUser = false;
@@ -504,7 +533,7 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 			}
 			else {
 				// Fallback: If they left it as "Auto-Select", just take the first Outfield player
-				isTargetUser = (role != PositionRole::Goalkeeper);
+				isTargetUser = (matchRole != PositionRole::Goalkeeper);
 			}
 		}
 
@@ -512,7 +541,16 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 		{
 			m_userPlayer->loadFromData(*pData);
 			m_userPlayer->setTeam(Team::Home);
-			m_userPlayer->setPosition(m_userPlayer->getHomePosition(true, TeamState::Neutral));
+
+			// Override their generic profile role with the specific match role
+			m_userPlayer->setPositionRole(matchRole);
+
+			// --- Caching the Home Position ---
+			sf::Vector2f basePos = m_userPlayer->getBaseTacticalCoordinate(true, slotId, layout);
+			m_userPlayer->setBaseHomePosition(basePos);
+
+			// Now just call getHomePosition() with no args!
+			m_userPlayer->setPosition(m_userPlayer->getHomePosition());
 			m_userPlayer->getSprite().setColor(teamData.shirt.primaryColor);
 
 			userAssigned = true;
@@ -523,284 +561,22 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 		auto player = std::make_unique<NPCPlayer>((m_animServer.getPlayerTexture()));
 		player->loadFromData(*pData); // Load all stats and traits from the database
 		player->setTeam(isHomeSide ? Team::Home : Team::Away);
-		player->setPosition(player->getHomePosition(isHomeSide, TeamState::Neutral));
+
+		// Override their generic profile role with the specific match role
+		player->setPositionRole(matchRole);
+
+		// --- Caching the Home Position ---
+		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
+		player->setBaseHomePosition(basePos);
+
+		// Now just call getHomePosition() with no args!
+		player->setPosition(player->getHomePosition());
 
 		// Use the Team's custom kit color!
 		player->getSprite().setColor(teamData.shirt.primaryColor);
 
 		entities.push_back(player.get());
 		team.push_back(std::move(player));
-	}
-}
-
-void GamePlay::handlePlayerCollisions(std::vector<Player*>& players, const Pitch& pitch)
-{
-	// --- 0. DEAD BALL CHECK ---
-	if (m_referee.getMatchState() != MatchState::InPlay && m_referee.getMatchState() != MatchState::FoulDelay) return;
-
-	// --- 1. PITCH BOUNDARY COLLISIONS ---
-	for (Player* p : players)
-	{
-		resolvePlayerGoalCollision(*p, m_homeGoal);
-		resolvePlayerGoalCollision(*p, m_awayGoal);
-		sf::Vector2f pos = p->getPosition();
-		sf::Vector2f vel = p->getVelocity();
-		float radius = p->getCollisionRadius();
-		float bounce = 0.4f;
-
-		float minX = 0 + radius;
-		float maxX = (pitch.totalWidth) - radius;
-		float minY = 0 + radius;
-		float maxY = (pitch.totalHeight) - radius;
-
-		if (pos.x < minX) { p->setPosition({ minX, pos.y }); if (vel.x < 0) p->setVelocity(sf::Vector2f(-vel.x * bounce, vel.y)); }
-		else if (pos.x > maxX) { p->setPosition({ maxX, pos.y }); if (vel.x > 0) p->setVelocity(sf::Vector2f(-vel.x * bounce, vel.y)); }
-
-		if (pos.y < minY) { p->setPosition({ pos.x, minY }); if (vel.y < 0) p->setVelocity(sf::Vector2f(vel.x, -vel.y * bounce)); }
-		else if (pos.y > maxY) { p->setPosition({ pos.x, maxY }); if (vel.y > 0) p->setVelocity(sf::Vector2f(vel.x, -vel.y * bounce)); }
-	}
-
-	// ==========================================
-	// --- 2. PLAYER-TO-PLAYER MATRIX ---
-	// ==========================================
-	for (size_t i = 0; i < players.size(); ++i)
-	{
-		for (size_t j = i + 1; j < players.size(); ++j)
-		{
-			Player* p1 = players[i];
-			Player* p2 = players[j];
-
-			bool isSameTeam = (p1->getTeam() == p2->getTeam());
-
-			// ---------------------------------------------------------
-			// A. TACKLE LOGIC (The logic you sent)
-			// ---------------------------------------------------------
-			auto processTackleHit = [&](Player* tackler, Player* victim)
-			{
-					if (!tackler->isTackling()) return;
-
-					if (tackler->getTackleHitbox().findIntersection(victim->getBoundingBox()))
-					{
-						if (m_ball->getOwner() == victim) {
-							sf::Vector2f toBall = m_ball->getPosition() - tackler->getPosition();
-							float distToBall = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
-
-							if (distToBall > 110.f) {
-								// --- FOUL / WIPEOUT ---
-								sf::Vector2f impactDir = victim->getPosition() - tackler->getPosition();
-								if (impactDir.x == 0 && impactDir.y == 0) impactDir.x = 1.f;
-
-								victim->triggerFallOver(normalize(impactDir) * (isSameTeam ? 600.f : 800.f), m_animServer);
-
-								// FIX: The tackler needs the cooldown reset, not the victim!
-								tackler->resetTackleCooldown();
-								tackler->setState(PlayerState::Normal);
-								tackler->setVelocity({ 0.f, 0.f });
-
-								if (!isSameTeam) {
-									FoulEvent foul;
-									foul.location = victim->getPosition();
-									foul.offender = tackler;
-									foul.type = (rand() % 100 < 15) ? FoulType::Violent : FoulType::Sliding;
-									m_referee.awardFoul(foul, pitch, *m_ball, players, victim);
-								}
-								else {
-									tackler->triggerFallOver(normalize(-impactDir) * 400.f, m_animServer);
-								}
-							}
-							else {
-								// --- CLEAN TACKLE ---
-								victim->setStumbled(0.8f);
-
-								// 1. Force the victim to drop the ball!
-								m_ball->release();
-
-								// 2. Knock the ball away based on the tackler's momentum
-								sf::Vector2f tackleImpulse = tackler->getVelocity() * 1.2f;
-								m_ball->applyImpulse(tackleImpulse);
-
-								// 3. Slow the tackler down so they don't slide forever
-								tackler->setVelocity(tackler->getVelocity() * 0.5f);
-
-								// 4. End the tackle state
-								tackler->setState(PlayerState::Normal);
-								tackler->startTackleCooldown(); // <--- FIX THIS
-							}
-						}
-					}
-			};
-
-
-			processTackleHit(p1, p2);
-			processTackleHit(p2, p1);
-
-			// ---------------------------------------------------------
-			// B. PHYSICAL BODY RESOLUTION (The "Un-Sticker")
-			// ---------------------------------------------------------
-			sf::Vector2f delta = p1->getPosition() - p2->getPosition();
-			float distanceSq = delta.x * delta.x + delta.y * delta.y;
-			float combinedRadius = p1->getCollisionRadius() + p2->getCollisionRadius();
-
-			// If they are overlapping
-			if (distanceSq < combinedRadius * combinedRadius)
-			{
-				float distance = std::sqrt(distanceSq);
-				sf::Vector2f normal;
-
-				// ANTI-SUCTION: If distance is 0, they are perfectly stacked. Push them apart in a random direction.
-				if (distance < 0.01f) {
-					distance = 0.01f;
-					normal = { 1.f, 0.f };
-				}
-				else {
-					normal = delta / distance;
-				}
-
-				float overlap = combinedRadius - distance;
-
-				// Weight/Mass calculations
-				float m1 = p1->getWeight() * (1.0f + p1->getBalancing() / 100.f);
-				float m2 = p2->getWeight() * (1.0f + p2->getBalancing() / 100.f);
-				float invM1 = 1.0f / m1;
-				float invM2 = 1.0f / m2;
-				float sumInvMass = invM1 + invM2;
-
-				// 1. STATIC RESOLUTION (Physically separate them so they don't get stuck)
-				p1->move(normal * (overlap * (invM1 / sumInvMass)));
-				p2->move(-normal * (overlap * (invM2 / sumInvMass)));
-
-				// 2. DYNAMIC RESOLUTION (Bounce/Impulse)
-				sf::Vector2f relativeVel = p1->getVelocity() - p2->getVelocity();
-				float velAlongNormal = (relativeVel.x * normal.x + relativeVel.y * normal.y);
-
-				if (velAlongNormal < 0)
-				{
-					float restitution = 0.15f;
-					float strengthFactor = 1.0f + ((p1->getBodyStrength() + p2->getBodyStrength()) / 200.f);
-					float j = -(1.0f + restitution) * velAlongNormal;
-					j /= sumInvMass;
-					j *= strengthFactor;
-
-					sf::Vector2f impulse = j * normal;
-					p1->setVelocity(p1->getVelocity() + (invM1 * impulse));
-					p2->setVelocity(p2->getVelocity() - (invM2 * impulse));
-
-					// Check for massive clatters
-					float deltaV1 = std::sqrt((invM1 * impulse).x * (invM1 * impulse).x + (invM1 * impulse).y * (invM1 * impulse).y);
-					float deltaV2 = std::sqrt((invM2 * impulse).x * (invM2 * impulse).x + (invM2 * impulse).y * (invM2 * impulse).y);
-					float thresh1 = 450.f * (1.0f + p1->getBalancing() / 100.f);
-					float thresh2 = 450.f * (1.0f + p2->getBalancing() / 100.f);
-
-					if (deltaV2 > thresh2 * 8.0f) {
-						p2->triggerFallOver(normalize(p2->getPosition() - p1->getPosition()) * 600.f, m_animServer);
-					}
-					if (deltaV1 > thresh1 * 8.0f) {
-						p1->triggerFallOver(normalize(p1->getPosition() - p2->getPosition()) * 600.f, m_animServer);
-					}
-				}
-			}
-		}
-	}
-}
-
-void GamePlay::handleBallPlayerPhysics(std::vector<Player*>& players, Ball& ball) {
-
-	// ==========================================
-	// 1. KEEPER DIVING COLLISIONS (Unchanged)
-	// ==========================================
-	for (Player* p : players)
-	{
-		if (p->getState() == PlayerState::Diving)
-		{
-			if (p->getBoundingBox().findIntersection(ball.getBoundingBox()))
-			{
-				if (std::abs(p->z - ball.z) < p->height)
-				{
-					NPCPlayer* npcKeeper = dynamic_cast<NPCPlayer*>(p);
-					if (npcKeeper != nullptr) {
-						m_npcController->resolveSaveOutcome(*npcKeeper, ball);
-					}
-				}
-			}
-		}
-	}
-
-	// ==========================================
-	// 2. UNIFIED OUTFIELD COLLISIONS
-	// ==========================================
-	// We handle ALL speeds here now. No more "speed > 1000" threshold.
-	// This ensures the ball is pushed out gracefully before applyImpulse can ever fire.
-
-	if (ball.z < 80.f) {
-
-		for (Player* p : players) {
-
-			if (p->getBallPossession()) continue;
-
-			// Optional: Don't bounce off the person who JUST kicked it to avoid self-blocks
-			// if (ball.getLastOwner() == p) continue; 
-
-			if (std::abs(p->z - ball.z) < p->height)
-			{
-				sf::Vector2f ballPos = ball.getPosition();
-				sf::Vector2f playerPos = p->getPosition();
-				sf::Vector2f delta = ballPos - playerPos;
-
-				float distSq = delta.x * delta.x + delta.y * delta.y;
-				float combineRadius = ball.getShadow().getRadius() + p->getCollisionRadius();
-
-				if (distSq < combineRadius * combineRadius && distSq > 0.0001f) {
-
-					float distance = std::sqrt(distSq);
-					sf::Vector2f normal = delta / distance; // Direction pushing AWAY from player
-
-					// --- 1. OVERLAP RESOLUTION ---
-					// Instantly move the ball out of the player's body.
-					// This completely stops applyImpulse() from firing and multiplying forces!
-					float overlap = combineRadius - distance;
-					ball.setPosition(ballPos + normal * (overlap + 1.0f));
-
-					// --- 2. RELATIVE VELOCITY CALCULATION ---
-					// We must fetch the ball's velocity dynamically here in case it already bounced this frame
-					sf::Vector2f currentBallVel = ball.getVelocity();
-					sf::Vector2f playerVel = p->getVelocity();
-					sf::Vector2f relVel = currentBallVel - playerVel;
-
-					float dot = relVel.x * normal.x + relVel.y * normal.y;
-
-					// Only bounce if the ball is moving TOWARDS the player
-					if (dot < 0) {
-						float relSpeed = std::sqrt(relVel.x * relVel.x + relVel.y * relVel.y);
-
-						// --- 3. DYNAMIC RESTITUTION (BOUNCINESS) ---
-						// If it's a slow bump, bounciness is nearly 0 (ball dies at their feet).
-						// If it's a fast shot, it bounces off at 25% speed.
-						float restitution = (relSpeed > 800.f) ? 0.25f : 0.05f;
-
-						// Elastic reflection formula based on relative velocity
-						sf::Vector2f reflection = relVel - (1.0f + restitution) * dot * normal;
-
-						// Apply the reflection AND add the player's momentum back
-						sf::Vector2f finalVel = playerVel + reflection;
-
-						// --- 4. HARD SPEED CAP ---
-						// Physically impossible to exceed 1000px/s off a body deflection
-						float finalSpeed = std::sqrt(finalVel.x * finalVel.x + finalVel.y * finalVel.y);
-						if (finalSpeed > 1000.f) {
-							finalVel = (finalVel / finalSpeed) * 1000.f;
-						}
-
-						ball.setVelocity(finalVel);
-
-						// Stun check using the original incoming speed
-						float originalIncomingSpeed = std::sqrt(currentBallVel.x * currentBallVel.x + currentBallVel.y * currentBallVel.y);
-						if (originalIncomingSpeed > 2000.f) {
-							p->setState(PlayerState::Stunned);
-						}
-					}
-				}
-			}
-		}
 	}
 }
 
@@ -882,188 +658,27 @@ sf::Vector2f GamePlay::normalize(sf::Vector2f source) {
 	return source;
 }
 
-void GamePlay::handleGoalPhysics(Goal& goal) {
-	sf::Vector2f bPos = m_ball->getPosition();
-	sf::Vector2f velocity = m_ball->getVelocity();
-	float ballZ = m_ball->z;
-	float bRadius = 12.f;
-
-	float crossbarZ = 244.f;
-	float goalX = goal.center.x;
-	float topY = goal.center.y - 366.f;
-	float bottomY = goal.center.y + 366.f;
-	float netDepth = 225.f;
-	float backX = goal.isHomeGoal ? (goalX - netDepth) : (goalX + netDepth);
-	// --- A. THE ROOF CATCH (Falling onto the net) ---
-	// Check if ball is within the 2D "Rectangle" of the goal net
-	bool isOverNetX = goal.isHomeGoal ? (bPos.x < goalX && bPos.x > backX)
-		: (bPos.x > goalX && bPos.x < backX);
-	bool isOverNetY = (bPos.y > topY && bPos.y < bottomY);
-
-	if (isOverNetX && isOverNetY) {
-		// If ball is falling (vz is positive in your downward gravity logic) 
-		// and it's hitting the roof from above
-		if (m_ball->vz > 0.f && ballZ <= crossbarZ + 5.f && ballZ >= crossbarZ - 5.f) {
-
-			// 1. Snap to roof height
-			m_ball->z = crossbarZ;
-
-			// 2. Kill vertical velocity (stops it from falling through)
-			m_ball->vz = 0.f;
-
-			// 3. Apply extreme friction (ball rolls slowly on the mesh)
-			m_ball->setVelocity(velocity * 0.95f);
-
-			// Optional: If it hits hard, give it a tiny 'mesh bounce'
-			// m_ball->vz = -m_ball->vz * 0.1f; 
-		}
-	}
-
-	// --- A. THE POSTS (3D Circles) ---
-	auto checkPost = [&](sf::CircleShape& post) {
-		if (ballZ > 244.f + bRadius) return; // Fly over
-		sf::Vector2f pPos = post.getPosition();
-		sf::Vector2f diff = bPos - pPos;
-		float distSq = (diff.x * diff.x) + (diff.y * diff.y);
-		float minDist = bRadius + post.getRadius();
-
-		if (distSq < minDist * minDist) {
-			sf::Vector2f normal = normalize(diff);
-			m_ball->setVelocity(m_ball->reflect(velocity, normal) * 0.7f);
-			m_ball->setPosition(pPos + normal * (minDist + 1.f));
-		}
-		};
-	checkPost(goal.topPost);
-	checkPost(goal.bottomPost);
-
-	// --- B. THE NET WALLS (Physical Obstacles) ---
-	// Only collide with net if ball is below crossbar height
-	if (ballZ < 244.f) {
-		// 1. BACK NET (X-Wall)
-		// If ball is between the posts Y-wise
-		if (bPos.y > topY && bPos.y < bottomY) {
-			bool isHittingBack = goal.isHomeGoal ? (bPos.x < backX + bRadius) : (bPos.x > backX - bRadius);
-			if (isHittingBack) {
-				m_ball->setPosition({ goal.isHomeGoal ? backX + bRadius : backX - bRadius, bPos.y });
-				m_ball->setVelocity({ -velocity.x * 0.2f, velocity.y * 0.5f }); // Dampen heavily
-			}
-		}
-
-		// 2. SIDE NETS (Y-Walls)
-		// Only if the ball is "behind" the goal line (in the net area)
-		bool isBehindLine = goal.isHomeGoal ? (bPos.x < goalX) : (bPos.x > goalX);
-		bool isInsideDepth = goal.isHomeGoal ? (bPos.x > backX) : (bPos.x < backX);
-
-		if (isBehindLine && isInsideDepth) {
-			// Top Side
-			if (std::abs(bPos.y - topY) < bRadius) {
-				float sideSign = (bPos.y < topY) ? -1.f : 1.f;
-				m_ball->setPosition({ bPos.x, topY + (sideSign * bRadius) });
-				m_ball->setVelocity({ velocity.x * 0.5f, -velocity.y * 0.2f });
-			}
-			// Bottom Side
-			else if (std::abs(bPos.y - bottomY) < bRadius) {
-				float sideSign = (bPos.y < bottomY) ? -1.f : 1.f;
-				m_ball->setPosition({ bPos.x, bottomY + (sideSign * bRadius) });
-				m_ball->setVelocity({ velocity.x * 0.5f, -velocity.y * 0.2f });
-			}
-		}
-	}
-
-	// --- C. GOAL SCORING TRIGGER ---
-	// (Keep your 'Axe Logic' crossing check here)
-}
-
-void GamePlay::resolvePlayerGoalCollision(Player& player, Goal& goal) {
-	sf::Vector2f pPos = player.getPosition();
-	sf::Vector2f pVel = player.getVelocity();
-	float pRadius = 25.f;
-
-	float netDepth = 225.f;
-	float goalWidth = 732.f;
-	float topY = goal.center.y - (goalWidth / 2.f);
-	float bottomY = goal.center.y + (goalWidth / 2.f);
-	float goalX = goal.center.x;
-	float backX = goal.isHomeGoal ? (goalX - netDepth) : (goalX + netDepth);
-
-	// --- 1. THE SIDE WALLS (Top and Bottom) ---
-	// Condition: Player is X-wise "Inside" the net area (between back and front)
-	bool isInsideX = goal.isHomeGoal ? (pPos.x < goalX + pRadius && pPos.x > backX - pRadius)
-		: (pPos.x > goalX - pRadius && pPos.x < backX + pRadius);
-
-	if (isInsideX) {
-		// TOP SIDE COLLISION
-		if (std::abs(pPos.y - topY) < pRadius) {
-			// If pPos.y < topY, they are OUTSIDE the goal. If pPos.y > topY, they are INSIDE.
-			float pushDir = (pPos.y < topY) ? -1.0f : 1.0f;
-			player.setPosition({ pPos.x, topY + (pushDir * pRadius) });
-			player.setVelocity({ pVel.x * 0.5f, -pVel.y * 0.2f }); // Bounce Y
-		}
-		// BOTTOM SIDE COLLISION
-		else if (std::abs(pPos.y - bottomY) < pRadius) {
-			float pushDir = (pPos.y > bottomY) ? 1.0f : -1.0f;
-			player.setPosition({ pPos.x, bottomY + (pushDir * pRadius) });
-			player.setVelocity({ pVel.x * 0.5f, -pVel.y * 0.2f }); // Bounce Y
-		}
-	}
-
-	// --- 2. THE BACK WALL ---
-	// Condition: Player is Y-wise "Inside" the net (between top and bottom)
-	if (pPos.y > topY - pRadius && pPos.y < bottomY + pRadius) {
-		bool hittingBack = goal.isHomeGoal ? (std::abs(pPos.x - backX) < pRadius)
-			: (std::abs(pPos.x - backX) < pRadius);
-
-		if (hittingBack) {
-			// Determine if they are hitting the back from the pitch side or the outside
-			float pushDir;
-			if (goal.isHomeGoal) {
-				pushDir = (pPos.x < backX) ? -1.0f : 1.0f; // Left of back wall or Right?
-			}
-			else {
-				pushDir = (pPos.x > backX) ? 1.0f : -1.0f; // Right of back wall or Left?
-			}
-
-			player.setPosition({ backX + (pushDir * pRadius), pPos.y });
-			player.setVelocity({ -pVel.x * 0.2f, pVel.y * 0.5f }); // Bounce X
-		}
-	}
-	// --- WALL C: The Posts (Circular Bounces) ---
-	auto collideWithPost = [&](sf::CircleShape& post) {
-		sf::Vector2f postPos = post.getPosition();
-		sf::Vector2f diff = pPos - postPos;
-		float distSq = (diff.x * diff.x) + (diff.y * diff.y);
-		float minDist = pRadius + post.getRadius();
-
-		if (distSq < minDist * minDist) {
-			float dist = std::sqrt(distSq);
-			sf::Vector2f normal = diff / dist;
-			player.setPosition(postPos + normal * (minDist + 1.f));
-
-			// Reflected bounce
-			float dot = pVel.x * normal.x + pVel.y * normal.y;
-			sf::Vector2f reflection = pVel - 2.f * dot * normal;
-			player.setVelocity(reflection * 0.3f); // 70% speed loss on post hit
-		}
-		};
-
-	collideWithPost(goal.topPost);
-	collideWithPost(goal.bottomPost);
-}
-
 void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 {
-	// --- 1. DETERMINE TEAM STATES ---
-	TeamState homeState = TeamState::Neutral;
-	TeamState awayState = TeamState::Neutral;
-	Player* owner = m_ball->getOwner();
+	// ==========================================
+	// --- 1. DETERMINE EFFECTIVE POSSESSION ---
+	// ==========================================
+	Player* effectiveOwner = m_ball->getOwner();
+	if (effectiveOwner == nullptr) {
+		effectiveOwner = m_ball->getLastOwner(); // The magic fix for passes!
+	}
 
-	if (owner != nullptr) {
-		homeState = (owner->isTeammate()) ? TeamState::Attacking : TeamState::Defending;
+	TeamState homeState = TeamState::Defending;
+	TeamState awayState = TeamState::Defending;
+
+	if (effectiveOwner != nullptr) {
+		homeState = (effectiveOwner->getTeam() == Team::Home) ? TeamState::Attacking : TeamState::Defending;
 		awayState = (homeState == TeamState::Attacking) ? TeamState::Defending : TeamState::Attacking;
 	}
 	else {
-		homeState = (m_ball->getPosition().x > m_pitch.halfwayLineX) ? TeamState::Attacking : TeamState::Defending;
-		awayState = (homeState == TeamState::Attacking) ? TeamState::Defending : TeamState::Attacking;
+		// Failsafe for the literal first frame before any touches
+		homeState = TeamState::Attacking;
+		awayState = TeamState::Defending;
 	}
 
 	// --- 2. UPDATE HUMAN USER ---
@@ -1076,12 +691,12 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	// Only add the user if they haven't been sent off!
 	if (!m_userPlayer->isSentOff()) homeFriends.push_back(m_userPlayer.get());
 
-	for (auto& npc : m_teammates) {
+	for (auto& npc : m_homeside) {
 		if (!npc->isSentOff()) homeFriends.push_back(npc.get());
 	}
 
 	std::vector<Player*> homeEnemies;
-	for (auto& opp : m_opponents) {
+	for (auto& opp : m_awayside) {
 		if (!opp->isSentOff()) homeEnemies.push_back(opp.get());
 	}
 
@@ -1101,19 +716,19 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	Player* awayFirstResponder = findFirstResponder(homeEnemies);
 
 	// --- 4. UPDATE AI BRAINS ---
-	for (auto& npc : m_teammates) {
+	for (auto& npc : m_homeside) {
 		// FIX: Lock them in the dressing room! Don't let the AI brain move them back to the pitch.
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee);
+		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI);
 		npc->update(dt, m_animServer); // Internal motor physics
 	}
 
-	for (auto& npc : m_opponents) {
+	for (auto& npc : m_awayside) {
 		// FIX: Lock them in the dressing room!
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee);
+		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI);
 		npc->update(dt, m_animServer);
 	}
 
@@ -1124,12 +739,26 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	std::vector<Player*> allPlayers = homeFriends;
 	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
 
-	handleBallPlayerPhysics(allPlayers, *m_ball);
-	handlePlayerCollisions(allPlayers, m_pitch);
+	// Let the physics engine resolve overlapping bodies!
+	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_animServer, m_pitch);
+	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch);
+	for (Player* p : allPlayers) {
+		PhysicsEngine::resolvePlayerPitchBoundaries(*p, m_pitch);
+	}
+	for (Player* p : allPlayers) {
+		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_homeGoal);
+		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_awayGoal);
+	}
 
-	handleGoalPhysics(m_homeGoal);
-	handleGoalPhysics(m_awayGoal);
-	
+	// 3. Resolve Ball interacting with the world
+	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch);
+	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_homeGoal);
+	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_awayGoal);
+
+	// 4. Resolve Ball interacting with Players
+	PhysicsEngine::resolveGoalkeeperBallCollisions(*m_ball, allPlayers);
+	PhysicsEngine::resolveBallPlayerCollisions(*m_ball, allPlayers);
+
 }
 
 Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
@@ -1160,7 +789,7 @@ Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
 		// 3. Goal-Side Bias (Optional)
 		// Defenders get a small bonus to be first responders if the ball is near their own goal.
 		float goalBias = 0.f;
-		if (p->getPositionRole() == PositionRole::LCenterBack || p->getPositionRole() == PositionRole::RCenterBack || p->getPositionRole() == PositionRole::LeftBack || p->getPositionRole() == PositionRole::RightBack) {
+		if (p->getPositionRole() == PositionRole::CenterBack || p->getPositionRole() == PositionRole::LeftBack || p->getPositionRole() == PositionRole::RightBack) {
 			goalBias = 50.f;
 		}
 
@@ -1275,11 +904,11 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	sf::Color awayDot = m_awayTeamData.uiColor; awayDot.a = 255;
 
 	// FIX: Only draw the dot if they are actually allowed on the pitch!
-	for (const auto& tm : m_teammates) {
+	for (const auto& tm : m_homeside) {
 		if (!tm->isSentOff()) drawMinimapDot(tm->getPosition(), homeDot);
 	}
 
-	for (const auto& opp : m_opponents) {
+	for (const auto& opp : m_awayside) {
 		if (!opp->isSentOff()) drawMinimapDot(opp->getPosition(), awayDot);
 	}
 
@@ -1332,8 +961,8 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 		};
 
 	countCards(m_userPlayer.get());
-	for (const auto& tm : m_teammates) countCards(tm.get());
-	for (const auto& opp : m_opponents) countCards(opp.get());
+	for (const auto& tm : m_homeside) countCards(tm.get());
+	for (const auto& opp : m_awayside) countCards(opp.get());
 
 	// Cap the visual display at 3 cards so the UI doesn't clutter
 	int displayHomeReds = std::min(homeReds, 3);
@@ -1613,4 +1242,80 @@ void GamePlay::triggerForfeit(bool isHomeForfeit)
 	sf::FloatRect textSize = m_gameOverText.getGlobalBounds();
 	float xpos = (1920.f / 2.f) - (textSize.size.x / 2.f);
 	m_gameOverText.setPosition({ xpos, 1080.f * 0.4f });
+}
+
+void GamePlay::drawDebugOffsideLines(sf::RenderWindow& window) {
+	// We make them semi-transparent (150 alpha) so they don't blind you
+	// Note: SFML 3 allows initializing colors with sf::Color(rgba) or sf::Color(r,g,b,a)
+	sf::Color homeColor(0, 255, 0, 150); // Green for Home
+	sf::Color awayColor(255, 0, 0, 150); // Red for Away
+
+	// ==========================================
+	// 1. HOME TEAM OFFSIDE LINE 
+	// (The line the Away Strikers must stay behind)
+	// ==========================================
+	float homeLineX = m_homeTeamAI->getOffsideLineX();
+
+	// FIX: Using sf::PrimitiveType::Lines for SFML 3
+	sf::VertexArray homeLine(sf::PrimitiveType::Lines, 2);
+	homeLine[0].position = sf::Vector2f(homeLineX, m_pitch.margin);
+	homeLine[1].position = sf::Vector2f(homeLineX, m_pitch.totalHeight - m_pitch.margin);
+	homeLine[0].color = homeColor;
+	homeLine[1].color = homeColor;
+
+	window.draw(homeLine);
+
+	// ==========================================
+	// 2. AWAY TEAM OFFSIDE LINE 
+	// (The line the Home Strikers must stay behind)
+	// ==========================================
+	float awayLineX = m_awayTeamAI->getOffsideLineX();
+
+	// FIX: Using sf::PrimitiveType::Lines for SFML 3
+	sf::VertexArray awayLine(sf::PrimitiveType::Lines, 2);
+	awayLine[0].position = sf::Vector2f(awayLineX, m_pitch.margin);
+	awayLine[1].position = sf::Vector2f(awayLineX, m_pitch.totalHeight - m_pitch.margin);
+	awayLine[0].color = awayColor;
+	awayLine[1].color = awayColor;
+
+	window.draw(awayLine);
+}
+
+void GamePlay::drawDebugNames(sf::RenderWindow& window, const sf::Font& font) {
+	// 1. Setup the Text Object
+	// In SFML 3, the constructor takes the font directly
+	sf::Text nameText(font);
+	nameText.setCharacterSize(32); // Keep it small so the screen doesn't get cluttered
+	nameText.setFillColor(sf::Color::White);
+
+	// Add a black outline so the names are readable against the green grass
+	nameText.setOutlineColor(sf::Color::Black);
+	nameText.setOutlineThickness(1.5f);
+
+	// 2. Gather all players
+	std::vector<Player*> allPlayers;
+	allPlayers.push_back(m_userPlayer.get());
+	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
+
+	// 3. Draw names above their heads
+	for (Player* p : allPlayers) {
+		// Skip players who are sent off (if they are teleported off-screen)
+		if (p->isSentOff()) continue;
+
+		nameText.setString(p->getName());
+
+		// SFML 3 RECTANGLE SYNTAX: Center the text perfectly
+		sf::FloatRect bounds = nameText.getLocalBounds();
+		nameText.setOrigin({
+			bounds.position.x + (bounds.size.x / 2.0f),
+			bounds.position.y + bounds.size.y
+			});
+		nameText.setRotation(sf::degrees(90.f));
+		// Position it just above the player's coordinates. 
+		// You might need to tweak the -60.f depending on how tall your sprites are!
+		nameText.setPosition(p->getPosition() + sf::Vector2f(100.f, 0.f));
+
+		window.draw(nameText);
+	}
 }

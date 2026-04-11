@@ -84,7 +84,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Users\micha\Desktop\FOOTY FOREVER\## FOOTY FOREVER DEMO ##\SFML-3.0.2\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>sfml-graphics-s-d.lib;opengl32.lib;freetype.lib;sfml-window-s-d.lib;winmm.lib;gdi32.lib;sfml-system-s-d.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>sfml-graphics-s-d.lib;opengl32.lib;freetype.lib;sfml-window-s-d.lib;winmm.lib;gdi32.lib;sfml-system-s-d.lib;sfml-audio-s-d.lib;FLACd.lib;vorbisencd.lib;vorbisfiled.lib;vorbisd.lib;oggd.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -133,6 +133,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AimAssist.cpp" />
     <ClCompile Include="AnimationServer.cpp" />
     <ClCompile Include="Animator.cpp" />
     <ClCompile Include="Ball.cpp" />
@@ -147,6 +148,9 @@
     <ClCompile Include="imgui-1.92.6\imgui_tables.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_widgets.cpp" />
     <ClCompile Include="MatchDayScreen.cpp" />
+    <ClCompile Include="PhysicsEngine.cpp" />
+    <ClCompile Include="PlayerAI.cpp" />
+    <ClCompile Include="PlaystyleDatabase.cpp" />
     <ClCompile Include="ReplayEngine.cpp" />
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="Stadium.cpp" />
@@ -157,11 +161,13 @@
     <ClCompile Include="NPCController.cpp" />
     <ClCompile Include="NPCPlayer.cpp" />
     <ClCompile Include="Player.cpp" />
+    <ClCompile Include="TeamAI.cpp" />
     <ClCompile Include="UserPlayer.cpp" />
     <ClCompile Include="UserController.cpp" />
     <ClCompile Include="SplashScreen.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AimAssist.h" />
     <ClInclude Include="AnimationServer.h" />
     <ClInclude Include="Animator.h" />
     <ClInclude Include="Ball.h" />
@@ -182,6 +188,11 @@
     <ClInclude Include="imgui-1.92.6\imstb_textedit.h" />
     <ClInclude Include="imgui-1.92.6\imstb_truetype.h" />
     <ClInclude Include="MatchDayScreen.h" />
+    <ClInclude Include="PhysicsEngine.h" />
+    <ClInclude Include="PlayerAI.h" />
+    <ClInclude Include="PlayerBehavior.h" />
+    <ClInclude Include="Playstyle.h" />
+    <ClInclude Include="PlaystyleDatabase.h" />
     <ClInclude Include="ReplayEngine.h" />
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="Stadium.h" />
@@ -198,6 +209,7 @@
     <ClInclude Include="PositionRole.h" />
     <ClInclude Include="TacticalZone.h" />
     <ClInclude Include="Team.h" />
+    <ClInclude Include="TeamAI.h" />
     <ClInclude Include="UserPlayer.h" />
     <ClInclude Include="UserController.h" />
     <ClInclude Include="PlayerStats.h" />

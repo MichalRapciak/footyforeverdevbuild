@@ -16,6 +16,7 @@
         "loyalty": 157831328,
         "name": "New Player",
         "number": 99,
+        "playstyle": "BoxToBox",
         "position": "CenterMid",
         "preferred_foot": "Right",
         "sharpness": 157151824,

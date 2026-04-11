@@ -3,6 +3,8 @@
 #include "Ball.h"
 #include "MatchReferee.h"
 #include "GamePlay.h"
+#include "PhysicsEngine.h"
+#include "AimAssist.h"
 
 UserController::UserController(UserPlayer& player) : m_userPlayer(player)
 {
@@ -62,17 +64,31 @@ void UserController::inputHandler(const sf::Event t_event)
 		}
 		if (keyPressed->scancode == sf::Keyboard::Scancode::Space)
 		{
-			// Only jump if they are on the ground and not in a tackle animation
-			if (m_userPlayer.z <= 0.0f && m_userPlayer.getState() != PlayerState::Tackling)
+			if (m_userPlayer.getPositionRole() == PositionRole::Goalkeeper)
 			{
-				float jumpingNorm = m_userPlayer.getJumpingStrength() / 100.0f;
+				// --- MANUAL GOALKEEPER DIVE ---
+				if (m_userPlayer.z <= 0.0f && m_userPlayer.getState() != PlayerState::Diving)
+				{
+					// Dive speed scales with GK Reactions stat
+					float diveSpeed = 600.f + (m_userPlayer.getGkReactions() / 100.f) * 500.f;
+					m_userPlayer.setVelocity(m_userPlayer.getAimDirection() * diveSpeed);
+					m_userPlayer.vz = 140.f; // Medium hop height
+					m_userPlayer.setState(PlayerState::Diving);
+					m_userPlayer.deductStaminaAction(2.0f);
+				}
+			}
+			else
+			{
+				// --- NORMAL PLAYER JUMP ---
+				if (m_userPlayer.z <= 0.0f && m_userPlayer.getState() != PlayerState::Tackling)
+				{
+					float jumpingNorm = m_userPlayer.getJumpingStrength() / 100.0f;
+					float jumpVz = 240.f + (jumpingNorm * 160.f);
 
-				// 0 Stat = ~240px/s. 99 Stat = ~400px/s jump velocity
-				float jumpVz = 240.f + (jumpingNorm * 160.f);
-
-				m_userPlayer.deductStaminaAction(1.5f);
-				m_userPlayer.vz = jumpVz;
-				m_userPlayer.setState(PlayerState::Jumping);
+					m_userPlayer.deductStaminaAction(1.5f);
+					m_userPlayer.vz = jumpVz;
+					m_userPlayer.setState(PlayerState::Jumping);
+				}
 			}
 		}
 	}
@@ -162,7 +178,7 @@ void UserController::update(float dt, GamePlay& game)
 	// ==========================================
 
 	// 1. Process Gravity and Jumping FIRST
-	updatePlayerAirPhysics(m_userPlayer, dt);
+	PhysicsEngine::updatePlayerAirPhysics(m_userPlayer, dt);
 
 	bool isTaker = (game.m_referee.getSetPieceTaker() == &m_userPlayer);
 
@@ -278,26 +294,24 @@ void UserController::playerMovement(float dt, GamePlay& game)
 
 	if (canMove)
 	{
+		// --- 1. RAW USER INPUT ---
 		if (m_up)    directionInput += forwardDir;
 		if (m_down)  directionInput -= forwardDir;
 		if (m_left)  directionInput -= rightDir;
 		if (m_right) directionInput += rightDir;
 
+		// --- 2. CONTEXT AWARENESS (Dribble/Jockey/Chase) ---
 		if (dribblePressed)
 		{
-			if (!game.m_ball->hasOwner())
-			{
+			if (!game.m_ball->hasOwner()) {
 				isChasingLooseBall = true;
 			}
-			else if (game.m_ball->getOwner()->getTeam() != m_userPlayer.getTeam())
-			{
+			else if (game.m_ball->getOwner()->getTeam() != m_userPlayer.getTeam()) {
 				isJockeying = true;
 			}
 		}
 
-		// ==========================================
-		// --- STAMINA EXHAUSTION INTERCEPTOR ---
-		// ==========================================
+		// --- 3. STAMINA INTERCEPTOR ---
 		bool isEffectivelySprinting = isSprinting || isChasingLooseBall || isJockeying;
 
 		if (m_userPlayer.getCurrentStamina() < 2.0f)
@@ -311,8 +325,9 @@ void UserController::playerMovement(float dt, GamePlay& game)
 
 		// Update the gauge based on their final verified effort level
 		m_userPlayer.updateStamina(dt, isEffectivelySprinting);
-		// ==========================================
 
+
+		// --- 4. AUTOMATED ASSISTS (Target Lock-on & Orbital Damping) ---
 		if (isChasingLooseBall || isJockeying)
 		{
 			sf::Vector2f targetPos;
@@ -357,12 +372,10 @@ void UserController::playerMovement(float dt, GamePlay& game)
 			if (dist > 10.f)
 			{
 				sf::Vector2f targetDir = toTarget / dist;
-				sf::Vector2f currentVel = m_userPlayer.getVelocity();
-				float velocityTowardTarget = (currentVel.x * targetDir.x + currentVel.y * targetDir.y);
-				sf::Vector2f tangentialVel = currentVel - (targetDir * velocityTowardTarget);
 
+				// --- PHYSICS ENGINE: KILL ORBITAL DRIFT ---
 				float dampingStrength = isJockeying ? 10.0f : 6.0f;
-				m_speedVector -= tangentialVel * dampingStrength * dt;
+				PhysicsEngine::applyTangentialVelocityDamping(m_userPlayer, targetDir, dampingStrength, dt);
 
 				float pullStrength = isJockeying ? 0.85f : 0.55f;
 				if (directionInput.x == 0.f && directionInput.y == 0.f) {
@@ -374,165 +387,58 @@ void UserController::playerMovement(float dt, GamePlay& game)
 			}
 		}
 
+		// Normalize final intent vector
 		if (directionInput.x != 0.f || directionInput.y != 0.f)
 		{
 			float length = std::sqrt(directionInput.x * directionInput.x + directionInput.y * directionInput.y);
 			directionInput /= length;
 		}
-		else
-		{
-			directionInput = { 0.f, 0.f };
-		}
 	}
 
-	if (m_userPlayer.getState() == PlayerState::Normal)
-	{
-		float inputForward = (directionInput.x * forwardDir.x + directionInput.y * forwardDir.y);
-		float inputRight = (directionInput.x * rightDir.x + directionInput.y * rightDir.y);
-
-		speed = std::sqrt(m_speedVector.x * m_speedVector.x + m_speedVector.y * m_speedVector.y);
-		sprintRatio = speed / (m_userPlayer.getTopSpeed() * 10.f);
-		accelMultiplier = 1.f + (1.f - sprintRatio) * 12.f;
-
-		float fwdAccel = m_userPlayer.getAcceleration() * accelMultiplier;
-		float sideAccel = m_userPlayer.getAgility() * accelMultiplier;
-
-		sf::Vector2f accelVec = (forwardDir * inputForward * fwdAccel) +
-			(rightDir * inputRight * sideAccel);
-
-		forwardSpeed = m_speedVector.x * directionInput.x + m_speedVector.y * directionInput.y;
-
-		if (isChasingLooseBall)
-		{
-			maxSpeed = m_userPlayer.getTopSpeed() * 10.0f;
-		}
-		else if (isJockeying)
-		{
-			float aggressionNorm = m_userPlayer.getAggression() / 100.0f;
-			float jockeyClamp = 0.70f + (aggressionNorm * 0.30f);
-			maxSpeed = (m_userPlayer.getTopSpeed() * 10.0f) * jockeyClamp;
-		}
-		else
-		{
-			maxSpeed = isSprinting ? (m_userPlayer.getTopSpeed() * 10.0f) : (m_userPlayer.getTopSpeed() * 10.0f) * 0.5f;
-		}
-
-		if (forwardSpeed < maxSpeed)
-		{
-			m_speedVector += accelVec * dt;
-		}
-	}
-	else if (m_userPlayer.getState() == PlayerState::Tackling)
-	{
-		float slideDecel = 1500.f;
-		speed = std::sqrt(m_speedVector.x * m_speedVector.x + m_speedVector.y * m_speedVector.y);
-		if (speed > 0.f)
-		{
-			float newSpeed = std::max(0.f, speed - (slideDecel * dt));
-			m_speedVector = (m_speedVector / speed) * newSpeed;
-		}
+	// ==========================================
+	// 5. DISPATCH TO PHYSICS ENGINE
+	// ==========================================
+	if (m_userPlayer.getPositionRole() == PositionRole::Goalkeeper && m_userPlayer.getState() != PlayerState::Diving) {
+		attemptSave(dt, game);
 	}
 
-	if (m_userPlayer.getState() == PlayerState::Normal)
-	{
-		if (directionInput.x == 0.f && directionInput.y == 0.f)
-		{
-			if (speed > 0.1f)
-			{
-				float speedRatio = speed / (m_userPlayer.getTopSpeed() * 10.0f);
-				float momentumFactor = 0.3f + (1.0f - speedRatio) * 0.7f;
-				float totalDecel = (m_userPlayer.getAgility() * 2.f) * momentumFactor;
-				float decelAmount = totalDecel * dt;
-
-				float newSpeed = std::max(0.f, speed - decelAmount);
-				m_speedVector = (m_speedVector / speed) * newSpeed;
-			}
-		}
-
-		if (m_userPlayer.getState() == PlayerState::Normal)
-		{
-			float currentFwdSpeed = (m_speedVector.x * forwardDir.x + m_speedVector.y * forwardDir.y);
-			float currentSideSpeed = (m_speedVector.x * rightDir.x + m_speedVector.y * rightDir.y);
-
-			if (speed > 5.0f)
-			{
-				if (m_left && currentSideSpeed > 0.f) {
-					currentSideSpeed *= 0.75f;
-				}
-				else if (m_right && currentSideSpeed < 0.f) {
-					currentSideSpeed *= 0.75f;
-				}
-				else if (!m_left && !m_right) {
-					currentSideSpeed *= 0.90f;
-				}
-
-				if (m_up && currentFwdSpeed < 0.f) {
-					currentFwdSpeed *= 0.85f;
-				}
-				else if (m_down && currentFwdSpeed > 0.f) {
-					currentFwdSpeed *= 0.80f;
-				}
-				else if (!m_up && !m_down) {
-					currentFwdSpeed *= 0.98f;
-				}
-
-				m_speedVector = (forwardDir * currentFwdSpeed) + (rightDir * currentSideSpeed);
-			}
-		}
-
-		if (!isSprinting && speed > (m_userPlayer.getTopSpeed() * 10.0f) * 0.5f)
-		{
-			m_speedVector *= 0.98f;
-		}
-
-		if (m_down && speed > ((m_userPlayer.getTopSpeed() * 10.0f) * 0.50f)) m_speedVector *= 0.96f;
-		if ((m_left || m_right) && speed > ((m_userPlayer.getTopSpeed() * 10.0f) * 0.70f) && !m_up) m_speedVector *= 0.96f;
-		if ((m_left || m_right) && speed > ((m_userPlayer.getTopSpeed() * 10.0f) * 0.95f) && m_up) m_speedVector *= 0.97f;
-
-
-		if (isChasingLooseBall)
-		{
-			sf::Vector2f currentVel = m_userPlayer.getVelocity();
-			sf::Vector2f toBall = game.m_ball->getPosition() - m_userPlayer.getPosition();
-			float dist = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
-
-			if (dist > 10.f) {
-				sf::Vector2f ballDir = toBall / dist;
-				float velocityTowardBall = (currentVel.x * ballDir.x + currentVel.y * ballDir.y);
-				sf::Vector2f tangentialVel = currentVel - (ballDir * velocityTowardBall);
-
-				m_speedVector -= tangentialVel * 8.0f * dt;
-			}
-		}
+	if (m_userPlayer.getState() == PlayerState::Tackling) {
+		PhysicsEngine::applySlideTackleFriction(m_userPlayer, dt);
 	}
-
-	float currentMax;
-	if (isChasingLooseBall) {
-		currentMax = m_userPlayer.getTopSpeed() * 10.0f;
-	}
-	else if (isJockeying) {
-		float aggressionNorm = m_userPlayer.getAggression() / 100.0f;
-		currentMax = (m_userPlayer.getTopSpeed() * 10.0f) * (0.70f + (aggressionNorm * 0.30f));
+	else if (m_userPlayer.getState() == PlayerState::Diving) {
+		// --- REPLACE MANUAL DRAG WITH ENGINE CALL ---
+		PhysicsEngine::applyKeeperDiveFriction(m_userPlayer, dt);
 	}
 	else {
-		currentMax = isSprinting ? (m_userPlayer.getTopSpeed() * 10.0f) : (m_userPlayer.getTopSpeed() * 10.0f) * 0.95f;
-	}
+		// Determine maximum permitted speed based on context
+		float currentMax = m_userPlayer.getTopSpeed() * 10.0f;
 
-	speed = std::sqrt(m_speedVector.x * m_speedVector.x + m_speedVector.y * m_speedVector.y);
-	if (m_userPlayer.getState() != PlayerState::Tackling && speed > currentMax)
-	{
-		m_speedVector = (m_speedVector / speed) * currentMax;
-	}
+		if (isChasingLooseBall) {
+			currentMax = m_userPlayer.getTopSpeed() * 10.0f;
+		}
+		else if (isJockeying) {
+			float aggressionNorm = m_userPlayer.getAggression() / 100.0f;
+			currentMax *= (0.70f + (aggressionNorm * 0.30f));
+		}
+		else {
+			currentMax = isSprinting ? currentMax : currentMax * 0.5f;
+		}
 
-	if (!m_up && !m_down && !m_left && !m_right)
-	{
-		if (std::sqrt(m_speedVector.x * m_speedVector.x + m_speedVector.y * m_speedVector.y) < m_speedNearlyZero)
-		{
-			m_speedVector = { 0.f, 0.f };
+		// Apply Movement Forces
+		if (directionInput.x == 0.f && directionInput.y == 0.f) {
+			PhysicsEngine::applyPlayerIdleFriction(m_userPlayer, dt);
+		}
+		else {
+			PhysicsEngine::applyPlayerLocomotion(m_userPlayer, directionInput, currentMax, dt);
 		}
 	}
 
-	m_userPlayer.setVelocity(m_speedVector);
+	// Optional: Keep the user strictly inside the stadium grass
+	PhysicsEngine::resolvePlayerPitchBoundaries(m_userPlayer, game.m_pitch);
+
+	// Sync local variables (used by camera / UI tracking)
+	m_speedVector = m_userPlayer.getVelocity();
+	speed = std::sqrt(m_speedVector.x * m_speedVector.x + m_speedVector.y * m_speedVector.y);
 }
 
 
@@ -587,50 +493,64 @@ void UserController::playerShooting(float dt, GamePlay& game)
 
 void UserController::executeKickRelease(GamePlay& game)
 {
-	sf::Vector2f aimDir = m_userPlayer.getAimDirection();
-	float basePower = m_userPlayer.getKickPower();
-	float finalPower = basePower * kickStrength;
-	float vzPower = 0.f;
-	float errorAngle = 0.f;
-	float finalBackspin = 0.f;
+sf::Vector2f aimDir = m_userPlayer.getAimDirection();
+    float basePower = m_userPlayer.getKickPower();
+    float finalPower = basePower * kickStrength;
+    float vzPower = 0.f;
+    float errorAngle = 0.f;
+    float finalBackspin = 0.f;
 
-	// 1. Calculate Base Trajectories
-	if (game.m_ball->z > 40.f) {
-		// If calculateAerialKick returns false, we whiffed the ball entirely. Abort.
-		if (!calculateAerialKick(game, finalPower, vzPower, errorAngle, finalBackspin)) {
-			kickStrength = 0.f; charging = false; increasing = true; kickPressed = false;
-			return;
-		}
-	}
-	else {
-		calculateGroundKick(basePower, finalPower, vzPower, errorAngle, finalBackspin);
-	}
+    // 1. Trajectory Calculation
+    if (game.m_ball->z > 40.f) {
+        if (!calculateAerialKick(game, finalPower, vzPower, errorAngle, finalBackspin)) {
+            kickStrength = 0.f; charging = false; increasing = true; kickPressed = false;
+            return;
+        }
+    } else {
+        calculateGroundKick(basePower, finalPower, vzPower, errorAngle, finalBackspin);
+    }
 
-	// 2. Apply AI Assists (Magnetism & Power Correction)
-	if (m_currentTarget != nullptr) {
-		applyPassingAssistance(game, aimDir, finalPower, basePower);
-	}
-	else if (!isHighKick) {
-		applyShootingAimbot(game, aimDir, vzPower, finalPower);
-	}
+    // ==========================================
+    // --- WEAK FOOT INJECTION ---
+    // ==========================================
+    bool isRightFooted = (m_userPlayer.getPreferredFoot() == "Right");
+    bool usingRight = m_userPlayer.usingRightFoot();
+    bool isWeakFoot = (isRightFooted && !usingRight) || (!isRightFooted && usingRight);
 
-	// 3. Apply Final Stat Error
-	float randError = ((rand() % 100) / 100.f - 0.5f) * errorAngle;
-	float rad = randError * 3.14159f / 180.f;
-	sf::Vector2f finalDir(
-		aimDir.x * std::cos(rad) - aimDir.y * std::sin(rad),
-		aimDir.x * std::sin(rad) + aimDir.y * std::cos(rad)
-	);
+    if (isWeakFoot) {
+        float wfPowerMod = 1.0f;
+        float wfErrorMod = 1.0f;
+        float extraShank = getWeakFootPenalty(m_userPlayer.getWeakFootAccuracy(), wfPowerMod, wfErrorMod);
 
-	// 4. Calculate Magnus Spin
-	float spin = 0.f;
-	bool isRightFoot = m_userPlayer.usingRightFoot();
-	if (m_left) spin = isRightFoot ? -(m_userPlayer.getCurl() / 2.f) : m_userPlayer.getCurl();
-	if (m_right) spin = isRightFoot ? -m_userPlayer.getCurl() : (m_userPlayer.getCurl() / 2.f);
-	spin *= (1.1f + kickStrength / 2.f);
+        finalPower *= wfPowerMod;
+        errorAngle = (errorAngle * wfErrorMod) + extraShank;
+    }
 
-	// 5. Execute & Reset
-	game.m_ball->shoot(finalDir, finalPower, spin, vzPower, finalBackspin);
+    // 2. Apply Assists
+    if (m_currentTarget != nullptr) {
+        AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false);
+    } else if (!isHighKick) {
+        AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
+    }
+
+    // 3. Apply Final Stat Error (Now much larger if Weak Foot is low)
+    float randError = ((rand() % 100) / 100.f - 0.5f) * errorAngle;
+    float rad = randError * 3.14159f / 180.f;
+    sf::Vector2f finalDir(
+        aimDir.x * std::cos(rad) - aimDir.y * std::sin(rad),
+        aimDir.x * std::sin(rad) + aimDir.y * std::cos(rad)
+    );
+
+    // 4. Calculate Spin (Dampen curl for weak foot)
+    float spin = 0.f;
+    if (m_left) spin = usingRight ? -(m_userPlayer.getCurl() / 2.f) : m_userPlayer.getCurl();
+    if (m_right) spin = usingRight ? -m_userPlayer.getCurl() : (m_userPlayer.getCurl() / 2.f);
+    
+    // Weak foot can't curl the ball as well
+    if (isWeakFoot) spin *= (0.4f + (m_userPlayer.getWeakFootAccuracy() / 5.0f) * 0.6f);
+    spin *= (1.1f + kickStrength / 2.f);
+
+    game.m_ball->shoot(finalDir, finalPower, spin, vzPower, finalBackspin);
 
 	kickStrength = 0.f;
 	charging = false;
@@ -697,77 +617,6 @@ void UserController::calculateGroundKick(float basePower, float& finalPower, flo
 	}
 }
 
-void UserController::applyPassingAssistance(GamePlay& game, sf::Vector2f& aimDir, float& finalPower, float basePower)
-{
-	sf::Vector2f playerPos = m_userPlayer.getPosition();
-	sf::Vector2f targetPos = m_currentTarget->getPosition();
-	sf::Vector2f targetVel = m_currentTarget->getVelocity();
-
-	float rawDist = game.distance(playerPos, targetPos);
-	float stat = isHighKick ? m_userPlayer.getLongPassing() : ((rawDist < 1500.f) ? m_userPlayer.getShortPassing() : m_userPlayer.getLongPassing());
-	float passingNorm = stat / 100.f;
-
-	// Physics Prediction
-	float arrivalSpeed = 500.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 300.f);
-	float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * 800.f * rawDist));
-	float travelTime = (rawDist > 1200.f) ? (rawDist / v0_est) + 0.3f : rawDist / ((v0_est + arrivalSpeed) * 0.5f);
-
-	sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
-	sf::Vector2f dirToPredicted = game.normalize(predictedPos - playerPos);
-	float leadAmount = (stat == m_userPlayer.getAwareness()) ? 250.f : 80.f;
-
-	sf::Vector2f aimSpot = predictedPos + (dirToPredicted * leadAmount);
-	sf::Vector2f perfectPassDir = game.normalize(aimSpot - playerPos);
-	float perfectDist = game.distance(playerPos, aimSpot);
-
-	// Aim Magnetism
-	float aimDot = (aimDir.x * perfectPassDir.x) + (aimDir.y * perfectPassDir.y);
-	if (aimDot > 0.5f) {
-		float magnetism = 0.4f + (passingNorm * 0.5f);
-		aimDir = game.normalize((aimDir * (1.0f - magnetism)) + (perfectPassDir * magnetism));
-	}
-
-	// Power Assistance
-	float idealPowerWorld = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * 800.f * perfectDist));
-	float idealPowerAssisted = idealPowerWorld / 52.0f;
-	idealPowerAssisted *= isHighKick ? 0.75f : 1.1f;
-
-	float powerMagnetism = 0.3f + (passingNorm * 0.6f);
-	finalPower = (finalPower * (1.0f - powerMagnetism)) + (idealPowerAssisted * powerMagnetism);
-	finalPower = std::min(finalPower, basePower);
-}
-
-void UserController::applyShootingAimbot(GamePlay& game, sf::Vector2f& aimDir, float& vzPower, float finalPower)
-{
-	sf::Vector2f playerPos = m_userPlayer.getPosition();
-	bool isHome = (m_userPlayer.getTeam() == Team::Home);
-	float goalX = isHome ? game.m_pitch.totalWidth - game.m_pitch.margin : game.m_pitch.margin;
-
-	bool aimingAtGoal = (isHome && aimDir.x > 0) || (!isHome && aimDir.x < 0);
-	if (!aimingAtGoal) return;
-
-	float distToGoalX = std::abs(goalX - playerPos.x);
-	float intersectY = playerPos.y + (aimDir.y / std::abs(aimDir.x)) * distToGoalX;
-	float topPostY = 3500.f - 366.f;
-	float bottomPostY = 3500.f + 366.f;
-
-	if (intersectY > topPostY - 200.f && intersectY < bottomPostY + 200.f)
-	{
-		float targetY = (intersectY < 3500.f) ? topPostY + 40.f : bottomPostY - 40.f;
-		sf::Vector2f perfectDir = game.normalize(sf::Vector2f(goalX, targetY) - playerPos);
-
-		float magnetism = (m_userPlayer.getFinishing() / 100.f) * 0.6f;
-		aimDir = game.normalize((aimDir * (1.0f - magnetism)) + (perfectDir * magnetism));
-
-		float horizontalSpeed = std::max(finalPower * 52.0f, 1.f);
-		float timeToGoal = distToGoalX / horizontalSpeed;
-
-		// 3D VZ Dip Calculation
-		float perfectVz = (180.f + (0.5f * 980.f * timeToGoal * timeToGoal)) / timeToGoal;
-		vzPower = (vzPower * (1.0f - magnetism)) + (perfectVz * magnetism);
-	}
-}
-
 float UserController::dist(sf::Vector2f p1, sf::Vector2f p2) 
 {
 	float dx = p1.x - p2.x;
@@ -777,51 +626,14 @@ float UserController::dist(sf::Vector2f p1, sf::Vector2f p2)
 
 void UserController::updateTargetScanning(GamePlay& game)
 {
-    m_currentTarget = nullptr;
-    sf::Vector2f aimDir = m_userPlayer.getAimDirection();
-    sf::Vector2f playerPos = m_userPlayer.getPosition();
-    float bestMatch = 0.98f; // Threshold for "locking on"
+	// Build a quick list of raw pointers for the assist engine
+	std::vector<Player*> teammatesRaw;
+	for (auto& tm : game.m_homeside) teammatesRaw.push_back(tm.get());
 
-    for (const auto& teammatePtr : game.m_teammates) 
-    {
-        Player* teammate = teammatePtr.get();
-        sf::Vector2f toTeammate = teammate->getPosition() - playerPos;
-        float d = std::sqrt(toTeammate.x * toTeammate.x + toTeammate.y * toTeammate.y);
-        
-        if (d < 10.f || d > 4500.f) continue; 
-        sf::Vector2f dirToTeammate = toTeammate / d;
-        
-        float alignment = (aimDir.x * dirToTeammate.x + aimDir.y * dirToTeammate.y);
-        
-        if (alignment > bestMatch) {
-            bestMatch = alignment;
-            m_currentTarget = teammate;
-        }
-    }
+	m_currentTarget = AimAssist::getTargetLock(m_userPlayer.getPosition(), m_userPlayer.getAimDirection(), teammatesRaw);
 
-    // Update the visual circle position
-    if (m_currentTarget) {
-        m_targetHighlight.setPosition(m_currentTarget->getPosition());
-    }
-}
-
-void UserController::updatePlayerAirPhysics(UserPlayer& user, float dt) {
-	// If the player is in the air, or has upward velocity
-	if (user.z > 0.0f || user.vz != 0.0f) {
-		// Apply Gravity (9.8m/s^2 = 980px/s^2)
-		user.vz -= 980.f * dt;
-		user.z += user.vz * dt;
-
-		// Hit the ground
-		if (user.z <= 0.0f) {
-			user.z = 0.0f;
-			user.vz = 0.0f;
-			user.setVelocity(user.getVelocity() * 0.60f);
-			// Return to normal state (unless they were tackling/stunned)
-			if (user.getState() == PlayerState::Jumping) {
-				user.setState(PlayerState::Normal);
-			}
-		}
+	if (m_currentTarget) {
+		m_targetHighlight.setPosition(m_currentTarget->getPosition());
 	}
 }
 
@@ -840,4 +652,63 @@ void UserController::resetInputs() {
 	// 3. Reset automated movement states
 	isChasingLooseBall = false;
 	isJockeying = false;
+}
+
+void UserController::attemptSave(float dt, GamePlay& game)
+{
+	sf::Vector2f ballVel = game.m_ball->getVelocity();
+	float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+
+	// Only trigger auto-saves on actual fast shots, not slow passes
+	if (ballSpeed < 300.0f) return;
+
+	sf::Vector2f ballPos = game.m_ball->getPosition();
+	sf::Vector2f keeperPos = m_userPlayer.getPosition();
+
+	// Make sure the ball is actually moving TOWARDS our goal
+	bool isHomeSide = (m_userPlayer.getTeam() == Team::Home);
+	if (isHomeSide && ballVel.x >= -10.0f) return;
+	if (!isHomeSide && ballVel.x <= 10.0f) return;
+
+	// Calculate Time-To-Intercept (TTI)
+	float ballTTI = std::abs((keeperPos.x - ballPos.x) / ballVel.x);
+	if (ballTTI < 0.0f || ballTTI > 1.5f) return;
+
+	// Project the 3D height of the ball when it reaches the goal line
+	float gravity = 980.f;
+	float interceptZ = game.m_ball->z + (game.m_ball->vz * ballTTI) - (0.5f * gravity * ballTTI * ballTTI);
+	interceptZ = std::max(0.f, interceptZ);
+
+	float interceptY = ballPos.y + (ballVel.y * ballTTI);
+	sf::Vector2f interceptPoint(keeperPos.x, interceptY);
+	float diveDistance = std::abs(keeperPos.y - interceptY);
+
+	// Determine max dive speed based on stats
+	float distToBall = game.distance(keeperPos, ballPos);
+	float activeStat = (distToBall < 600.0f) ? m_userPlayer.getGkBlocking() : m_userPlayer.getGkReactions();
+	float maxDiveSpeed = 600.0f + ((activeStat / 100.0f) * 1000.0f);
+
+	float keeperTTI = diveDistance / maxDiveSpeed;
+	if (ballTTI > keeperTTI + 0.15f) return; // Cannot reach it in time
+
+	float attemptDiveRadius = 800.0f;
+
+	// If it's within reach, pull the trigger!
+	if (diveDistance <= attemptDiveRadius && interceptZ <= (m_userPlayer.height + 120.0f))
+	{
+		float optimalSpeed = maxDiveSpeed;
+		if (ballTTI > 0.05f) optimalSpeed = diveDistance / ballTTI;
+		float finalSpeed = std::clamp(optimalSpeed, 150.0f, maxDiveSpeed);
+
+		// Execute the Dive
+		sf::Vector2f diveDir = game.normalize(interceptPoint - keeperPos);
+		m_userPlayer.setVelocity(diveDir * finalSpeed);
+
+		// Context-aware jump height
+		if (interceptZ < 40.f) m_userPlayer.vz = 0.f;
+		else if (interceptZ < 120.f) m_userPlayer.vz = 140.f;
+		else m_userPlayer.vz = 200.f + (interceptZ * 0.2f);
+
+		m_userPlayer.setState(PlayerState::Diving);
+	}
 }
