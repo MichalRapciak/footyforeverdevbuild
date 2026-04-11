@@ -161,33 +161,76 @@ void UserController::inputHandler(const sf::Event t_event)
 void UserController::update(float dt, GamePlay& game)
 {
 	MatchState state = game.m_referee.getMatchState();
-	bool hasPossession = (game.m_ball->getOwner() == &m_userPlayer);
+	Player* currentOwner = game.m_ball->getOwner();
+
+	bool hasPossession = (currentOwner == &m_userPlayer);
+	bool userTeamHasPossession = (currentOwner != nullptr && currentOwner->getTeam() == m_userPlayer.getTeam());
 
 	// ==========================================
-		// --- MANUAL DEFENSIVE SWITCHING ---
-		// ==========================================
+	// --- AUTOMATIC OFFENSIVE SWITCHING ---
+	// ==========================================
+	// If a teammate (not us, not the GK) picks up the ball, instantly take control of them!
+	if (state == MatchState::InPlay && userTeamHasPossession && !hasPossession) {
+		if (currentOwner->getPositionRole() != PositionRole::Goalkeeper) {
+			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
+			game.executePlayerSwitch(currentOwner);
+			resetInputs();
+			m_userPlayer.updateAim(tempAim);
+
+			hasPossession = true; // Update local variable since we just possessed them!
+		}
+	}
+
+	// ==========================================
+	// --- MANUAL SWITCHING (Offense & Defense) ---
+	// ==========================================
 	if (switchPressed) {
 		switchPressed = false; // Consume input
 
-		// Only allow manual switching if we DO NOT have the ball
-		if (game.m_ball->getOwner() != &m_userPlayer) {
+		// Gather all outfield teammates dynamically
+		std::vector<Player*> myTeam;
+		auto& npcList = (m_userPlayer.getTeam() == Team::Home) ? game.m_homeside : game.m_awayside;
 
-			// Gather all teammates
-			std::vector<Player*> myTeam;
-			for (auto& npc : game.m_homeside) {
-				if (!npc->isSentOff()) myTeam.push_back(npc.get());
+		for (auto& npc : npcList) {
+			// Exclude red cards and the Goalkeeper from manual switching
+			if (!npc->isSentOff() && npc->getPositionRole() != PositionRole::Goalkeeper) {
+				myTeam.push_back(npc.get());
 			}
+		}
 
-			// Call the AI to find the smartest goal-side defender
-			Player* bestDefender = findBestDefensiveSwitch(m_userPlayer, myTeam, *game.m_ball, game.m_pitch);
+		Player* targetPlayer = nullptr;
+
+		if (!userTeamHasPossession) {
+			// DEFENSE: Find the smartest goal-side defender
+			targetPlayer = findBestDefensiveSwitch(m_userPlayer, myTeam, *game.m_ball, game.m_pitch);
+		}
+		else {
+			// OFFENSE: Find the teammate closest to the ball (to make a manual run)
+			float minDist = 999999.f;
+			sf::Vector2f ballPos = game.m_ball->getPosition();
+
+			for (Player* teammate : myTeam) {
+				// Don't switch to the player we are already controlling
+				if (teammate == &m_userPlayer) continue;
+
+				float dx = teammate->getPosition().x - ballPos.x;
+				float dy = teammate->getPosition().y - ballPos.y;
+				float distSq = (dx * dx) + (dy * dy); // Using squared distance is faster for comparisons
+
+				if (distSq < minDist) {
+					minDist = distSq;
+					targetPlayer = teammate;
+				}
+			}
+		}
+
+		// Execute the switch if we found a valid target
+		if (targetPlayer && targetPlayer != &m_userPlayer) {
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
-			if (bestDefender && bestDefender != &m_userPlayer) {
-				game.executePlayerSwitch(bestDefender);
-				resetInputs(); // Prevent the new player from instantly sliding if you were holding Ctrl!
+			game.executePlayerSwitch(targetPlayer);
 
-				// Keep the mouse aiming stable after the teleport
-				m_userPlayer.updateAim(tempAim);
-			}
+			resetInputs(); // Prevent the new player from instantly sliding/passing
+			m_userPlayer.updateAim(tempAim); // Keep the mouse aiming stable after the teleport
 		}
 	}
 
@@ -281,20 +324,6 @@ void UserController::update(float dt, GamePlay& game)
 
 void UserController::draw(sf::RenderWindow& window)
 {
-	if (m_currentTarget) {
-		if (charging) {
-			float pulse = 80.f + (kickStrength * 20.f); // Grows from 40 to 60 radius
-			m_targetHighlight.setRadius(pulse);
-			m_targetHighlight.setOrigin({ pulse, pulse });
-			m_targetHighlight.setOutlineColor(sf::Color(100, 255, 100, 200)); // Turns green when charging
-		}
-		else {
-			m_targetHighlight.setRadius(40.f);
-			m_targetHighlight.setOrigin({ 40.f, 40.f });
-			m_targetHighlight.setOutlineColor(sf::Color(255, 255, 255, 150));
-		}
-		window.draw(m_targetHighlight);
-	}
 }
 
 /// <summary>
@@ -525,80 +554,94 @@ void UserController::playerShooting(float dt, GamePlay& game)
 
 void UserController::executeKickRelease(GamePlay& game)
 {
-sf::Vector2f aimDir = m_userPlayer.getAimDirection();
-    float basePower = m_userPlayer.getKickPower();
-    float finalPower = basePower * kickStrength;
-    float vzPower = 0.f;
-    float errorAngle = 0.f;
-    float finalBackspin = 0.f;
+	sf::Vector2f aimDir = m_userPlayer.getAimDirection();
+	float basePower = m_userPlayer.getKickPower();
+	float finalPower = basePower * kickStrength;
+	float vzPower = 0.f;
+	float errorAngle = 0.f;
+	float finalBackspin = 0.f;
 
-    // 1. Trajectory Calculation
-    if (game.m_ball->z > 40.f) {
-        if (!calculateAerialKick(game, finalPower, vzPower, errorAngle, finalBackspin)) {
-            kickStrength = 0.f; charging = false; increasing = true; kickPressed = false;
-            return;
-        }
-    } else {
-        calculateGroundKick(basePower, finalPower, vzPower, errorAngle, finalBackspin);
-    }
+	// 1. Trajectory Calculation
+	if (game.m_ball->z > 40.f) {
+		if (!calculateAerialKick(game, finalPower, vzPower, errorAngle, finalBackspin)) {
+			kickStrength = 0.f; charging = false; increasing = true; kickPressed = false;
+			return;
+		}
+	}
+	else {
+		calculateGroundKick(basePower, finalPower, vzPower, errorAngle, finalBackspin);
+	}
 
-    // ==========================================
-    // --- WEAK FOOT INJECTION ---
-    // ==========================================
-    bool isRightFooted = (m_userPlayer.getPreferredFoot() == "Right");
-    bool usingRight = m_userPlayer.usingRightFoot();
-    bool isWeakFoot = (isRightFooted && !usingRight) || (!isRightFooted && usingRight);
+	// ==========================================
+	// --- WEAK FOOT INJECTION ---
+	// ==========================================
+	bool isRightFooted = (m_userPlayer.getPreferredFoot() == "Right");
+	bool usingRight = m_userPlayer.usingRightFoot();
+	bool isWeakFoot = (isRightFooted && !usingRight) || (!isRightFooted && usingRight);
 
-    if (isWeakFoot) {
-        float wfPowerMod = 1.0f;
-        float wfErrorMod = 1.0f;
-        float extraShank = getWeakFootPenalty(m_userPlayer.getWeakFootAccuracy(), wfPowerMod, wfErrorMod);
+	if (isWeakFoot) {
+		float wfPowerMod = 1.0f;
+		float wfErrorMod = 1.0f;
+		float extraShank = getWeakFootPenalty(m_userPlayer.getWeakFootAccuracy(), wfPowerMod, wfErrorMod);
 
-        finalPower *= wfPowerMod;
-        errorAngle = (errorAngle * wfErrorMod) + extraShank;
-    }
+		finalPower *= wfPowerMod;
+		errorAngle = (errorAngle * wfErrorMod) + extraShank;
+	}
 
-    // 2. Apply Assists
-    if (m_currentTarget != nullptr) {
-        AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false);
-    } else if (!isHighKick) {
-        AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
-    }
+	// ==========================================
+	// --- 2. APPLY RAW STAT ERROR FIRST ---
+	// ==========================================
+	// Inject a specific intrinsic penalty if the user's finishing is bad.
+	if (m_currentTarget == nullptr && !isHighKick) {
+		// Up to 15 degrees of pure inaccuracy for a 0 Finishing player.
+		// Hitting it with maximum power makes the shank even wider!
+		float finishingMiss = (1.0f - (m_userPlayer.getFinishing() / 100.f)) * 30.0f;
+		errorAngle += finishingMiss * (0.5f + kickStrength);
+	}
 
-    // 3. Apply Final Stat Error (Now much larger if Weak Foot is low)
-    float randError = ((rand() % 100) / 100.f - 0.5f) * errorAngle;
-    float rad = randError * 3.14159f / 180.f;
-    sf::Vector2f finalDir(
-        aimDir.x * std::cos(rad) - aimDir.y * std::sin(rad),
-        aimDir.x * std::sin(rad) + aimDir.y * std::cos(rad)
-    );
+	// Apply the error directly to the raw mouse aim
+	float randError = ((rand() % 100) / 100.f - 0.5f) * errorAngle;
+	float rad = randError * 3.14159f / 180.f;
 
-    // 4. Calculate Spin (Dampen curl for weak foot)
-    float spin = 0.f;
-    if (m_left) spin = usingRight ? -(m_userPlayer.getCurl() / 2.f) : m_userPlayer.getCurl();
-    if (m_right) spin = usingRight ? -m_userPlayer.getCurl() : (m_userPlayer.getCurl() / 2.f);
-    
-    // Weak foot can't curl the ball as well
-    if (isWeakFoot) spin *= (0.4f + (m_userPlayer.getWeakFootAccuracy() / 5.0f) * 0.6f);
-    spin *= (1.1f + kickStrength / 2.f);
+	// aimDir is now mathematically shanked
+	aimDir = sf::Vector2f(
+		aimDir.x * std::cos(rad) - aimDir.y * std::sin(rad),
+		aimDir.x * std::sin(rad) + aimDir.y * std::cos(rad)
+	);
 
-    game.m_ball->shoot(finalDir, finalPower, spin, vzPower, finalBackspin);
+	// ==========================================
+	// --- 3. APPLY ASSISTS (The Corrector) ---
+	// ==========================================
+	// Elite players will use their magnetism to pull the shanked aimDir back on target.
+	// Poor players have no magnetism, so the shanked aimDir stays wild!
+	if (m_currentTarget != nullptr) {
+		AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false);
+	}
+	else if (!isHighKick) {
+		AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
+	}
+
+	// 4. Calculate Spin (Dampen curl for weak foot)
+	float spin = 0.f;
+	if (m_left) spin = usingRight ? -(m_userPlayer.getCurl() / 2.f) : m_userPlayer.getCurl();
+	if (m_right) spin = usingRight ? -m_userPlayer.getCurl() : (m_userPlayer.getCurl() / 2.f);
+
+	// Weak foot can't curl the ball as well
+	if (isWeakFoot) spin *= (0.4f + (m_userPlayer.getWeakFootAccuracy() / 5.0f) * 0.6f);
+	spin *= (1.1f + kickStrength / 2.f);
+
+	// 5. Execute Audio & Shot
+	float kickVol = std::clamp(0.f + ((finalPower / m_userPlayer.getKickPower()) * 40.0f), 10.f, 100.f);
+	game.m_soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+
+	// Notice we just pass aimDir here now, as it has already been corrected by the AimAssist
+	game.m_ball->shoot(aimDir, finalPower, spin, vzPower, finalBackspin);
 
 	kickStrength = 0.f;
 	charging = false;
 	increasing = true;
 	justKicked = true;
 	kickCooldownTimer = kickCooldown;
-
-	// ==========================================
-	// --- AUTOMATIC OFFENSIVE SWITCH ---
-	// ==========================================
-	// If we successfully aimed a ground or high pass at a teammate, switch to them immediately!
-	if (m_currentTarget != nullptr) {
-		game.executePlayerSwitch(m_currentTarget);
-		m_currentTarget = nullptr; // Clear the target since WE are now the target!
-		resetInputs();
-	}
 }
 
 bool UserController::calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin)
@@ -770,21 +813,38 @@ Player* UserController::findBestDefensiveSwitch(Player& currentPlayer, const std
 
 		sf::Vector2f pPos = p->getPosition();
 		float distToBall = dist(pPos, ballPos);
-
-		// --- THE "GOAL-SIDE" CHECK ---
-		// If we are Home, our goal is at X=0. Caught upfield means X > Ball.X
-		// If we are Away, our goal is at X=10000. Caught upfield means X < Ball.X
-		bool isCaughtUpfield = isHome ? (pPos.x > ballPos.x) : (pPos.x < ballPos.x);
-
 		float score = distToBall;
 
-		if (isCaughtUpfield) {
-			// Massive penalty for trailing the play. The AI will prefer a Center Back 
-			// 800px away over a Striker who is 200px away but behind the ball!
-			score += 2000.f;
+		// ==========================================
+		// --- 1. THE "EMERGENCY ZONE" (3m Rule) ---
+		// ==========================================
+		// Since 100px = 1m, 3 meters = 300px.
+		// If a player is this close, they are the most relevant player on the pitch.
+		bool inEmergencyZone = (distToBall < 300.f);
+
+		if (inEmergencyZone) {
+			// Apply a massive "Proximity Bonus" to ensure they beat anyone further away.
+			// We effectively ignore the goal-side check here because they are close enough to act.
+			score -= 5000.f;
+		}
+		else {
+			// ==========================================
+			// --- 2. THE "GOAL-SIDE" CHECK ---
+			// ==========================================
+			// If they AREN'T in the emergency zone, we only want them if they are between
+			// the ball and our goal.
+			bool isCaughtUpfield = isHome ? (pPos.x > ballPos.x) : (pPos.x < ballPos.x);
+
+			if (isCaughtUpfield) {
+				// Massive 2000px penalty for trailing the play.
+				score += 2000.f;
+			}
 		}
 
-		// Penalty for players currently locked in an animation
+		// ==========================================
+		// --- 3. ANIMATION LOCK PENALTY ---
+		// ==========================================
+		// If a player is on the floor or tackling, we really don't want to switch to them.
 		if (p->getState() != PlayerState::Normal) {
 			score += 1000.f;
 		}

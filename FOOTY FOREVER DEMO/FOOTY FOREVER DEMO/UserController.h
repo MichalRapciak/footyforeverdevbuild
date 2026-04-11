@@ -45,7 +45,7 @@ private:
 	float kickStrength = 0.f;        // 0 -> 1
 	bool charging = false;
 	bool increasing = true;
-	float kickSpeed = 1.5f;        // oscillation speed (cycles/sec)
+	float kickSpeed = 2.0f;        // oscillation speed (cycles/sec)
 	bool kickPressed = false;
 	bool dribblePressed = false;
 

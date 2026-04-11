@@ -74,7 +74,7 @@
             "passing_speed": 62,
             "penalty_taker_id": "PLY_1000",
             "positional_freedom": 83,
-            "pressing_intensity": 37,
+            "pressing_intensity": 44,
             "right_corner_taker_id": "PLY_1000",
             "starting_xi": {
                 "0": "PLY_1010",
@@ -83,9 +83,9 @@
                 "2": "PLY_1008",
                 "3": "PLY_1007",
                 "4": "PLY_1006",
-                "5": "PLY_1003",
-                "6": "PLY_1004",
-                "7": "PLY_1005",
+                "5": "PLY_1004",
+                "6": "PLY_1005",
+                "7": "PLY_1003",
                 "8": "PLY_1000",
                 "9": "PLY_1001"
             }

@@ -163,7 +163,7 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
 		// Instantly teleport everyone, but hold the state in ReplayPlaying
-		m_referee.setupReplayTeleports(*m_ball, m_pitch, allPlayers);
+		m_referee.setupReplayTeleports(*m_ball, m_pitch, allPlayers, m_soundManager);
 	}
 
 	// ==========================================
@@ -198,8 +198,8 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 	if (!m_pause && !m_gameOver)
 	{
 		// 2. THE REFEREE UPDATES THE CONTEXTS FIRST
-		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal);
-		m_referee.checkOffsideLogic(*m_ball, allPlayers, m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), m_pitch);
+		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal, m_soundManager);
+		m_referee.checkOffsideLogic(*m_ball, allPlayers, m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), m_pitch, m_soundManager);
 		// 3. RUN THE SIMULATION
         // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
         runStandardSystems(dt, t_window);
@@ -288,18 +288,17 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	m_awayGoal.draw(t_window);
 
 	//drawDebugOffsideLines(t_window);
-	drawDebugNames(t_window, m_font); // Pass whatever font you use for your UI here!
 	// (Optional) Draw a red ring under players who are currently flagged for offside
 
 	if (!m_replayEngine.isReplaying()) {
 		m_userController->draw(t_window); // Don't draw the aiming arrow during a replay
+		drawDebugNames(t_window, m_font); // Pass whatever font you use for your UI here!
+		// ==========================================
+		// 6. DRAW UI (SCREEN SPACE)
+		// ==========================================
+		drawUI(t_window);
+		powerBarDraw(t_window);
 	}
-
-	// ==========================================
-	// 6. DRAW UI (SCREEN SPACE)
-	// ==========================================
-	drawUI(t_window);
-	powerBarDraw(t_window);
 
 
 	t_window.setView(t_window.getDefaultView()); // Switch to screen-space for Overlays
@@ -488,14 +487,17 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 
 	m_playerCam.setCenter(m_userPlayer->getPosition());
 	m_playerCam.setSize({ 1920,1080 });
-	m_playerCam.zoom(2.5f);
+	m_playerCam.zoom(0.50f);
 
 	std::vector<Player*> allPlayers;
 	allPlayers.push_back(m_userPlayer.get());
 	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
 	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
-	m_referee.startMatch(*m_ball, m_pitch, allPlayers);
+	m_soundManager.loadAllSounds();
+	m_soundManager.playCrowd("ASSETS/SOUNDS/CROWD/stadium_noise.ogg", 80.f); // 40% volume background noise
+
+	m_referee.startMatch(*m_ball, m_pitch, allPlayers, m_soundManager);
 }
 
 void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, TeamData& teamData, bool isHomeSide, const std::string& userPlayerId)
@@ -506,7 +508,6 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 	auto layout = getFormationLayout(teamData.defaultTactics.formationName);
 
 	// 2. Loop through exactly the 11 slots designated in the Matchday Tactics
-	// Notice we are grabbing 'slotId' (int) now instead of 'role'
 	for (const auto& [slotId, playerId] : teamData.defaultTactics.startingXI)
 	{
 		PlayerData* pData = m_db->getPlayer(playerId);
@@ -532,8 +533,8 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 				isTargetUser = (playerId == userPlayerId);
 			}
 			else {
-				// Fallback: If they left it as "Auto-Select", just take the first Outfield player
-				isTargetUser = (matchRole != PositionRole::Goalkeeper);
+				// THE FIX: Allow Auto-Select to grab ANY player, including the Goalkeeper!
+				isTargetUser = true;
 			}
 		}
 
@@ -549,9 +550,10 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 			sf::Vector2f basePos = m_userPlayer->getBaseTacticalCoordinate(true, slotId, layout);
 			m_userPlayer->setBaseHomePosition(basePos);
 
-			// Now just call getHomePosition() with no args!
-			m_userPlayer->setPosition(m_userPlayer->getHomePosition());
-			m_userPlayer->getSprite().setColor(teamData.shirt.primaryColor);
+			// THE FIX: Forcefully set both the physics position and the sprite position
+			m_userPlayer->setPosition(basePos);
+
+			m_userPlayer->setKitColor(teamData.shirt.primaryColor);
 
 			userAssigned = true;
 			continue;
@@ -559,21 +561,23 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 
 		// --- NORMAL NPC SPAWN ---
 		auto player = std::make_unique<NPCPlayer>((m_animServer.getPlayerTexture()));
-		player->loadFromData(*pData); // Load all stats and traits from the database
+		player->loadFromData(*pData);
 		player->setTeam(isHomeSide ? Team::Home : Team::Away);
 
-		// Override their generic profile role with the specific match role
 		player->setPositionRole(matchRole);
 
-		// --- Caching the Home Position ---
 		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
 		player->setBaseHomePosition(basePos);
 
-		// Now just call getHomePosition() with no args!
 		player->setPosition(player->getHomePosition());
-
-		// Use the Team's custom kit color!
-		player->getSprite().setColor(teamData.shirt.primaryColor);
+		if (matchRole == PositionRole::Goalkeeper) {
+			// Give the GK a bright green/yellow kit so they stand out
+			player->setKitColor(sf::Color(50, 200, 50));
+		}
+		else {
+			// Outfield players get the standard team kit
+			player->setKitColor(teamData.shirt.primaryColor);
+		}
 
 		entities.push_back(player.get());
 		team.push_back(std::move(player));
@@ -585,20 +589,49 @@ void GamePlay::updateCamera(sf::RenderWindow& t_window)
 	// 1. Get world positions
 	sf::Vector2f playerPos = m_userPlayer->getPosition();
 	sf::Vector2f mouseWorldPos = t_window.mapPixelToCoords(sf::Mouse::getPosition(t_window), m_playerCam);
+	sf::Vector2f ballPos = m_ball->getPosition();
 
-	// 2. Calculate a target point that is 20% of the way toward the mouse
-	// Increase 0.2f to 0.4f if you want the camera to follow the mouse further
-	float leanStrength = 0.5f;
-	sf::Vector2f targetCenter = playerPos + (mouseWorldPos - playerPos) * leanStrength;
+	// 2. Vector Math & Distances
+	sf::Vector2f aimVec = mouseWorldPos - playerPos;
+	sf::Vector2f ballVec = ballPos - playerPos;
 
-	// 3. Smooth the camera movement (Interpolation)
-	// This prevents the camera from "snapping" and makes it feel professional
+	float aimDist = std::sqrt(aimVec.x * aimVec.x + aimVec.y * aimVec.y);
+	float ballDist = std::sqrt(ballVec.x * ballVec.x + ballVec.y * ballVec.y);
+
+	// Clamp the aim vector so wild off-screen mouse flicks don't rip the camera away
+	float maxAimPull = 1800.f;
+	if (aimDist > maxAimPull) {
+		aimVec = (aimVec / aimDist) * maxAimPull;
+		aimDist = maxAimPull;
+	}
+
+	// 3. Dynamic Center Point (The "Action" Blend)
+	// Look 35% of the way toward the mouse, and 15% of the way toward the ball
+	sf::Vector2f targetCenter = playerPos + (aimVec * 0.35f) + (ballVec * 0.15f);
+
+	// 4. Dynamic Zoom Calculation
+	// Base size is your standard 1080p view scaled by 2.5 zoom
+	float baseSizeX = 1920.f * 1.5f;
+	float baseSizeY = 1080.f * 1.5f;
+
+	// Zoom out based on how far away we are aiming and how far away the ball is
+	float zoomFactor = 1.0f + (aimDist * 0.00030f) + (ballDist * 0.0002f);
+
+	// Clamp the zoom so it doesn't get unplayably tiny (Max 35% zoomed out)
+	zoomFactor = std::clamp(zoomFactor, 1.0f, 1.65f);
+	sf::Vector2f targetSize(baseSizeX * zoomFactor, baseSizeY * zoomFactor);
+
+	// 5. Interpolation (Smooth Lerping)
 	sf::Vector2f currentCenter = m_playerCam.getCenter();
-	float lerpFactor = 0.025f; // Between 0.0 and 1.0 (lower is smoother)
+	sf::Vector2f currentSize = m_playerCam.getSize();
+
+	float lerpFactor = 0.025f;
 
 	sf::Vector2f smoothedCenter = currentCenter + (targetCenter - currentCenter) * lerpFactor;
+	sf::Vector2f smoothedSize = currentSize + (targetSize - currentSize) * lerpFactor;
 
-	// 4. Apply to your view~
+	// 6. Apply to View
+	m_playerCam.setSize(smoothedSize);
 	m_playerCam.setCenter(smoothedCenter);
 	m_playerCam.setRotation(sf::degrees(90));
 	t_window.setView(m_playerCam);
@@ -686,6 +719,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
 	m_userPlayer->update(dt, m_animServer);
 
+
 	// --- 3. GATHER ACTIVE LISTS & FIND FIRST RESPONDERS ---
 	std::vector<Player*> homeFriends;
 	// Only add the user if they haven't been sent off!
@@ -720,7 +754,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		// FIX: Lock them in the dressing room! Don't let the AI brain move them back to the pitch.
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI);
+		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager);
 		npc->update(dt, m_animServer); // Internal motor physics
 	}
 
@@ -728,7 +762,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		// FIX: Lock them in the dressing room!
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI);
+		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager);
 		npc->update(dt, m_animServer);
 	}
 
@@ -740,8 +774,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
 
 	// Let the physics engine resolve overlapping bodies!
-	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_animServer, m_pitch);
-	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch);
+	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_animServer, m_pitch, m_soundManager);
 	for (Player* p : allPlayers) {
 		PhysicsEngine::resolvePlayerPitchBoundaries(*p, m_pitch);
 	}
@@ -751,9 +784,9 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	}
 
 	// 3. Resolve Ball interacting with the world
-	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch);
-	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_homeGoal);
-	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_awayGoal);
+	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch, m_soundManager);
+	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_homeGoal, m_soundManager);
+	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_awayGoal, m_soundManager);
 
 	// 4. Resolve Ball interacting with Players
 	PhysicsEngine::resolveGoalkeeperBallCollisions(*m_ball, allPlayers);
@@ -826,13 +859,12 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	// ==========================================
 	// 2. SCREEN-SPACE UI (Minimap & Scoreboard)
 	// ==========================================
-	// Save the camera view, then switch to the static screen view
 	sf::View worldView = t_window.getView();
 	t_window.setView(t_window.getDefaultView());
 
-	// --- A. MINIMAP BACKGROUND ---
-	float mapWidth = 300.f;
-	float mapHeight = 210.f; // 10:7 aspect ratio to match your 10000x7000 pitch
+	// --- A. MINIMAP BACKGROUND (Rotated 90 Degrees) ---
+	float mapWidth = 210.f;  // Swapped proportions
+	float mapHeight = 300.f; // 7:10 aspect ratio to match 7000x10000 layout
 	float padding = 20.f;
 
 	// Top right corner calculation
@@ -840,48 +872,50 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 
 	sf::RectangleShape mapBg(sf::Vector2f(mapWidth, mapHeight));
 	mapBg.setPosition(mapPos);
-	mapBg.setFillColor(sf::Color(50, 50, 50, 150)); // See-through dark grey
+	mapBg.setFillColor(sf::Color(50, 50, 50, 150));
 	mapBg.setOutlineThickness(2.f);
 	mapBg.setOutlineColor(sf::Color(255, 255, 255, 200));
 	t_window.draw(mapBg);
 
-	// --- B. PITCH LINES ---
-	// Halfway Line
-	sf::RectangleShape halfway(sf::Vector2f(2.f, mapHeight));
-	halfway.setPosition({ mapPos.x + (mapWidth / 2.f) - 1.f, mapPos.y });
+	// --- B. PITCH LINES (Rotated) ---
+	// Halfway Line (Now Horizontal)
+	sf::RectangleShape halfway(sf::Vector2f(mapWidth, 2.f));
+	halfway.setPosition({ mapPos.x, mapPos.y + (mapHeight / 2.f) - 1.f });
 	halfway.setFillColor(sf::Color(255, 255, 255, 100));
 	t_window.draw(halfway);
 
-	// Penalty Boxes (Proportionally scaled to 16.5m x 40m)
-	float boxW = mapWidth * 0.165f;
-	float boxH = mapHeight * 0.575f;
-	float boxY = mapPos.y + (mapHeight - boxH) / 2.f;
+	// Penalty Boxes (Proportions Swapped)
+	float boxW = mapWidth * 0.575f;
+	float boxH = mapHeight * 0.165f;
+	float boxX = mapPos.x + (mapWidth - boxW) / 2.f;
 
-	sf::RectangleShape leftBox(sf::Vector2f(boxW, boxH));
-	leftBox.setPosition({ mapPos.x, boxY });
-	leftBox.setFillColor(sf::Color::Transparent);
-	leftBox.setOutlineThickness(1.f);
-	leftBox.setOutlineColor(sf::Color(255, 255, 255, 100));
-	t_window.draw(leftBox);
+	// Away Box (Top of minimap)
+	sf::RectangleShape topBox(sf::Vector2f(boxW, boxH));
+	topBox.setPosition({ boxX, mapPos.y });
+	topBox.setFillColor(sf::Color::Transparent);
+	topBox.setOutlineThickness(1.f);
+	topBox.setOutlineColor(sf::Color(255, 255, 255, 100));
+	t_window.draw(topBox);
 
-	sf::RectangleShape rightBox(sf::Vector2f(boxW, boxH));
-	rightBox.setPosition({ mapPos.x + mapWidth - boxW, boxY });
-	rightBox.setFillColor(sf::Color::Transparent);
-	rightBox.setOutlineThickness(1.f);
-	rightBox.setOutlineColor(sf::Color(255, 255, 255, 100));
-	t_window.draw(rightBox);
+	// Home Box (Bottom of minimap)
+	sf::RectangleShape bottomBox(sf::Vector2f(boxW, boxH));
+	bottomBox.setPosition({ boxX, mapPos.y + mapHeight - boxH });
+	bottomBox.setFillColor(sf::Color::Transparent);
+	bottomBox.setOutlineThickness(1.f);
+	bottomBox.setOutlineColor(sf::Color(255, 255, 255, 100));
+	t_window.draw(bottomBox);
 
-	// --- C. PLAYER & BALL DOTS ---
+	// --- C. PLAYER & BALL DOTS (Rotated Mapping) ---
 	auto drawMinimapDot = [&](sf::Vector2f worldPos, sf::Color color, float radius = 3.f) {
-		// 1. Calculate the actual dimensions inside the chalk lines
 		float playWidth = m_pitch.totalWidth - (2.f * m_pitch.margin);
 		float playHeight = m_pitch.totalHeight - (2.f * m_pitch.margin);
 
-		// 2. Subtract the margin so the touchlines map perfectly to 0.0 and 1.0
-		float normX = (worldPos.x - m_pitch.margin) / playWidth;
-		float normY = (worldPos.y - m_pitch.margin) / playHeight;
+		// THE 90-DEGREE FIX: 
+		// Minimap X (Left/Right) is mapped to Pitch Y
+		// Minimap Y (Top/Bottom) is mapped to inverted Pitch X
+		float normX = (worldPos.y - m_pitch.margin) / playHeight;
+		float normY = 1.0f - ((worldPos.x - m_pitch.margin) / playWidth);
 
-		// 3. Clamp keeps players on the edge of the minimap if they step out of bounds
 		normX = std::clamp(normX, 0.0f, 1.0f);
 		normY = std::clamp(normY, 0.0f, 1.0f);
 
@@ -890,10 +924,8 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 		dot.setPosition({ mapPos.x + (normX * mapWidth), mapPos.y + (normY * mapHeight) });
 		dot.setFillColor(color);
 
-		// --- NEW: TINY WHITE OUTLINE ---
-		// Gives every dot a crisp 1-pixel border so dark team colors don't bleed into the background
 		dot.setOutlineThickness(1.f);
-		dot.setOutlineColor(sf::Color(255, 255, 255, 200)); // Slightly transparent white to look smooth
+		dot.setOutlineColor(sf::Color(255, 255, 255, 200));
 
 		t_window.draw(dot);
 		};
@@ -1340,5 +1372,56 @@ void GamePlay::executePlayerSwitch(Player* targetNPC)
 	}
 	else if (m_ball->getOwner() == m_userPlayer.get()) {
 		m_ball->possess(targetNPC);
+	}
+}
+
+void GamePlay::drawDebugHitboxes(sf::RenderWindow& window) {
+	// 1. Gather all active players
+	std::vector<Player*> allPlayers;
+	allPlayers.push_back(m_userPlayer.get());
+	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
+
+	for (Player* p : allPlayers) {
+		if (p->isSentOff()) continue;
+
+		// ==========================================
+		// 1. CORE BOUNDING BOX (Yellow)
+		// ==========================================
+		sf::FloatRect bounds = p->getBoundingBox();
+
+		sf::RectangleShape boundingBoxShape(bounds.size);
+		boundingBoxShape.setPosition(bounds.position);
+		boundingBoxShape.setFillColor(sf::Color::Transparent);
+		boundingBoxShape.setOutlineThickness(2.0f);
+
+		// Make Goalkeeper hitboxes Cyan when diving so you can see them expand!
+		if (p->getPositionRole() == PositionRole::Goalkeeper && p->getState() == PlayerState::Diving) {
+			boundingBoxShape.setOutlineColor(sf::Color::Cyan);
+		}
+		else {
+			boundingBoxShape.setOutlineColor(sf::Color::Yellow);
+		}
+
+		window.draw(boundingBoxShape);
+
+		// ==========================================
+		// 2. TACKLE REACH BOX (Red)
+		// ==========================================
+		// We only draw the tackle box if they are actively tackling, 
+		// otherwise the screen will be covered in red squares!
+		if (p->getState() == PlayerState::Tackling) {
+			sf::FloatRect tackleBounds = p->getTackleHitbox();
+
+			sf::RectangleShape tackleBoxShape(tackleBounds.size);
+			tackleBoxShape.setPosition(tackleBounds.position);
+
+			// Fill it with a very faint red so you can see the active threat area
+			tackleBoxShape.setFillColor(sf::Color(255, 0, 0, 80));
+			tackleBoxShape.setOutlineThickness(2.0f);
+			tackleBoxShape.setOutlineColor(sf::Color::Red);
+
+			window.draw(tackleBoxShape);
+		}
 	}
 }

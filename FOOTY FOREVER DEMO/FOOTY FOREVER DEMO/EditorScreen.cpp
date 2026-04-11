@@ -239,33 +239,87 @@ void EditorScreen::drawPlayerTab(float availableHeight)
 
             // --- UPDATED POSITION ROLES ---
             const char* roles[] = {
-                "Goalkeeper", "LeftBack", "CenterBack", "RightBack",
-                "LeftWingBack", "RightWingBack", "DefensiveMid", "CenterMid",
-                "LeftMid", "RightMid", "AttackingMid", "LeftWing", "RightWing",
-                "CenterForward", "Striker"
+                "Goalkeeper", "Left Back", "Center Back", "Right Back",
+                "Left Wing Back", "Right Wing Back", "Defensive Mid", "Center Mid",
+                "Left Mid", "Right Mid", "Attacking Mid", "Left Wing", "Right Wing",
+                "Center Forward", "Striker"
             };
             int roleIdx = static_cast<int>(p->positionRole);
             if (ImGui::Combo("Position Role", &roleIdx, roles, IM_ARRAYSIZE(roles))) {
                 p->positionRole = static_cast<PositionRole>(roleIdx);
             }
 
-            // --- NEW: PLAYSTYLE SELECTOR ---
-            const char* playstyles[] = {
-                "SweeperKeeper", "OnTheLine", "Distributor",
-                "Sweeper", "TheWall", "TheKiller", "CalmAndCollected",
-                "DefensiveFB", "UpAndDown", "TheRoamerFB", "TheCrosser",
-                "OrchestratorDM", "TheKillerDM", "ThreeLungDM", "DefensiveRoamer", "BacklineBrawler",
-                "OrchestratorCM", "BoxToBox", "PlaymakerCM", "ThreeLungCM", "QuickPasser", "RoamerCM",
-                "PlaymakerAM", "OrchestratorAM", "HardcorePress", "QuickPasserAM", "TricksterAM", "RoamerAM", "FinisherAM",
-                "WideWinger", "FalseWinger", "RoamerWinger", "TricksterWinger",
-                "ClassicWideMid", "DefensiveWinger", "InvertedWideMid",
-                "Finisher", "TheTarget", "TricksterStriker", "False9", "PlaymakerStriker",
-                "SecondStriker", "ShadowStriker"
-            };
-            int playstyleIdx = static_cast<int>(p->playstyle.type);
-            if (ImGui::Combo("Playstyle", &playstyleIdx, playstyles, IM_ARRAYSIZE(playstyles))) {
-                // When changed, immediately load the new Tactical Zone and Behaviors into the PlayerData!
-                p->playstyle = PlaystyleDatabase::getPlaystyle(static_cast<PlaystyleType>(playstyleIdx));
+            // --- NEW: FILTERED PLAYSTYLE SELECTOR ---
+            std::vector<const char*> availableNames;
+            std::vector<PlaystyleType> availableTypes;
+
+            // 1. Filter the lists based on the current Position Role
+            switch (p->positionRole) {
+            case PositionRole::Goalkeeper:
+                availableNames = { "Sweeper Keeper", "On The Line", "Distributor" };
+                availableTypes = { PlaystyleType::SweeperKeeper, PlaystyleType::OnTheLine, PlaystyleType::Distributor };
+                break;
+            case PositionRole::CenterBack:
+                availableNames = { "Sweeper", "The Wall", "The Killer", "Calm And Collected" };
+                availableTypes = { PlaystyleType::Sweeper, PlaystyleType::TheWall, PlaystyleType::TheKiller, PlaystyleType::CalmAndCollected };
+                break;
+            case PositionRole::LeftBack:
+            case PositionRole::RightBack:
+            case PositionRole::LeftWingBack:
+            case PositionRole::RightWingBack:
+                availableNames = { "Defensive FB", "Up And Down", "The Roamer FB", "The Crosser" };
+                availableTypes = { PlaystyleType::DefensiveFB, PlaystyleType::UpAndDown, PlaystyleType::TheRoamerFB, PlaystyleType::TheCrosser };
+                break;
+            case PositionRole::DefensiveMid:
+                availableNames = { "Orchestrator DM", "The Killer DM", "Three Lung DM", "Defensive Roamer", "Backline Brawler" };
+                availableTypes = { PlaystyleType::OrchestratorDM, PlaystyleType::TheKillerDM, PlaystyleType::ThreeLungDM, PlaystyleType::DefensiveRoamer, PlaystyleType::BacklineBrawler };
+                break;
+            case PositionRole::CenterMid:
+                availableNames = { "Orchestrator CM", "Box To Box", "Playmaker CM", "Three Lung CM", "Quick Passer", "Roamer CM" };
+                availableTypes = { PlaystyleType::OrchestratorCM, PlaystyleType::BoxToBox, PlaystyleType::PlaymakerCM, PlaystyleType::ThreeLungCM, PlaystyleType::QuickPasser, PlaystyleType::RoamerCM };
+                break;
+            case PositionRole::AttackingMid:
+                availableNames = { "Playmaker AM", "Hardcore Press", "Trickster AM", "Finisher AM" };
+                availableTypes = { PlaystyleType::PlaymakerAM, PlaystyleType::HardcorePress, PlaystyleType::TricksterAM, PlaystyleType::FinisherAM };
+                break;
+            case PositionRole::LeftMid:
+            case PositionRole::RightMid:
+            case PositionRole::LeftWing:
+            case PositionRole::RightWing:
+                availableNames = { "Wide Winger", "False Winger", "Roamer Winger", "Classic Wide Mid", "Defensive Winger", "Inverted Wide Mid" };
+                availableTypes = { PlaystyleType::WideWinger, PlaystyleType::FalseWinger, PlaystyleType::RoamerWinger, PlaystyleType::ClassicWideMid, PlaystyleType::DefensiveWinger, PlaystyleType::InvertedWideMid };
+                break;
+            case PositionRole::CenterForward:
+            case PositionRole::Striker:
+                availableNames = { "Finisher", "The Target", "False 9", "Second Striker", "Shadow Striker" };
+                availableTypes = { PlaystyleType::Finisher, PlaystyleType::TheTarget, PlaystyleType::False9, PlaystyleType::SecondStriker, PlaystyleType::ShadowStriker };
+                break;
+            default:
+                availableNames = { "Box To Box" };
+                availableTypes = { PlaystyleType::BoxToBox };
+                break;
+            }
+
+            // 2. Find the current selected index relative to the FILTERED list
+            int playstyleIdx = 0;
+            for (size_t i = 0; i < availableTypes.size(); ++i) {
+                if (p->playstyle.type == availableTypes[i]) {
+                    playstyleIdx = static_cast<int>(i);
+                    break;
+                }
+            }
+
+            // 3. Render the Combo Box using the dynamically filtered arrays
+            if (ImGui::Combo("Playstyle", &playstyleIdx, availableNames.data(), static_cast<int>(availableNames.size()))) {
+                // Safely assign the correct enum using the mapped array
+                p->playstyle = PlaystyleDatabase::getPlaystyle(availableTypes[playstyleIdx]);
+            }
+
+            // Safety Fallback: If you change a player from Striker to CB, their active 
+            // "Finisher" playstyle will suddenly become invalid for their new role. 
+            // This forces them to default to the first valid playstyle in their new list!
+            if (playstyleIdx == 0 && p->playstyle.type != availableTypes[0]) {
+                p->playstyle = PlaystyleDatabase::getPlaystyle(availableTypes[0]);
             }
 
             // Stats

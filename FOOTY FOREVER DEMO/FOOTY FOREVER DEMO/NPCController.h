@@ -4,14 +4,17 @@
 #include "NPCPlayer.h"
 #include "TacticalZone.h"
 #include "MatchState.h"
+#include "SoundManager.h"
 
 class UserPlayer;
 class Ball;
-class Pitch;
-class MatchReferee; // Forward declaration at the top
+class Player;
+struct Pitch;
+class MatchReferee;
+class TeamAI;
 struct PositioningMask;
 struct TacticalContext;
-class TeamAI;
+enum class TeamState;
 
 // Defines how an NPC should behave
 enum class AIRole {
@@ -32,7 +35,7 @@ public:
     void update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         const std::vector<Player*>& team, const std::vector<Player*>& opposition,
         const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
-        const MatchReferee& referee, const TeamAI& teamAI);
+        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager);
 
 private:
     // 3. Update the Physics signature (add TacticalContext at the end)

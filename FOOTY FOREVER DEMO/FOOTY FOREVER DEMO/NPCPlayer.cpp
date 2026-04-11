@@ -14,8 +14,6 @@ NPCPlayer::NPCPlayer(const sf::Texture& texture) : Player(texture)
 
     void NPCPlayer::update(float dt, AnimationServer& animServer)
     {
-        // 1. Tick the base physics and tackle state machine
-        Player::update(dt, animServer);
 
         float speed = std::sqrt((m_velocity.x * m_velocity.x) + (m_velocity.y * m_velocity.y));
 
@@ -47,6 +45,8 @@ NPCPlayer::NPCPlayer(const sf::Texture& texture) : Player(texture)
                 m_animator.stopAndReset();
             }
         }
+        // 1. Tick the base physics and tackle state machine
+        Player::update(dt, animServer);
     }
 
     void NPCPlayer::setRotationToward(sf::Vector2f targetPos)

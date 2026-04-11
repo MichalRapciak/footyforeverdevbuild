@@ -60,6 +60,20 @@ void Player::swapIdentityWith(Player* other) {
     std::swap(this->rightFoot, other->rightFoot);
     std::swap(this->m_possessionTimer, other->m_possessionTimer);
 
+    std::swap(this->m_tackleAnimTriggered, other->m_tackleAnimTriggered);
+    if (this->m_currentState == PlayerState::Tackling) {
+        this->m_tackleAnimTriggered = false; // Forces the tackle animation to bind and play
+    }
+    else {
+        this->m_tackleAnimTriggered = true;  // Forces the texture to instantly revert to the normal running state
+    }
+    if (other->m_currentState == PlayerState::Tackling) {
+        other->m_tackleAnimTriggered = false;
+    }
+    else {
+        other->m_tackleAnimTriggered = true;
+    }
+
     // 3. Bio & DNA
     std::swap(this->m_id, other->m_id);
     std::swap(this->m_name, other->m_name);
@@ -89,6 +103,10 @@ void Player::swapIdentityWith(Player* other) {
     other->applyPhysicalScale();
     this->m_sprite.setPosition(this->m_position);
     other->m_sprite.setPosition(other->m_position);
+    sf::Color tempColor = this->m_sprite.getColor();
+    this->m_sprite.setColor(other->m_sprite.getColor());
+    other->m_sprite.setColor(tempColor);
+
 }
 
 bool Player::hasTrait(const std::string& traitName) const
@@ -261,15 +279,6 @@ void Player::update(float dt, AnimationServer& animServer)
         m_velocity *= 0.98f;
     }
 
-    if (m_team != Team::Home)
-    {
-        m_sprite.setColor(sf::Color::Blue);
-    }
-    if (m_positionRole == PositionRole::Goalkeeper)
-    {
-        m_sprite.setColor(sf::Color::Green);
-    }
-
     // --- APPLY MOVEMENT ---
     m_position += m_velocity * dt;
     m_sprite.setPosition(m_position);
@@ -348,10 +357,88 @@ void Player::startTackle(sf::Vector2f direction)
 sf::FloatRect Player::getTackleHitbox()
 {
     sf::Vector2f pos = m_position;
-    float reach = 60.0f;
-    float width = 40.0f;
 
-    return sf::FloatRect({ pos.x - (width / 2), pos.y - (width / 2) }, { width + reach, width + reach });
+    // 1. Dynamic Reach: Base 40px + (Height * 0.2). 
+    // A 175cm player gets 75px reach. A 195cm player gets 79px reach.
+    float reach = 40.0f + (height * 0.2f);
+
+    // 2. The thickness of the player's body sliding on the grass
+    float thickness = 40.0f;
+
+    // Default bounds
+    float left = pos.x;
+    float top = pos.y;
+    float boxWidth = thickness;
+    float boxHeight = thickness;
+
+    // 3. Shift the box explicitly in the 8 directions!
+    // NOTE: Because the camera is rotated 90 degrees clockwise, 
+    // Visual UP = World +X (Right)
+    // Visual RIGHT = World +Y (Down)
+    // Visual DOWN = World -X (Left)
+    // Visual LEFT = World -Y (Up)
+
+    switch (m_currentDirection) {
+    case Direction::Up: // Visual Up -> World Right (+X)
+        left = pos.x;
+        top = pos.y - (thickness / 2.f);
+        boxWidth = reach;
+        boxHeight = thickness;
+        break;
+
+    case Direction::Right: // Visual Right -> World Down (+Y)
+        left = pos.x - (thickness / 2.f);
+        top = pos.y;
+        boxWidth = thickness;
+        boxHeight = reach;
+        break;
+
+    case Direction::Down: // Visual Down -> World Left (-X)
+        left = pos.x - reach;
+        top = pos.y - (thickness / 2.f);
+        boxWidth = reach;
+        boxHeight = thickness;
+        break;
+
+    case Direction::Left: // Visual Left -> World Up (-Y)
+        left = pos.x - (thickness / 2.f);
+        top = pos.y - reach;
+        boxWidth = thickness;
+        boxHeight = reach;
+        break;
+
+        // DIAGONALS (Multiplier 0.85f to prevent oversized corners)
+    case Direction::UpRight: // Visual UpRight -> World Right & Down (+X, +Y)
+        left = pos.x;
+        top = pos.y;
+        boxWidth = reach * 0.85f;
+        boxHeight = reach * 0.85f;
+        break;
+
+    case Direction::DownRight: // Visual DownRight -> World Left & Down (-X, +Y)
+        left = pos.x - (reach * 0.85f);
+        top = pos.y;
+        boxWidth = reach * 0.85f;
+        boxHeight = reach * 0.85f;
+        break;
+
+    case Direction::DownLeft: // Visual DownLeft -> World Left & Up (-X, -Y)
+        left = pos.x - (reach * 0.85f);
+        top = pos.y - (reach * 0.85f);
+        boxWidth = reach * 0.85f;
+        boxHeight = reach * 0.85f;
+        break;
+
+    case Direction::UpLeft: // Visual UpLeft -> World Right & Up (+X, -Y)
+        left = pos.x;
+        top = pos.y - (reach * 0.85f);
+        boxWidth = reach * 0.85f;
+        boxHeight = reach * 0.85f;
+        break;
+    }
+
+    // Return the correctly constructed SFML 3 FloatRect
+    return sf::FloatRect({ left, top }, { boxWidth, boxHeight });
 }
 
 sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, const std::vector<std::vector<std::pair<int, PositionRole>>>& layout) const

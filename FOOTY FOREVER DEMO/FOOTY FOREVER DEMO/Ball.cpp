@@ -211,7 +211,7 @@ void Ball::draw(sf::RenderWindow& window)
     sf::Vector2f groundPos = shape.getPosition();
 
     // --- 1. DYNAMIC FLOODLIGHT SHADOWS ---
-    float zRatio = std::min(z / 100.f, 1.f);
+    float zRatio = std::min(z / 2000.f, 1.f);
     float airFade = std::max(0.f, 1.0f - (z / 150.f));
     float shadowScale = 1.f - (zRatio * 0.5f);
     float currentRadius = 12.f * shadowScale; // Ball radius is 12
@@ -277,8 +277,7 @@ void Ball::draw(sf::RenderWindow& window)
     window.draw(shadow);
 
     // 3. Calculate the visual (elevated) position for the ball
-    sf::Vector2f visualPos = { groundPos.x + (z / 3.f), groundPos.y };
-
+    sf::Vector2f visualPos = { groundPos.x + (z / 2.25f), groundPos.y };
     // 4. Move the VISUALS only
     sprite.setPosition(visualPos);
     sprite.setScale(shape.getScale() * 0.24f);

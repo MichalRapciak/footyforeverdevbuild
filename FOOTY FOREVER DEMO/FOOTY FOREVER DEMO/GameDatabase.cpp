@@ -18,8 +18,8 @@ std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const 
         return {
             { {0, PositionRole::Goalkeeper} },
             { {1, PositionRole::RightBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::LeftBack} },
-            { {5, PositionRole::RightMid}, {6, PositionRole::CenterMid}, {7, PositionRole::DefensiveMid}, {8, PositionRole::LeftMid} },
-            { {9, PositionRole::Striker}, {10, PositionRole::CenterForward} }
+            { {5, PositionRole::RightMid}, {6, PositionRole::CenterMid}, {7, PositionRole::CenterMid}, {8, PositionRole::LeftMid} },
+            { {9, PositionRole::Striker}, {10, PositionRole::Striker} }
         };
     }
     else if (formation == "4-2-4") {
@@ -42,7 +42,7 @@ std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const 
         return {
             { {0, PositionRole::Goalkeeper} },
             { {1, PositionRole::RightWingBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::CenterBack}, {5, PositionRole::LeftWingBack} },
-            { {6, PositionRole::AttackingMid}, {7, PositionRole::CenterMid} },
+            { {6, PositionRole::CenterMid}, {7, PositionRole::CenterMid} },
             { {8, PositionRole::RightWing}, {9, PositionRole::Striker}, {10, PositionRole::LeftWing} }
         };
     }
@@ -50,7 +50,7 @@ std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const 
         return {
             { {0, PositionRole::Goalkeeper} },
             { {1, PositionRole::RightWingBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::CenterBack}, {5, PositionRole::LeftWingBack} },
-            { {6, PositionRole::RightMid}, {7, PositionRole::AttackingMid}, {8, PositionRole::CenterMid}, {9, PositionRole::LeftMid} },
+            { {6, PositionRole::RightMid}, {7, PositionRole::CenterMid}, {8, PositionRole::CenterMid}, {9, PositionRole::LeftMid} },
             { {10, PositionRole::Striker} }
         };
     }
@@ -59,7 +59,7 @@ std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const 
     return {
         { {0, PositionRole::Goalkeeper} },
         { {1, PositionRole::RightBack}, {2, PositionRole::CenterBack}, {3, PositionRole::CenterBack}, {4, PositionRole::LeftBack} },
-        { {5, PositionRole::AttackingMid}, {6, PositionRole::CenterMid}, {7, PositionRole::DefensiveMid} },
+        { {5, PositionRole::CenterMid}, {6, PositionRole::DefensiveMid}, {7, PositionRole::CenterMid} },
         { {8, PositionRole::RightWing}, {9, PositionRole::Striker}, {10, PositionRole::LeftWing} }
     };
 }
@@ -67,20 +67,21 @@ std::vector<std::vector<std::pair<int, PositionRole>>> getFormationLayout(const 
 PositionRole stringToRole(const std::string& str)
 {
     if (str == "Goalkeeper") return PositionRole::Goalkeeper;
-    if (str == "LeftBack") return PositionRole::LeftBack;
-    if (str == "CenterBack") return PositionRole::CenterBack;
-    if (str == "RightBack") return PositionRole::RightBack;
-    if (str == "LeftWingBack") return PositionRole::LeftWingBack;
-    if (str == "RightWingBack") return PositionRole::RightWingBack;
-    if (str == "DefensiveMid") return PositionRole::DefensiveMid;
-    if (str == "CenterMid") return PositionRole::CenterMid;
-    if (str == "LeftMid") return PositionRole::LeftMid;
-    if (str == "RightMid") return PositionRole::RightMid;
-    if (str == "AttackingMid") return PositionRole::AttackingMid;
-    if (str == "LeftWing") return PositionRole::LeftWing;
-    if (str == "RightWing") return PositionRole::RightWing;
-    if (str == "CenterForward") return PositionRole::CenterForward;
+    if (str == "Left Back" || str == "LeftBack") return PositionRole::LeftBack;
+    if (str == "Center Back" || str == "CenterBack") return PositionRole::CenterBack;
+    if (str == "Right Back" || str == "RightBack") return PositionRole::RightBack;
+    if (str == "Left Wing Back" || str == "LeftWingBack") return PositionRole::LeftWingBack;
+    if (str == "Right Wing Back" || str == "RightWingBack") return PositionRole::RightWingBack;
+    if (str == "Defensive Mid" || str == "DefensiveMid") return PositionRole::DefensiveMid;
+    if (str == "Center Mid" || str == "CenterMid") return PositionRole::CenterMid;
+    if (str == "Left Mid" || str == "LeftMid") return PositionRole::LeftMid;
+    if (str == "Right Mid" || str == "RightMid") return PositionRole::RightMid;
+    if (str == "Attacking Mid" || str == "AttackingMid") return PositionRole::AttackingMid;
+    if (str == "Left Wing" || str == "LeftWing") return PositionRole::LeftWing;
+    if (str == "Right Wing" || str == "RightWing") return PositionRole::RightWing;
+    if (str == "Center Forward" || str == "CenterForward") return PositionRole::CenterForward;
     if (str == "Striker") return PositionRole::Striker;
+
     return PositionRole::CenterMid; // Default
 }
 
@@ -89,71 +90,71 @@ std::string roleToString(PositionRole role)
     switch (role)
     {
     case PositionRole::Goalkeeper: return "Goalkeeper";
-    case PositionRole::LeftBack: return "LeftBack";
-    case PositionRole::CenterBack: return "CenterBack";
-    case PositionRole::RightBack: return "RightBack";
-    case PositionRole::LeftWingBack: return "LeftWingBack";
-    case PositionRole::RightWingBack: return "RightWingBack";
-    case PositionRole::DefensiveMid: return "DefensiveMid";
-    case PositionRole::CenterMid: return "CenterMid";
-    case PositionRole::LeftMid: return "LeftMid";
-    case PositionRole::RightMid: return "RightMid";
-    case PositionRole::AttackingMid: return "AttackingMid";
-    case PositionRole::LeftWing: return "LeftWing";
-    case PositionRole::RightWing: return "RightWing";
-    case PositionRole::CenterForward: return "CenterForward";
+    case PositionRole::LeftBack: return "Left Back";
+    case PositionRole::CenterBack: return "Center Back";
+    case PositionRole::RightBack: return "Right Back";
+    case PositionRole::LeftWingBack: return "Left Wing Back";
+    case PositionRole::RightWingBack: return "Right Wing Back";
+    case PositionRole::DefensiveMid: return "Defensive Mid";
+    case PositionRole::CenterMid: return "Center Mid";
+    case PositionRole::LeftMid: return "Left Mid";
+    case PositionRole::RightMid: return "Right Mid";
+    case PositionRole::AttackingMid: return "Attacking Mid";
+    case PositionRole::LeftWing: return "Left Wing";
+    case PositionRole::RightWing: return "Right Wing";
+    case PositionRole::CenterForward: return "Center Forward";
     case PositionRole::Striker: return "Striker";
-    default: return "CenterMid";
+    default: return "Center Mid"; // Fixed missing space on fallback!
     }
 }
 
 PlaystyleType stringToPlaystyle(const std::string& str)
 {
     // Goalkeepers
-    if (str == "SweeperKeeper") return PlaystyleType::SweeperKeeper;
-    if (str == "OnTheLine") return PlaystyleType::OnTheLine;
+    if (str == "Sweeper Keeper" || str == "SweeperKeeper") return PlaystyleType::SweeperKeeper;
+    if (str == "On The Line" || str == "OnTheLine") return PlaystyleType::OnTheLine;
     if (str == "Distributor") return PlaystyleType::Distributor;
     // Defenders
     if (str == "Sweeper") return PlaystyleType::Sweeper;
-    if (str == "TheWall") return PlaystyleType::TheWall;
-    if (str == "TheKiller") return PlaystyleType::TheKiller;
-    if (str == "CalmAndCollected") return PlaystyleType::CalmAndCollected;
+    if (str == "The Wall" || str == "TheWall") return PlaystyleType::TheWall;
+    if (str == "The Killer" || str == "TheKiller") return PlaystyleType::TheKiller;
+    if (str == "Calm And Collected" || str == "CalmAndCollected") return PlaystyleType::CalmAndCollected;
     // Fullbacks
-    if (str == "DefensiveFB") return PlaystyleType::DefensiveFB;
-    if (str == "UpAndDown") return PlaystyleType::UpAndDown;
-    if (str == "TheRoamerFB") return PlaystyleType::TheRoamerFB;
-    if (str == "TheCrosser") return PlaystyleType::TheCrosser;
+    if (str == "Defensive FB" || str == "DefensiveFB") return PlaystyleType::DefensiveFB;
+    if (str == "Up And Down" || str == "UpAndDown") return PlaystyleType::UpAndDown;
+    if (str == "The Roamer FB" || str == "TheRoamerFB") return PlaystyleType::TheRoamerFB;
+    if (str == "The Crosser" || str == "TheCrosser") return PlaystyleType::TheCrosser;
     // DMs
-    if (str == "OrchestratorDM") return PlaystyleType::OrchestratorDM;
-    if (str == "TheKillerDM") return PlaystyleType::TheKillerDM;
-    if (str == "ThreeLungDM") return PlaystyleType::ThreeLungDM;
-    if (str == "DefensiveRoamer") return PlaystyleType::DefensiveRoamer;
-    if (str == "BacklineBrawler") return PlaystyleType::BacklineBrawler;
+    if (str == "Orchestrator DM" || str == "OrchestratorDM") return PlaystyleType::OrchestratorDM;
+    if (str == "The Killer DM" || str == "TheKillerDM") return PlaystyleType::TheKillerDM;
+    if (str == "Three Lung DM" || str == "ThreeLungDM") return PlaystyleType::ThreeLungDM;
+    if (str == "Defensive Roamer" || str == "DefensiveRoamer") return PlaystyleType::DefensiveRoamer;
+    if (str == "Backline Brawler" || str == "BacklineBrawler") return PlaystyleType::BacklineBrawler;
     // CMs
-    if (str == "OrchestratorCM") return PlaystyleType::OrchestratorCM;
-    if (str == "BoxToBox") return PlaystyleType::BoxToBox;
-    if (str == "PlaymakerCM") return PlaystyleType::PlaymakerCM;
-    if (str == "ThreeLungCM") return PlaystyleType::ThreeLungCM;
-    if (str == "QuickPasser") return PlaystyleType::QuickPasser;
-    if (str == "RoamerCM") return PlaystyleType::RoamerCM;
+    if (str == "Orchestrator CM" || str == "OrchestratorCM") return PlaystyleType::OrchestratorCM;
+    if (str == "Box To Box" || str == "BoxToBox") return PlaystyleType::BoxToBox;
+    if (str == "Playmaker CM" || str == "PlaymakerCM") return PlaystyleType::PlaymakerCM;
+    if (str == "Three Lung CM" || str == "ThreeLungCM") return PlaystyleType::ThreeLungCM; // Fixed spacing
+    if (str == "Quick Passer" || str == "QuickPasser") return PlaystyleType::QuickPasser;
+    if (str == "Roamer CM" || str == "RoamerCM") return PlaystyleType::RoamerCM;
     // AMs
-    if (str == "PlaymakerAM") return PlaystyleType::PlaymakerAM;
-    if (str == "HardcorePress") return PlaystyleType::HardcorePress;
-    if (str == "TricksterAM") return PlaystyleType::TricksterAM;
-    if (str == "FinisherAM") return PlaystyleType::FinisherAM;
+    if (str == "Playmaker AM" || str == "PlaymakerAM") return PlaystyleType::PlaymakerAM;
+    if (str == "Hardcore Press" || str == "HardcorePress") return PlaystyleType::HardcorePress;
+    if (str == "Trickster AM" || str == "TricksterAM") return PlaystyleType::TricksterAM;
+    if (str == "Finisher AM" || str == "FinisherAM") return PlaystyleType::FinisherAM;
     // Wide
-    if (str == "WideWinger") return PlaystyleType::WideWinger;
-    if (str == "FalseWinger") return PlaystyleType::FalseWinger;
-    if (str == "RoamerWinger") return PlaystyleType::RoamerWinger;
-    if (str == "ClassicWideMid") return PlaystyleType::ClassicWideMid;
-    if (str == "DefensiveWinger") return PlaystyleType::DefensiveWinger;
-    if (str == "InvertedWideMid") return PlaystyleType::InvertedWideMid;
+    if (str == "Wide Winger" || str == "WideWinger") return PlaystyleType::WideWinger;
+    if (str == "False Winger" || str == "FalseWinger") return PlaystyleType::FalseWinger;
+    if (str == "Roamer Winger" || str == "RoamerWinger") return PlaystyleType::RoamerWinger;
+    if (str == "Classic Wide Mid" || str == "ClassicWideMid") return PlaystyleType::ClassicWideMid;
+    if (str == "Defensive Winger" || str == "DefensiveWinger") return PlaystyleType::DefensiveWinger;
+    if (str == "Inverted Wide Mid" || str == "InvertedWideMid") return PlaystyleType::InvertedWideMid;
     // Strikers
     if (str == "Finisher") return PlaystyleType::Finisher;
-    if (str == "TheTarget") return PlaystyleType::TheTarget;
-    if (str == "False9") return PlaystyleType::False9;
-    if (str == "SecondStriker") return PlaystyleType::SecondStriker;
-    if (str == "ShadowStriker") return PlaystyleType::ShadowStriker;
+    if (str == "The Target" || str == "TheTarget") return PlaystyleType::TheTarget;
+    if (str == "False 9" || str == "False9") return PlaystyleType::False9;
+    if (str == "Second Striker" || str == "SecondStriker") return PlaystyleType::SecondStriker;
+    if (str == "Shadow Striker" || str == "ShadowStriker") return PlaystyleType::ShadowStriker;
 
     return PlaystyleType::BoxToBox; // Default Fallback
 }
@@ -161,44 +162,44 @@ PlaystyleType stringToPlaystyle(const std::string& str)
 std::string playstyleToString(PlaystyleType type)
 {
     switch (type) {
-    case PlaystyleType::SweeperKeeper: return "SweeperKeeper";
-    case PlaystyleType::OnTheLine: return "OnTheLine";
+    case PlaystyleType::SweeperKeeper: return "Sweeper Keeper";
+    case PlaystyleType::OnTheLine: return "On The Line";
     case PlaystyleType::Distributor: return "Distributor";
     case PlaystyleType::Sweeper: return "Sweeper";
-    case PlaystyleType::TheWall: return "TheWall";
-    case PlaystyleType::TheKiller: return "TheKiller";
-    case PlaystyleType::CalmAndCollected: return "CalmAndCollected";
-    case PlaystyleType::DefensiveFB: return "DefensiveFB";
-    case PlaystyleType::UpAndDown: return "UpAndDown";
-    case PlaystyleType::TheRoamerFB: return "TheRoamerFB";
-    case PlaystyleType::TheCrosser: return "TheCrosser";
-    case PlaystyleType::OrchestratorDM: return "OrchestratorDM";
-    case PlaystyleType::TheKillerDM: return "TheKillerDM";
-    case PlaystyleType::ThreeLungDM: return "ThreeLungDM";
-    case PlaystyleType::DefensiveRoamer: return "DefensiveRoamer";
-    case PlaystyleType::BacklineBrawler: return "BacklineBrawler";
-    case PlaystyleType::OrchestratorCM: return "OrchestratorCM";
-    case PlaystyleType::BoxToBox: return "BoxToBox";
-    case PlaystyleType::PlaymakerCM: return "PlaymakerCM";
-    case PlaystyleType::ThreeLungCM: return "ThreeLungCM";
-    case PlaystyleType::QuickPasser: return "QuickPasser";
-    case PlaystyleType::RoamerCM: return "RoamerCM";
-    case PlaystyleType::PlaymakerAM: return "PlaymakerAM";
-    case PlaystyleType::HardcorePress: return "HardcorePress";
-    case PlaystyleType::TricksterAM: return "TricksterAM";
-    case PlaystyleType::FinisherAM: return "FinisherAM";
-    case PlaystyleType::WideWinger: return "WideWinger";
-    case PlaystyleType::FalseWinger: return "FalseWinger";
-    case PlaystyleType::RoamerWinger: return "RoamerWinger";
-    case PlaystyleType::ClassicWideMid: return "ClassicWideMid";
-    case PlaystyleType::DefensiveWinger: return "DefensiveWinger";
-    case PlaystyleType::InvertedWideMid: return "InvertedWideMid";
+    case PlaystyleType::TheWall: return "The Wall";
+    case PlaystyleType::TheKiller: return "The Killer";
+    case PlaystyleType::CalmAndCollected: return "Calm And Collected";
+    case PlaystyleType::DefensiveFB: return "Defensive FB";
+    case PlaystyleType::UpAndDown: return "Up And Down";
+    case PlaystyleType::TheRoamerFB: return "The Roamer FB";
+    case PlaystyleType::TheCrosser: return "The Crosser";
+    case PlaystyleType::OrchestratorDM: return "Orchestrator DM";
+    case PlaystyleType::TheKillerDM: return "The Killer DM";
+    case PlaystyleType::ThreeLungDM: return "Three Lung DM";
+    case PlaystyleType::DefensiveRoamer: return "Defensive Roamer";
+    case PlaystyleType::BacklineBrawler: return "Backline Brawler";
+    case PlaystyleType::OrchestratorCM: return "Orchestrator CM";
+    case PlaystyleType::BoxToBox: return "Box To Box";
+    case PlaystyleType::PlaymakerCM: return "Playmaker CM";
+    case PlaystyleType::ThreeLungCM: return "Three Lung CM"; // Fixed spacing
+    case PlaystyleType::QuickPasser: return "Quick Passer";
+    case PlaystyleType::RoamerCM: return "Roamer CM";
+    case PlaystyleType::PlaymakerAM: return "Playmaker AM";
+    case PlaystyleType::HardcorePress: return "Hardcore Press";
+    case PlaystyleType::TricksterAM: return "Trickster AM";
+    case PlaystyleType::FinisherAM: return "Finisher AM";
+    case PlaystyleType::WideWinger: return "Wide Winger";
+    case PlaystyleType::FalseWinger: return "False Winger";
+    case PlaystyleType::RoamerWinger: return "Roamer Winger";
+    case PlaystyleType::ClassicWideMid: return "Classic Wide Mid";
+    case PlaystyleType::DefensiveWinger: return "Defensive Winger";
+    case PlaystyleType::InvertedWideMid: return "Inverted Wide Mid";
     case PlaystyleType::Finisher: return "Finisher";
-    case PlaystyleType::TheTarget: return "TheTarget";
-    case PlaystyleType::False9: return "False9";
-    case PlaystyleType::SecondStriker: return "SecondStriker";
-    case PlaystyleType::ShadowStriker: return "ShadowStriker";
-    default: return "BoxToBox";
+    case PlaystyleType::TheTarget: return "The Target";
+    case PlaystyleType::False9: return "False 9";
+    case PlaystyleType::SecondStriker: return "Second Striker";
+    case PlaystyleType::ShadowStriker: return "Shadow Striker";
+    default: return "Box To Box";
     }
 }
 

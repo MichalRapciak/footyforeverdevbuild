@@ -93,7 +93,9 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.7f, 0.1f, 1.0f)); // Gold highlight
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
             }
-            if (ImGui::Button("Auto-Select (Any Outfield)##HomeAuto", ImVec2(comboWidth - 15.f, 30))) {
+
+            // THE FIX: Changed text to "Any Player"
+            if (ImGui::Button("Auto-Select (Any Player)##HomeAuto", ImVec2(comboWidth - 15.f, 30))) {
                 m_userPlayerId = "";
             }
             if (isAuto) ImGui::PopStyleColor(2);
@@ -114,7 +116,6 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
 
                 for (size_t j = 0; j < line.size(); ++j) {
 
-                    // --- NEW: UNPACK THE PAIR AND USE SLOT ID ---
                     int slotId = line[j].first;
                     PositionRole role = line[j].second;
                     std::string roleName = roleToString(role);
@@ -131,16 +132,12 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                     }
 
                     std::string buttonText = roleName + "\n" + currPlayerName;
-                    std::string buttonId = "##H_Slot_" + std::to_string(slotId); // Use Slot ID for unique ImGui ID
+                    std::string buttonId = "##H_Slot_" + std::to_string(slotId);
 
                     bool isSelected = (m_userPlayerId == pId && !pId.empty());
-                    bool isGK = (role == PositionRole::Goalkeeper);
 
-                    // Style the buttons
-                    if (isGK) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.3f, 0.3f, 0.5f)); // Greyed out GK
-                    }
-                    else if (isSelected) {
+                    // THE FIX: Removed the GK grey-out styling and disable blocks
+                    if (isSelected) {
                         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.7f, 0.1f, 1.0f)); // Gold for selected
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f)); // Black text
                     }
@@ -152,21 +149,15 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(teamColor.x * 0.8f, teamColor.y * 0.8f, teamColor.z * 0.8f, 0.8f));
                     }
 
-                    if (isGK) ImGui::BeginDisabled();
-
+                    // THE FIX: Allow clicks on the Goalkeeper
                     if (ImGui::Button((buttonText + buttonId).c_str(), ImVec2(buttonWidth, 40))) {
-                        if (!isGK && currPlayerName != "Empty") {
+                        if (currPlayerName != "Empty") {
                             m_userPlayerId = pId;
                         }
                     }
 
-                    if (isGK) ImGui::EndDisabled();
-
-                    // Pop colors
-                    if (isGK || currPlayerName == "Empty") {
-                        ImGui::PopStyleColor();
-                    }
-                    else if (isSelected) {
+                    // Cleanly pop the specific number of colors we pushed
+                    if (isSelected) {
                         ImGui::PopStyleColor(2);
                     }
                     else {
@@ -248,7 +239,6 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
 
                 for (size_t j = 0; j < line.size(); ++j) {
 
-                    // --- NEW: UNPACK THE PAIR AND USE SLOT ID ---
                     int slotId = line[j].first;
                     PositionRole role = line[j].second;
                     std::string roleName = roleToString(role);
@@ -263,7 +253,7 @@ void MatchDayScreen::update(sf::Time dt, sf::RenderWindow& window) {
                     }
 
                     std::string buttonText = roleName + "\n" + currPlayerName;
-                    std::string buttonId = "##A_Slot_" + std::to_string(slotId); // Use Slot ID for unique ImGui ID
+                    std::string buttonId = "##A_Slot_" + std::to_string(slotId);
 
                     // Style the buttons (Slightly more transparent for the Away team to show they are inactive)
                     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(teamColor.x * 0.6f, teamColor.y * 0.6f, teamColor.z * 0.6f, 0.6f));

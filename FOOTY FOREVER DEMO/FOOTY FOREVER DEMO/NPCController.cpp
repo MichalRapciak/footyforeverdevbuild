@@ -16,7 +16,7 @@ NPCController::~NPCController() {}
 void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     const std::vector<Player*>& team, const std::vector<Player*>& opposition,
     const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
-    const MatchReferee& referee, const TeamAI& teamAI)
+    const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager)
 {
     npc.updateCooldown(dt);
     PhysicsEngine::updatePlayerAirPhysics(npc, dt);
@@ -50,21 +50,17 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                 sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
 
                 if (ctx.state == MatchState::ThrowIn) {
-                    PlayerAI::executeThrowIn(npc, ball, team);
+                    PlayerAI::executeThrowIn(npc, ball, team); // No sound for throw-ins!
                 }
                 else if (ctx.state == MatchState::GoalKick) {
-                    PlayerAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI);
+                    PlayerAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
                 }
                 else if (ctx.state == MatchState::Penalty) {
-                    // FIX: Actually shoot at the goal, not (0,0)!
-                    PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt);
+                    PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
                 }
                 else if (ctx.state == MatchState::KickOff || ctx.state == MatchState::Corner) {
-                    // --- STRICT PASS ENFORCEMENT ---
                     Player* bestTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
 
-                    // Fallback: If the strict scoring system rejected everyone (e.g. because 
-                    // the taker is facing the wrong way at kickoff), force a pass to the nearest teammate.
                     if (!bestTarget) {
                         float minDist = 99999.f;
                         std::vector<Player*> receivers;
@@ -80,32 +76,27 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                         }
                     }
 
-                    if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition);
+                    if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition, soundManager);
                 }
                 else if (ctx.state == MatchState::FreeKick) {
-                    // Free kicks can be shots or passes depending on distance
                     float distToGoal = PlayerAI::dist(npc.getPosition(), goalPos);
 
-                    // If we are within 25 meters, there is a 50% chance to just rip a shot!
                     if (distToGoal < 2500.f && (rand() % 100) < 50) {
-                        PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt);
+                        PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
                     }
                     else {
                         Player* bestTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
-                        if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition);
-                        else PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt);
+                        if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition, soundManager);
+                        else PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
                     }
                 }
             }
 
-            // Set piece taker rotation fixes
             if (ctx.state == MatchState::Corner) {
-                // Face the penalty box
                 sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
                 npc.setRotationToward(center);
             }
             else {
-                // Face the opponent's goal
                 sf::Vector2f oppGoal = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
                 npc.setRotationToward(oppGoal);
             }
@@ -116,14 +107,14 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     // ==========================================
     // 3. AERIAL LOGIC (Headers / Volleys)
     // ==========================================
-    if (ball.z > 40.f) 
+    if (ball.z > 40.f)
     {
         PlayerAI::handleNPCJumpLogic(npc, ball);
 
         bool isHome = (npc.getTeam() == Team::Home);
         sf::Vector2f oppGoalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
 
-        if (PlayerAI::tryNPCAerialStrike(npc, ball, PlayerAI::normalize(oppGoalPos - npc.getPosition()), true)) {
+        if (PlayerAI::tryNPCAerialStrike(npc, ball, PlayerAI::normalize(oppGoalPos - npc.getPosition()), true, soundManager)) {
             npc.deductStaminaAction(1.5f);
             return;
         }
@@ -132,11 +123,11 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     // ==========================================
     // 4. ROLE ROUTING (GK vs Outfield)
     // ==========================================
-    if (npc.getPositionRole() == PositionRole::Goalkeeper) 
+    if (npc.getPositionRole() == PositionRole::Goalkeeper)
     {
-        PlayerAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI);
+        PlayerAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI, soundManager);
     }
-    else 
+    else
     {
         sf::Vector2f npcPos = npc.getPosition();
         sf::Vector2f finalDirection(0.f, 0.f);
@@ -145,7 +136,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
 
         if (ball.getOwner() == &npc) {
             // DECISION: Handle Possession logic and return dribble direction
-            finalDirection = PlayerAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI);
+            finalDirection = PlayerAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI, soundManager);
             distToTarget = 500.f;
             isSprinting = true; // AI usually sprints on ball unless specified otherwise
         }

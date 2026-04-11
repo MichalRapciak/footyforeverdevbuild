@@ -33,8 +33,9 @@ public:
 
     // Common Getters/Setters
     sf::Vector2f getPosition() const override { return m_position; }
-    void setPosition(sf::Vector2f t_position) { m_position = t_position; }
+    void setPosition(sf::Vector2f t_position) { m_position = t_position; m_sprite.setPosition(m_position); }
     sf::Sprite getSprite() { return m_sprite; }
+    void setKitColor(sf::Color color) { m_sprite.setColor(color); }
 
     Animator& getAnimator() { return m_animator; }
     sf::FloatRect getBoundingBox() const override {
@@ -42,7 +43,7 @@ public:
             return sf::FloatRect({ m_position.x - 40, m_position.y - (60 + (m_stats.getGkCoverage() * 0.8f)) }, { 80 + (m_stats.getGkCoverage()) * 0.8f, (60 + (m_stats.getGkCoverage() * 0.8f)) * 2});
         }
         else {
-            return sf::FloatRect({ m_position.x - 60, m_position.y - 40 }, { 120,80 });
+            return sf::FloatRect({ m_position.x - 50, m_position.y - 20 }, { 100,40 });
         }
     }
 

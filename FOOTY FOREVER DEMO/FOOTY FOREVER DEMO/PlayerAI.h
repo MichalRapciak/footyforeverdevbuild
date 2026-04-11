@@ -4,6 +4,7 @@
 #include "MatchContext.h"
 #include "TacticalZone.h"
 #include "Direction.h"
+#include "SoundManager.h"
 
 class Player;
 class NPCPlayer;
@@ -26,9 +27,9 @@ public:
     // ==========================================
     static sf::Vector2f decideTargetPosition(NPCPlayer& npc, Ball& ball, const Pitch& pitch, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, Player* firstResponder, PositioningMask mask, const TeamAI& teamAI);
 
-    static sf::Vector2f applyTacticalPositioning(NPCPlayer& npc, sf::Vector2f homePos, sf::Vector2f ballPos, sf::Vector2f goalPos, TeamState state, TacticalZone zone, const Pitch& pitch, const std::vector<Player*>& team, const std::vector<Player*>& opposition, const TeamAI& teamAI);
+    static sf::Vector2f applyTacticalPositioning(NPCPlayer& npc, Ball& ball, sf::Vector2f homePos, sf::Vector2f ballPos, sf::Vector2f goalPos, TeamState state, TacticalZone zone, const Pitch& pitch, const std::vector<Player*>& team, const std::vector<Player*>& opposition, const TeamAI& teamAI);
 
-    static sf::Vector2f evaluateShapeAndSpace(NPCPlayer& npc, sf::Vector2f currentTarget, sf::Vector2f ballPos, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, const TeamAI& teamAI, const TacticalZone& zone);
+    static sf::Vector2f evaluateShapeAndSpace(NPCPlayer& npc, sf::Vector2f currentTarget, sf::Vector2f ballPos, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, const TeamAI& teamAI, const TacticalZone& zone, Ball& ball, const Pitch& pitch);
 
     static bool evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall);
     static bool shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder, float distToBall, const Pitch& pitch, Ball& ball, MatchState matchstate, const TeamAI& teamAI);
@@ -46,7 +47,7 @@ public:
     // ==========================================
     // Returns the vector the player should dribble towards.
     // NOTE: This will also automatically execute passes or shots if the AI decides to do so!
-    static sf::Vector2f handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer& user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI);
+    static sf::Vector2f handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer& user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI, SoundManager& soundManager);
 
     static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer& user, const TeamAI& teamAI, const Pitch& pitch);
 
@@ -61,7 +62,7 @@ public:
     static void handleNPCJumpLogic(NPCPlayer& npc, Ball& ball);
 
     // Determines if the NPC should attempt a header or volley
-    static bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot);
+    static bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager);
 
 
     // ==========================================
@@ -76,7 +77,7 @@ public:
     // ==========================================
 
     static void handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& pitch, const std::vector<Player*>& team,
-        const std::vector<Player*>& opposition, float dt, const TeamAI& teamAI);
+        const std::vector<Player*>& opposition, float dt, const TeamAI& teamAI, SoundManager& soundManager);
 
     // Calculates the ideal "Step out" position on the goal line
     static sf::Vector2f calculateGoaliePositioning(NPCPlayer& npc, sf::Vector2f ballPos, sf::Vector2f goalCenter, const Pitch& pitch);
@@ -91,13 +92,13 @@ public:
     static void triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed, float targetZ);
 
     // GK Specific distribution (long kicks/throws vs short rolls)
-    static void distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI);
+    static void distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI, SoundManager& soundManager);
 
     // Decision logic for NPC shooting (outward-facing for NPCController to call)
-    static void executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt);
+    static void executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt, SoundManager& soundManager);
 
     // Decision logic for NPC passing (outward-facing)
-    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition);
+    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, SoundManager& soundManager);
 
     // Helper math
     static float dist(sf::Vector2f p1, sf::Vector2f p2);

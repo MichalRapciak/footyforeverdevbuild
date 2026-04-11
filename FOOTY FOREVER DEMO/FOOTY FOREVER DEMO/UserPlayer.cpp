@@ -5,9 +5,8 @@
 /// </summary>
 UserPlayer::UserPlayer(const sf::Texture& texture) : Player(texture)
 {
-	m_position = { 4000,3500 };
-	m_sprite.setPosition(m_position);
-	m_stats = { 80.f, 4,80.0f, 80.0f, 80.0f, 88.0f, 80.0f, 80.0f, 80.0f, 88.0f, 88.0f, 88.0f, 80.0f, 80.0f, 80.f, 80.f, 80.f, 80.f, 80.f, 80.f, 80.0f, 80.0f, 80.0f }; 	// FINISHING, CURL, BALL CONTROL, BALANCING, SHORT PASSING, LONG PASSING, THROUGH PASSING, TOP SPEED, ACCELERATION, AGILITY, BODY STRENGTH, KICK POWER, AWARENESS, AGGRESSION, BLOCKING, GK COVER, GK REACT, GK CATCH, GK THROW< GK AWARE, GK BLOCK
+    m_position = { 5000.f, 1000.f }; // Default start
+    m_sprite.setPosition(m_position);
 	m_team = Team::Home;
 }
 
@@ -21,9 +20,7 @@ UserPlayer::~UserPlayer()
 /// <param name="dt"></param>
 void UserPlayer::update(float dt, AnimationServer& animServer)
 {
-    // 1. Tick the base physics and tackle state machine
-    Player::update(dt, animServer);
-    
+  
     float speed = std::sqrt((m_velocity.x * m_velocity.x) + (m_velocity.y * m_velocity.y));
 
     // 2. ONLY play running animations if we are standing or running
@@ -46,6 +43,8 @@ void UserPlayer::update(float dt, AnimationServer& animServer)
             m_animator.stopAndReset(); 
         }
     }
+    // 1. Tick the base physics and tackle state machine
+    Player::update(dt, animServer);
 }
 
 /// <summary>

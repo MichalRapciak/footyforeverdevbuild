@@ -11,6 +11,7 @@ public:
     ~SoundManager();
 
     // Initialization
+    void loadAllSounds();
     void loadSound(const std::string& id, const std::string& filepath);
 
     // Core Playback
@@ -34,7 +35,7 @@ private:
     std::map<std::string, sf::SoundBuffer> m_buffers;
 
     // An array of overlapping "voices" so multiple sounds can play at once
-    static const int MAX_VOICES = 64;
+    static const int MAX_VOICES = 128;
     std::vector<sf::Sound> m_voices;
 
     // Dedicated streamers for long tracks

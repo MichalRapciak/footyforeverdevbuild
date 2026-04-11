@@ -15,6 +15,7 @@
 #include "ReplayEngine.h"
 #include "PhysicsEngine.h"
 #include "TeamAI.h"
+#include "SoundManager.h"
 
 class GamePlay
 {
@@ -50,6 +51,7 @@ class GamePlay
 		Goal m_homeGoal;
 		Goal m_awayGoal;
 		MatchReferee m_referee;
+		SoundManager m_soundManager;
 		std::unique_ptr<TeamAI> m_homeTeamAI;
 		std::unique_ptr<TeamAI> m_awayTeamAI;
 
@@ -82,7 +84,6 @@ class GamePlay
 	sf::Vector2f barSize = { 200.f, 20.f };
 
 	Stadium m_stadium1;
-
 	std::unique_ptr<UserPlayer> m_userPlayer;
 	std::unique_ptr<UserController> m_userController;
 
@@ -110,5 +111,6 @@ class GamePlay
 
 	void drawDebugOffsideLines(sf::RenderWindow& window);
 	void drawDebugNames(sf::RenderWindow& window, const sf::Font& font);
+	void drawDebugHitboxes(sf::RenderWindow& window);
 
 };

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include "MatchReferee.h"
 #include "AnimationServer.h"
+#include "SoundManager.h"
 
 // ==========================================
 // 1. BALL PHYSICS
@@ -363,14 +364,17 @@ void PhysicsEngine::resolveGoalkeeperBallCollisions(Ball& ball, std::vector<Play
         // Only check players who are actually diving
         if (p->getPositionRole() == PositionRole::Goalkeeper && p->getState() == PlayerState::Diving) {
 
-            // Get the dynamically scaled bounding box based on their GkCoverage stat
             sf::FloatRect gkBox = p->getBoundingBox();
 
-            // Check Z-axis so they don't "save" a ball that is flying over their head!
-            float zDiff = std::abs(ball.z - p->z);
+            // ==========================================
+            // --- THE LOW SHOT FIX: Z-VOLUME HITBOX ---
+            // ==========================================
+            // Instead of a strict 100px difference, we create a realistic physical "wall".
+            // A diving keeper covers from just below their center, up to about 140px (shoulder width).
+            bool zOverlap = (ball.z >= p->z - 20.f) && (ball.z <= p->z + 140.f);
 
-            // Check if the 2D ball position is inside the dynamic rectangle AND within vertical reach
-            if (gkBox.contains(ball.getPosition()) && zDiff < 100.f) {
+            // Check if the 2D ball position is inside the dynamic rectangle AND hits the Z-wall
+            if (gkBox.contains(ball.getPosition()) && zOverlap) {
                 resolveGoalkeeperSave(*p, ball);
                 return; // Only one person can save it, break the loop!
             }
@@ -382,12 +386,11 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
     sf::Vector2f incomingVel = ball.velocity;
     float ballSpeed = std::sqrt(incomingVel.x * incomingVel.x + incomingVel.y * incomingVel.y + ball.vz * ball.vz);
 
-    // 1. Calculate Catch Probability
+    // BUFF 1: Catching Penalty reduced. A 100km/h shot only reduces catch chance by 30%, not 50%.
     float catchingStat = keeper.getGkCatching();
-    float speedPenalty = (ballSpeed / 3000.0f) * 50.0f;
-    float catchChance = std::clamp(catchingStat - speedPenalty, 5.0f, 95.0f);
+    float speedPenalty = (ballSpeed / 3000.0f) * 30.0f;
+    float catchChance = std::clamp(catchingStat - speedPenalty, 15.0f, 98.0f);
 
-    // 2. Roll the Dice
     if ((rand() % 100) <= catchChance) {
         // --- OUTCOME: CLEAN CATCH ---
         keeper.setVelocity({ 0.f, 0.f });
@@ -396,10 +399,10 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
     }
     else {
         // --- OUTCOME: PARRY / REBOUND ---
-        float dampenFactor = 0.5f - ((catchingStat / 100.0f) * 0.3f);
+        // BUFF 2: Stronger wrists. Parries dampen the ball much more to prevent crazy rebounds.
+        float dampenFactor = 0.35f - ((catchingStat / 100.0f) * 0.25f);
         sf::Vector2f parryVel(-incomingVel.x * dampenFactor, -incomingVel.y * dampenFactor);
 
-        // Deflection Angle: Randomize the rebound trajectory (-45 to +45 degrees)
         float randomDeviation = ((rand() % 100) - 50) / 100.0f;
         float angleOffset = randomDeviation * 45.0f;
 
@@ -409,7 +412,9 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
 
         ball.velocity.x = parryVel.x * cosA - parryVel.y * sinA;
         ball.velocity.y = parryVel.x * sinA + parryVel.y * cosA;
-        ball.vz = 300.0f + (std::abs(randomDeviation) * 200.0f);
+
+        // BUFF 3: Keep the parry low to the ground so it's harder to head in on the rebound.
+        ball.vz = 150.0f + (std::abs(randomDeviation) * 100.0f);
 
         keeper.setVelocity({ 0.f, 0.f });
         keeper.setState(PlayerState::Normal);
@@ -419,7 +424,7 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
 // 3. COLLISION PHYSICS
 // ==========================================
 
-void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players, Ball& ball, MatchReferee& referee, AnimationServer& animServer, const Pitch& pitch)
+void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players, Ball& ball, MatchReferee& referee, AnimationServer& animServer, const Pitch& pitch, SoundManager& soundManager)
 {
     // Quick helper lambda for normalization
     auto normalize = [](sf::Vector2f v) {
@@ -468,7 +473,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                     foul.location = victim->getPosition();
                                     foul.offender = tackler;
                                     foul.type = (rand() % 100 < 15) ? FoulType::Violent : FoulType::Sliding;
-                                    referee.awardFoul(foul, pitch, ball, players, victim);
+                                    referee.awardFoul(foul, pitch, ball, players, victim, soundManager);
                                 }
                                 else {
                                     tackler->triggerFallOver(normalize(-impactDir) * 400.f, animServer);
@@ -568,7 +573,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
     }
 }
 
-void PhysicsEngine::resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch) {
+void PhysicsEngine::resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch, SoundManager& soundManager) {
     sf::Vector2f pos = ball.getPosition();
     sf::Vector2f vel = ball.getVelocity();
     bool bounced = false;
@@ -584,6 +589,16 @@ void PhysicsEngine::resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch) {
     if (bounced) {
         ball.setPosition(pos);
         ball.setVelocity(vel);
+    }
+
+    // ==========================================
+    // --- THE FLOOR AUDIO FIX ---
+    // ==========================================
+    // Raised threshold from -50.f to -150.f to prevent micro-bounces from 
+    // constantly triggering and stealing audio channels.
+    if (ball.z <= 0.0f && ball.vz < -150.f) {
+        float bounceVol = std::min(100.f, std::abs(ball.vz) / 10.f);
+        soundManager.playSound("ball_bounce", bounceVol, 0.1f);
     }
 }
 
@@ -642,94 +657,198 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
     }
 }
 
-void PhysicsEngine::resolveBallGoalCollisions(Ball& ball, const Goal& goal) {
+void PhysicsEngine::resolveBallGoalCollisions(Ball& ball, const Goal& goal, SoundManager& soundManager) {
     sf::Vector2f bPos = ball.getPosition();
     sf::Vector2f velocity = ball.velocity;
     float ballZ = ball.z;
     float bRadius = 12.f;
 
     float crossbarZ = 244.f;
+    float postRadius = 6.f;
     float goalX = goal.center.x;
     float topY = goal.center.y - 366.f;
     float bottomY = goal.center.y + 366.f;
     float netDepth = 225.f;
     float backX = goal.isHomeGoal ? (goalX - netDepth) : (goalX + netDepth);
 
-    // --- A. THE ROOF CATCH ---
-    bool isOverNetX = goal.isHomeGoal ? (bPos.x < goalX && bPos.x > backX) : (bPos.x > goalX && bPos.x < backX);
-    bool isOverNetY = (bPos.y > topY && bPos.y < bottomY);
+    // ==========================================
+       // --- 1. THE CROSSBAR (3D Cylinder in X-Z Plane) ---
+       // ==========================================
+    if (bPos.y > topY - bRadius && bPos.y < bottomY + bRadius) {
+        float dx = bPos.x - goalX;
+        float dz = ballZ - crossbarZ;
+        float distXZSq = (dx * dx) + (dz * dz);
+        float minDist = bRadius + postRadius;
 
-    if (isOverNetX && isOverNetY) {
-        if (ball.vz > 0.f && ballZ <= crossbarZ + 5.f && ballZ >= crossbarZ - 5.f) {
-            ball.z = crossbarZ;
-            ball.vz = 0.f;
-            ball.velocity *= 0.95f;
+        if (distXZSq < minDist * minDist && distXZSq > 0.001f) {
+            float distXZ = std::sqrt(distXZSq);
+            float nx = dx / distXZ;
+            float nz = dz / distXZ;
+
+            float dot = velocity.x * nx + ball.vz * nz;
+            if (dot < 0.f) {
+                float hitSpeed = std::sqrt(velocity.x * velocity.x + ball.vz * ball.vz);
+
+                // THE FIX: Dynamic volume and lowered threshold for the "strong" sound
+                float vol = std::clamp(hitSpeed / 12.f, 50.f, 100.f);
+                if (hitSpeed > 1100.f) soundManager.playSound("crossbar_strong", vol);
+                else soundManager.playSound("crossbar", vol);
+
+                ball.velocity.x = (velocity.x - 2.f * dot * nx) * 0.6f;
+                ball.vz = (ball.vz - 2.f * dot * nz) * 0.6f;
+
+                ball.shape.setPosition({ goalX + nx * minDist, bPos.y });
+                ball.z = crossbarZ + nz * minDist;
+
+                bPos = ball.getPosition();
+                velocity = ball.velocity;
+                ballZ = ball.z;
+            }
         }
     }
 
-    // --- B. THE POSTS ---
+    // ==========================================
+    // --- 2. THE POSTS (3D Cylinders in X-Y Plane) ---
+    // ==========================================
     auto checkPost = [&](const sf::CircleShape& post) {
-        if (ballZ > 244.f + bRadius) return;
+        if (ballZ > crossbarZ + bRadius) return;
+
         sf::Vector2f pPos = post.getPosition();
         sf::Vector2f diff = bPos - pPos;
         float distSq = (diff.x * diff.x) + (diff.y * diff.y);
-        float minDist = bRadius + post.getRadius();
+        float minDist = bRadius + postRadius;
 
-        if (distSq < minDist * minDist) {
+        if (distSq < minDist * minDist && distSq > 0.001f) {
             float dist = std::sqrt(distSq);
             sf::Vector2f normal = diff / dist;
 
-            // Inline perfect reflection
             float dot = velocity.x * normal.x + velocity.y * normal.y;
             if (dot < 0.f) {
-                ball.velocity = (velocity - 2.f * dot * normal) * 0.7f;
+                float hitSpeed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+
+                // THE FIX: Exact string matching for the IDs you loaded!
+                float vol = std::clamp(hitSpeed / 12.f, 50.f, 100.f);
+                if (hitSpeed > 1100.f) {
+                    std::string soundId = (rand() % 100 < 50) ? "post_strong" : "post_strong2";
+                    soundManager.playSound(soundId, vol);
+                }
+                else {
+                    soundManager.playSound("post", vol);
+                }
+
+                ball.velocity.x = (velocity.x - 2.f * dot * normal.x) * 0.6f;
+                ball.velocity.y = (velocity.y - 2.f * dot * normal.y) * 0.6f;
             }
-            ball.shape.setPosition(pPos + normal * (minDist + 1.f));
+            ball.shape.setPosition(pPos + normal * minDist);
+
+            bPos = ball.getPosition();
+            velocity = ball.velocity;
         }
         };
     checkPost(goal.topPost);
     checkPost(goal.bottomPost);
 
-    // --- C. THE NET WALLS ---
-    if (ballZ < crossbarZ) {
-        float leftX = goal.isHomeGoal ? backX : goalX;
-        float rightX = goal.isHomeGoal ? goalX : backX;
+    // ==========================================
+    // --- 3. THE ROOF & NET WALLS ---
+    // ==========================================
+    float minX = goal.isHomeGoal ? backX : goalX;
+    float maxX = goal.isHomeGoal ? goalX : backX;
+    float catchBuffer = 100.f;
+    bool insideGoalMouth = false;
 
-        // Are we within the depth of the net?
-        if (bPos.x > leftX - bRadius && bPos.x < rightX + bRadius) {
+    if (goal.isHomeGoal) {
+        if (bPos.x < goalX && bPos.x > backX - catchBuffer && bPos.y > topY && bPos.y < bottomY) insideGoalMouth = true;
+    }
+    else {
+        if (bPos.x > goalX && bPos.x < backX + catchBuffer && bPos.y > topY && bPos.y < bottomY) insideGoalMouth = true;
+    }
 
-            // SIDE NETS
-            if (std::abs(bPos.y - topY) < bRadius) {
-                // If ball Y is less than topY, it's outside. If greater, it's inside.
-                bool fromOutside = (bPos.y < topY);
-                ball.shape.setPosition({ bPos.x, topY + (fromOutside ? -bRadius : bRadius) });
-                // Force velocity strictly UP (negative) if outside, and DOWN (positive) if inside
-                ball.velocity.y = fromOutside ? -std::abs(velocity.y) * 0.4f : std::abs(velocity.y) * 0.4f;
-                ball.velocity.x *= 0.8f;
-            }
-            else if (std::abs(bPos.y - bottomY) < bRadius) {
-                bool fromOutside = (bPos.y > bottomY);
-                ball.shape.setPosition({ bPos.x, bottomY + (fromOutside ? bRadius : -bRadius) });
-                ball.velocity.y = fromOutside ? std::abs(velocity.y) * 0.4f : -std::abs(velocity.y) * 0.4f;
-                ball.velocity.x *= 0.8f;
+    if (insideGoalMouth) {
+        bool hitNetFabric = false;
+
+        // A. ROOF (Hitting the ceiling from Inside)
+        if (ballZ > crossbarZ - bRadius) {
+            ball.z = crossbarZ - bRadius;
+            if (ball.vz > 0.f) {
+                ball.vz = -ball.vz * 0.2f;
+                hitNetFabric = true;
             }
         }
 
-        // BACK NET
-        if (bPos.y > topY && bPos.y < bottomY) {
-            if (std::abs(bPos.x - backX) < bRadius) {
-                bool fromOutside = goal.isHomeGoal ? (bPos.x < backX) : (bPos.x > backX);
+        // B. BACK NET
+        if (goal.isHomeGoal && bPos.x < backX + bRadius) {
+            bPos.x = backX + bRadius;
+            if (velocity.x < 0.f) { ball.velocity.x = -velocity.x * 0.1f; hitNetFabric = true; }
+        }
+        else if (!goal.isHomeGoal && bPos.x > backX - bRadius) {
+            bPos.x = backX - bRadius;
+            if (velocity.x > 0.f) { ball.velocity.x = -velocity.x * 0.1f; hitNetFabric = true; }
+        }
 
-                // Position push
-                float safeX = fromOutside ? (goal.isHomeGoal ? backX - bRadius : backX + bRadius)
-                    : (goal.isHomeGoal ? backX + bRadius : backX - bRadius);
-                ball.shape.setPosition({ safeX, bPos.y });
+        // C. SIDE NETS (From Inside)
+        if (bPos.y < topY + bRadius) {
+            bPos.y = topY + bRadius;
+            if (velocity.y < 0.f) { ball.velocity.y = -velocity.y * 0.1f; hitNetFabric = true; }
+        }
+        else if (bPos.y > bottomY - bRadius) {
+            bPos.y = bottomY - bRadius;
+            if (velocity.y > 0.f) { ball.velocity.y = -velocity.y * 0.1f; hitNetFabric = true; }
+        }
 
-                // Velocity push
-                float bounceX = fromOutside ? (goal.isHomeGoal ? -std::abs(velocity.x) : std::abs(velocity.x))
-                    : (goal.isHomeGoal ? std::abs(velocity.x) : -std::abs(velocity.x));
-                ball.velocity.x = bounceX * 0.4f;
-                ball.velocity.y *= 0.8f;
+        // ==========================================
+        // --- THE AUDIO FIX ---
+        // ==========================================
+        // The sound is now strictly locked behind the physical collision check!
+        if (hitNetFabric) {
+            float hitSpeed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y + ball.vz * ball.vz);
+            if (hitSpeed > 300.f) { // Added a minimum threshold to ignore resting touches
+                float netVol = std::clamp(hitSpeed / 15.f, 30.f, 90.f);
+                soundManager.playRandomSound("net", 3, netVol, 0.1f);
+            }
+        }
+
+        ball.shape.setPosition(bPos);
+        ball.velocity.x *= 0.95f;
+        ball.velocity.y *= 0.95f;
+    }
+    else {
+        // THE BALL IS OUTSIDE THE NET.
+        bool inNetX = (bPos.x > minX && bPos.x < maxX);
+        bool inNetY = (bPos.y > topY && bPos.y < bottomY);
+
+        // A. ROOF (Landing on top of the net from the outside)
+        if (inNetX && inNetY && ballZ < crossbarZ + bRadius && ballZ > crossbarZ) {
+            ball.z = crossbarZ + bRadius;
+            if (ball.vz < 0.f) ball.vz = -ball.vz * 0.3f;
+            ball.velocity.x *= 0.8f;
+            ball.velocity.y *= 0.8f;
+        }
+
+        // B. SIDE NETS (Hitting from the Outside)
+        if (ballZ < crossbarZ && inNetX) {
+            if (bPos.y > topY - bRadius && bPos.y <= topY) {
+                bPos.y = topY - bRadius;
+                if (velocity.y > 0.f) ball.velocity.y = -velocity.y * 0.3f;
+                ball.shape.setPosition(bPos);
+            }
+            else if (bPos.y < bottomY + bRadius && bPos.y >= bottomY) {
+                bPos.y = bottomY + bRadius;
+                if (velocity.y < 0.f) ball.velocity.y = -velocity.y * 0.3f;
+                ball.shape.setPosition(bPos);
+            }
+        }
+
+        // C. BACK NET (Hitting from the Outside)
+        if (ballZ < crossbarZ && inNetY) {
+            if (goal.isHomeGoal && bPos.x > backX - bRadius && bPos.x <= backX) {
+                bPos.x = backX - bRadius;
+                if (velocity.x > 0.f) ball.velocity.x = -velocity.x * 0.3f;
+                ball.shape.setPosition(bPos);
+            }
+            else if (!goal.isHomeGoal && bPos.x < backX + bRadius && bPos.x >= backX) {
+                bPos.x = backX + bRadius;
+                if (velocity.x < 0.f) ball.velocity.x = -velocity.x * 0.3f;
+                ball.shape.setPosition(bPos);
             }
         }
     }

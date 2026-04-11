@@ -9,6 +9,7 @@ struct Pitch;
 struct Goal; // Forward declaration
 class MatchReferee;
 class AnimationServer;
+class SoundManager;
 
 class PhysicsEngine {
 public:
@@ -65,18 +66,18 @@ public:
         Ball& ball,
         MatchReferee& referee,
         AnimationServer& animServer,
-        const Pitch& pitch
+        const Pitch& pitch, SoundManager& soundManager
     );
 
     // Checks if the ball hits the invisible walls around the pitch/net
-    static void resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch);
+    static void resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch, SoundManager& soundManager);
 
     // Bounces the ball off outfield players, applying player momentum to the deflection
     static void resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>& players);
 
     // --- GOAL COLLISIONS ---
     // Handles the ball hitting the net, crossbar, and posts
-    static void resolveBallGoalCollisions(Ball& ball, const Goal& goal);
+    static void resolveBallGoalCollisions(Ball& ball, const Goal& goal, SoundManager& soundManager);
 
     // Handles players running into the net or posts
     static void resolvePlayerGoalCollisions(Player& player, const Goal& goal);
