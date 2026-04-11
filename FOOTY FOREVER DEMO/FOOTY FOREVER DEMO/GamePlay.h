@@ -41,6 +41,8 @@ class GamePlay
 		Player* findFirstResponder(const std::vector<Player*>& t_team);
 		UserPlayer* getUserPlayer() { return m_userPlayer.get(); }
 
+		void executePlayerSwitch(Player* targetNPC);
+
 		void setupMatch(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId);
 
 		std::unique_ptr<Ball> m_ball;

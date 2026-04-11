@@ -5,6 +5,7 @@
 #include "GamePlay.h"
 #include "PhysicsEngine.h"
 #include "AimAssist.h"
+#include "Pitch.h"
 
 UserController::UserController(UserPlayer& player) : m_userPlayer(player)
 {
@@ -91,6 +92,10 @@ void UserController::inputHandler(const sf::Event t_event)
 				}
 			}
 		}
+		if (keyPressed->scancode == sf::Keyboard::Scancode::E)
+		{
+			switchPressed = true;
+		}
 	}
 
 	if (const auto keyReleased = t_event.getIf<sf::Event::KeyReleased>())
@@ -145,7 +150,6 @@ void UserController::inputHandler(const sf::Event t_event)
 	}
 }
 
-
 /// <summary>
 /// updating player movement - can be turned off if within menus.
 /// </summary>
@@ -158,6 +162,34 @@ void UserController::update(float dt, GamePlay& game)
 {
 	MatchState state = game.m_referee.getMatchState();
 	bool hasPossession = (game.m_ball->getOwner() == &m_userPlayer);
+
+	// ==========================================
+		// --- MANUAL DEFENSIVE SWITCHING ---
+		// ==========================================
+	if (switchPressed) {
+		switchPressed = false; // Consume input
+
+		// Only allow manual switching if we DO NOT have the ball
+		if (game.m_ball->getOwner() != &m_userPlayer) {
+
+			// Gather all teammates
+			std::vector<Player*> myTeam;
+			for (auto& npc : game.m_homeside) {
+				if (!npc->isSentOff()) myTeam.push_back(npc.get());
+			}
+
+			// Call the AI to find the smartest goal-side defender
+			Player* bestDefender = findBestDefensiveSwitch(m_userPlayer, myTeam, *game.m_ball, game.m_pitch);
+			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
+			if (bestDefender && bestDefender != &m_userPlayer) {
+				game.executePlayerSwitch(bestDefender);
+				resetInputs(); // Prevent the new player from instantly sliding if you were holding Ctrl!
+
+				// Keep the mouse aiming stable after the teleport
+				m_userPlayer.updateAim(tempAim);
+			}
+		}
+	}
 
 	// ==========================================
 	// --- BUG FIX: INPUT BLEED INTERCEPTORS ---
@@ -557,6 +589,16 @@ sf::Vector2f aimDir = m_userPlayer.getAimDirection();
 	increasing = true;
 	justKicked = true;
 	kickCooldownTimer = kickCooldown;
+
+	// ==========================================
+	// --- AUTOMATIC OFFENSIVE SWITCH ---
+	// ==========================================
+	// If we successfully aimed a ground or high pass at a teammate, switch to them immediately!
+	if (m_currentTarget != nullptr) {
+		game.executePlayerSwitch(m_currentTarget);
+		m_currentTarget = nullptr; // Clear the target since WE are now the target!
+		resetInputs();
+	}
 }
 
 bool UserController::calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin)
@@ -711,4 +753,47 @@ void UserController::attemptSave(float dt, GamePlay& game)
 
 		m_userPlayer.setState(PlayerState::Diving);
 	}
+}
+
+Player* UserController::findBestDefensiveSwitch(Player& currentPlayer, const std::vector<Player*>& team, Ball& ball, const Pitch& pitch) {
+	if (team.empty()) return &currentPlayer;
+
+	sf::Vector2f ballPos = ball.getPosition();
+	bool isHome = (currentPlayer.getTeam() == Team::Home);
+
+	Player* bestOption = nullptr;
+	float bestScore = 999999.f; // Lower is better
+
+	for (Player* p : team) {
+		// Skip the player we are already controlling and the Goalkeeper
+		if (p == &currentPlayer || p->getPositionRole() == PositionRole::Goalkeeper || p->isSentOff()) continue;
+
+		sf::Vector2f pPos = p->getPosition();
+		float distToBall = dist(pPos, ballPos);
+
+		// --- THE "GOAL-SIDE" CHECK ---
+		// If we are Home, our goal is at X=0. Caught upfield means X > Ball.X
+		// If we are Away, our goal is at X=10000. Caught upfield means X < Ball.X
+		bool isCaughtUpfield = isHome ? (pPos.x > ballPos.x) : (pPos.x < ballPos.x);
+
+		float score = distToBall;
+
+		if (isCaughtUpfield) {
+			// Massive penalty for trailing the play. The AI will prefer a Center Back 
+			// 800px away over a Striker who is 200px away but behind the ball!
+			score += 2000.f;
+		}
+
+		// Penalty for players currently locked in an animation
+		if (p->getState() != PlayerState::Normal) {
+			score += 1000.f;
+		}
+
+		if (score < bestScore) {
+			bestScore = score;
+			bestOption = p;
+		}
+	}
+
+	return bestOption ? bestOption : &currentPlayer;
 }

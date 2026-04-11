@@ -39,6 +39,58 @@ void Player::loadFromData(const PlayerData& data)
     applyPhysicalScale();
 }
 
+void Player::swapIdentityWith(Player* other) {
+    if (!other || other == this) return;
+
+    // 1. Spatial & Physics Data
+    std::swap(this->m_position, other->m_position);
+    std::swap(this->m_velocity, other->m_velocity);
+    std::swap(this->z, other->z);
+    std::swap(this->vz, other->vz);
+    std::swap(this->m_baseHomePosition, other->m_baseHomePosition);
+    std::swap(this->m_currentDirection, other->m_currentDirection);
+    std::swap(this->m_currentState, other->m_currentState);
+
+    // 2. Timers & Dynamic States
+    std::swap(this->m_stumbleTimer, other->m_stumbleTimer);
+    std::swap(this->m_tackleTimer, other->m_tackleTimer);
+    std::swap(this->m_tackleCooldownTimer, other->m_tackleCooldownTimer);
+    std::swap(this->m_tackleAnimTriggered, other->m_tackleAnimTriggered);
+    std::swap(this->hasPossession, other->hasPossession);
+    std::swap(this->rightFoot, other->rightFoot);
+    std::swap(this->m_possessionTimer, other->m_possessionTimer);
+
+    // 3. Bio & DNA
+    std::swap(this->m_id, other->m_id);
+    std::swap(this->m_name, other->m_name);
+    std::swap(this->m_squadNumber, other->m_squadNumber);
+    std::swap(this->m_age, other->m_age);
+    std::swap(this->m_preferredFoot, other->m_preferredFoot);
+    std::swap(this->m_traits, other->m_traits);
+    std::swap(this->height, other->height);
+    std::swap(this->weight, other->weight);
+
+    // 4. Tactical & Stats
+    std::swap(this->m_positionRole, other->m_positionRole);
+    std::swap(this->m_playstyle, other->m_playstyle);
+    std::swap(this->m_stats, other->m_stats);
+    std::swap(this->m_team, other->m_team);
+
+    // 5. Stamina & Match Condition
+    std::swap(this->m_naturalFitness, other->m_naturalFitness);
+    std::swap(this->m_matchSharpness, other->m_matchSharpness);
+    std::swap(this->m_maxStamina, other->m_maxStamina);
+    std::swap(this->m_currentStamina, other->m_currentStamina);
+    std::swap(this->m_yellowCards, other->m_yellowCards);
+    std::swap(this->m_isSentOff, other->m_isSentOff);
+
+    // 6. Graphics Sync (Apply the new heights and visually snap the sprites)
+    this->applyPhysicalScale();
+    other->applyPhysicalScale();
+    this->m_sprite.setPosition(this->m_position);
+    other->m_sprite.setPosition(other->m_position);
+}
+
 bool Player::hasTrait(const std::string& traitName) const
 {
     for (const auto& trait : m_traits) {

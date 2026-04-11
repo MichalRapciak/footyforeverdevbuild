@@ -6,6 +6,7 @@ class UserPlayer; // I call this class here so the PlayerController knows to exp
 class GamePlay;
 class Ball;
 class Player;
+struct Pitch;
 
 /// <summary>
 /// This class is in charge of all the calculations depending on player movement and aiming, letting the player class be less bloated
@@ -25,13 +26,16 @@ public:
 	float getKickStrength() const { return kickStrength; }
 	void updateTargetScanning(GamePlay& game);
 
-	float dist(sf::Vector2f p1, sf::Vector2f p2);
+	Player* findBestDefensiveSwitch(Player& currentPlayer, const std::vector<Player*>& team, Ball& ball, const Pitch& pitch);
+
+
 
 private:
 	void executeKickRelease(GamePlay& game);
 	bool calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
 	void calculateGroundKick(float basePower, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
 	void attemptSave(float dt, GamePlay& game);
+	float dist(sf::Vector2f p1, sf::Vector2f p2);
 
 	UserPlayer& m_userPlayer;
 	sf::Vector2f m_speedVector{ 0,0 }; // Current speed vector
@@ -58,6 +62,7 @@ private:
 	bool isSprinting = false;
 	bool isShooting = false;
 	bool isPressuring = false;
+	bool switchPressed = false;
 
 	float sprintRatio = 0;
 	float accelMultiplier = 0;
@@ -73,6 +78,7 @@ private:
 	bool m_hadPossessionLastFrame = false;
 
 	void resetInputs();
+
 
 	bool isHighKick = false;
 	bool isJockeying = false;

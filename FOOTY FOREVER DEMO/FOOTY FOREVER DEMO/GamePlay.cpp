@@ -1319,3 +1319,26 @@ void GamePlay::drawDebugNames(sf::RenderWindow& window, const sf::Font& font) {
 		window.draw(nameText);
 	}
 }
+
+void GamePlay::executePlayerSwitch(Player* targetNPC) 
+{
+	// Safety checks
+	if (!targetNPC || targetNPC == m_userPlayer.get() || targetNPC->getTeam() != m_userPlayer->getTeam()) return;
+	if (targetNPC->getPositionRole() == PositionRole::Goalkeeper) return; // Don't let user accidentally possess the GK!
+
+	// ==========================================
+	// --- THE SOUL SWAP ---
+	// ==========================================
+	// Perform the clean, native C++ swap directly in the base class
+	m_userPlayer->swapIdentityWith(targetNPC);
+
+	// Fix Ball Ownership Tracker
+	// Because the pointers didn't move but the 'hasPossession' bool did, 
+	// we need to tell the Ball object who its new owner pointer is.
+	if (m_ball->getOwner() == targetNPC) {
+		m_ball->possess(m_userPlayer.get());
+	}
+	else if (m_ball->getOwner() == m_userPlayer.get()) {
+		m_ball->possess(targetNPC);
+	}
+}

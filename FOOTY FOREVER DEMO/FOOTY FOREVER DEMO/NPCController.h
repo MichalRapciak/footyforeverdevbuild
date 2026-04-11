@@ -30,10 +30,9 @@ public:
 
     // The main entry point for the AI brain
     void update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
-        const std::vector<Player*> team, const std::vector<Player*> opposition,
+        const std::vector<Player*>& team, const std::vector<Player*>& opposition,
         const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
         const MatchReferee& referee, const TeamAI& teamAI);
-    /// Uses GkCatching: Determines if a successful save is held or parried away
 
 private:
     // 3. Update the Physics signature (add TacticalContext at the end)

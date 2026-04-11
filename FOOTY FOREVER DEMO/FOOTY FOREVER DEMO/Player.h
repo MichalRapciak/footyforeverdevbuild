@@ -22,6 +22,8 @@ public:
     // Pass the parsed JSON struct in to set up all stats, bio, and scales at once
     void loadFromData(const PlayerData& data);
 
+    void swapIdentityWith(Player* other);
+
     // Shared Physics Update (Inertia, Counter-steer, etc.)
     virtual void update(float dt, AnimationServer& animServer);
     void applyPhysicalScale();

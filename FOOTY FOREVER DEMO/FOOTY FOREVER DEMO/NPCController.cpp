@@ -14,7 +14,7 @@ NPCController::NPCController() {}
 NPCController::~NPCController() {}
 
 void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
-    const std::vector<Player*> team, const std::vector<Player*> opposition,
+    const std::vector<Player*>& team, const std::vector<Player*>& opposition,
     const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
     const MatchReferee& referee, const TeamAI& teamAI)
 {
@@ -116,7 +116,8 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     // ==========================================
     // 3. AERIAL LOGIC (Headers / Volleys)
     // ==========================================
-    if (ball.z > 40.f) {
+    if (ball.z > 40.f) 
+    {
         PlayerAI::handleNPCJumpLogic(npc, ball);
 
         bool isHome = (npc.getTeam() == Team::Home);
@@ -131,10 +132,12 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     // ==========================================
     // 4. ROLE ROUTING (GK vs Outfield)
     // ==========================================
-    if (npc.getPositionRole() == PositionRole::Goalkeeper) {
+    if (npc.getPositionRole() == PositionRole::Goalkeeper) 
+    {
         PlayerAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI);
     }
-    else {
+    else 
+    {
         sf::Vector2f npcPos = npc.getPosition();
         sf::Vector2f finalDirection(0.f, 0.f);
         bool isSprinting = false;
@@ -142,7 +145,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
 
         if (ball.getOwner() == &npc) {
             // DECISION: Handle Possession logic and return dribble direction
-            finalDirection = PlayerAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state,teamAI);
+            finalDirection = PlayerAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI);
             distToTarget = 500.f;
             isSprinting = true; // AI usually sprints on ball unless specified otherwise
         }
@@ -262,7 +265,8 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
     }
 
     // Final rotation facing
-    if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f) {
+    if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f) 
+    {
         if (ball.getOwner() != &npc) npc.setRotationToward(ball.getPosition());
     }
 }
