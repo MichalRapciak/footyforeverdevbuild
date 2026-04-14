@@ -64,22 +64,22 @@ void GamePlay::processEvents(sf::Event& t_event, sf::RenderWindow& t_window)
 	if (const auto keyPressed = t_event.getIf<sf::Event::KeyPressed>()) //user pressed a key
 	{
 		processKeys(t_event);
-		if (!m_pause)
+		if (!m_pause && m_userPlayer)
 			m_userController->inputHandler(t_event);
 	}
 	if (const auto keyReleased = t_event.getIf<sf::Event::KeyReleased>())
 	{
-		if (!m_pause)
+		if (!m_pause && m_userPlayer)
 			m_userController->inputHandler(t_event);
 	}
 	if (const auto buttonPressed = t_event.getIf<sf::Event::MouseButtonPressed>())
 	{
-		if (!m_pause)
+		if (!m_pause && m_userPlayer)
 			m_userController->inputHandler(t_event);
 	}
 	if (const auto buttonReleased = t_event.getIf<sf::Event::MouseButtonReleased>())
 	{
-		if (!m_pause)
+		if (!m_pause && m_userPlayer)
 			m_userController->inputHandler(t_event);
 	}
 
@@ -126,19 +126,6 @@ void GamePlay::processKeys(sf::Event t_event)
 			Game::currentState = GameState::MainMenu;
 		}
 	}
-	if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
-	{
-
-	}
-
-	if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Right))
-	{
-		if (m_ball->hasOwner())
-		{
-			//sf::Vector2f dir = m_player->getAimDirection();
-			//m_ball.shoot(dir, m_player->getPower());
-		}
-	}
 }
 
 /// <summary>
@@ -158,7 +145,10 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		m_replayEngine.startReplay(0.7f);
 
 		std::vector<Player*> allPlayers;
-		allPlayers.push_back(m_userPlayer.get());
+		if (m_userPlayer)
+		{
+			allPlayers.push_back(m_userPlayer.get());
+		}
 		for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
 		for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
@@ -183,7 +173,10 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 
     // 1. Gather all players
 	std::vector<Player*> homeFriends;
-	homeFriends.push_back(m_userPlayer.get());
+	if (m_userPlayer)
+	{
+		homeFriends.push_back(m_userPlayer.get());
+	}
 	for (auto& npc : m_homeside) homeFriends.push_back(npc.get());
 
 	std::vector<Player*> homeEnemies;
@@ -203,9 +196,13 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		// 3. RUN THE SIMULATION
         // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
         runStandardSystems(dt, t_window);
+
 		// 4. Update visuals
 		updateCamera(t_window);
-		powerBarUpdate();
+		if ( m_userPlayer)
+		{
+			powerBarUpdate();
+		}
 	}
 
 	// ==========================================
@@ -245,32 +242,65 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	// 1. SET THE CORRECT WORLD CAMERA
 	// ==========================================
 	if (m_replayEngine.isReplaying()) {
-		// Set the camera to follow the frozen replay ball
 		m_replayEngine.replayCam(t_window);
 	}
 	else {
-		// Set the camera to follow the live user player
 		t_window.setView(m_playerCam);
 	}
 
-	// 2. Draw Background (Now it will use whichever camera we just set!)
+	// 2. Draw Background 
 	m_stadium1.draw(t_window);
+
+	if (m_userController && !m_replayEngine.isReplaying()) {
+		m_userController->draw(t_window);
+	}
 
 	// 3. Sort Entities by Depth
 	std::sort(m_entities.begin(), m_entities.end(), [](Entity* a, Entity* b) {
 		return a->getSortDepth() > b->getSortDepth();
 		});
 
-	// 4. Draw Entities or Replay
+	// ==========================================
+	// 4. DRAW ENTITIES (WITH SPLIT GOAL LAYERS!)
+	// ==========================================
 	if (m_replayEngine.isReplaying()) {
-		// Draw the DVR buffer
+		// Draw static components behind the DVR buffer
+		m_homeGoal.drawFloor(t_window); m_awayGoal.drawFloor(t_window);
+		m_homeGoal.drawNet(t_window);   m_awayGoal.drawNet(t_window);
+		m_homeGoal.drawPosts(t_window); m_awayGoal.drawPosts(t_window);
+		m_homeGoal.drawCrossbar(t_window); m_awayGoal.drawCrossbar(t_window);
+
 		m_replayEngine.render(t_window);
 	}
 	else {
-		// Draw Live Game
+		// A. Draw the Floor & Netting FIRST (Always behind the players)
+		m_homeGoal.drawFloor(t_window); m_awayGoal.drawFloor(t_window);
+		m_homeGoal.drawNet(t_window);   m_awayGoal.drawNet(t_window);
+
+		// Grab the specific Goal Line depths for the Mid Layer
+		float homeGoalDepth = m_homeGoal.center.x;
+		float awayGoalDepth = m_awayGoal.center.x;
+
+		bool homePostsDrawn = false;
+		bool awayPostsDrawn = false;
+
+		// B. Draw Live Game Entities & Interleave the Posts
 		for (Entity* entity : m_entities) {
 			if (entity == nullptr) continue;
 
+			// --- INTERLEAVE HOME POSTS ---
+			if (!homePostsDrawn && entity->getSortDepth() <= homeGoalDepth) {
+				m_homeGoal.drawPosts(t_window);
+				homePostsDrawn = true;
+			}
+
+			// --- INTERLEAVE AWAY POSTS ---
+			if (!awayPostsDrawn && entity->getSortDepth() <= awayGoalDepth) {
+				m_awayGoal.drawPosts(t_window);
+				awayPostsDrawn = true;
+			}
+
+			// Draw the actual entity
 			if (entity == m_ball.get()) {
 				m_ball->draw(t_window);
 			}
@@ -281,32 +311,32 @@ void GamePlay::render(sf::RenderWindow& t_window)
 				renderPlayerEntity(t_window, entity);
 			}
 		}
+
+		// Catch-all: If the posts were somehow lower depth than ALL entities
+		if (!homePostsDrawn) m_homeGoal.drawPosts(t_window);
+		if (!awayPostsDrawn) m_awayGoal.drawPosts(t_window);
+
+		// C. Draw Crossbars LAST (Simulating physical Z-height overhead)
+		m_homeGoal.drawCrossbar(t_window);
+		m_awayGoal.drawCrossbar(t_window);
 	}
 
-	// 5. Draw Pitch Objects (Goals will also use the correct camera)
-	m_homeGoal.draw(t_window);
-	m_awayGoal.draw(t_window);
-
-	//drawDebugOffsideLines(t_window);
-	// (Optional) Draw a red ring under players who are currently flagged for offside
-
 	if (!m_replayEngine.isReplaying()) {
-		m_userController->draw(t_window); // Don't draw the aiming arrow during a replay
-		drawDebugNames(t_window, m_font); // Pass whatever font you use for your UI here!
+		drawDebugNames(t_window, m_font);
+
 		// ==========================================
-		// 6. DRAW UI (SCREEN SPACE)
+		// 5. DRAW UI (SCREEN SPACE)
 		// ==========================================
 		drawUI(t_window);
 		powerBarDraw(t_window);
 	}
 
-
-	t_window.setView(t_window.getDefaultView()); // Switch to screen-space for Overlays
+	t_window.setView(t_window.getDefaultView());
 
 	if (m_pause || m_gameOver)
 	{
 		sf::RectangleShape overlay(sf::Vector2f(t_window.getSize()));
-		overlay.setFillColor(sf::Color(20, 20, 20, 200)); // Dark tinted background
+		overlay.setFillColor(sf::Color(20, 20, 20, 200));
 		t_window.draw(overlay);
 
 		if (m_pause && !m_gameOver) {
@@ -316,10 +346,6 @@ void GamePlay::render(sf::RenderWindow& t_window)
 			t_window.draw(m_gameOverText);
 		}
 	}
-
-	// We don't strictly need to restore m_playerCam here at the bottom anymore, 
-	// because the very top of this function now correctly decides which camera to use 
-	// before the next frame draws anything!
 }
 
 void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
@@ -442,7 +468,7 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	TeamData* homeTeam = db.getTeam(homeTeamId);
 	TeamData* awayTeam = db.getTeam(awayTeamId);
 
-	if (!homeTeam || !awayTeam) return; // Failsafe
+	if (!homeTeam || !awayTeam) return;
 
 	m_homeTeamData = *homeTeam;
 	m_awayTeamData = *awayTeam;
@@ -450,30 +476,33 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_homeTeamAI = std::make_unique<TeamAI>(true, m_homeTeamData.defaultTactics);
 	m_awayTeamAI = std::make_unique<TeamAI>(false, m_awayTeamData.defaultTactics);
 
-	// 1. Clear memory in case this is a restart/reload
 	m_entities.clear();
 	m_homeside.clear();
 	m_awayside.clear();
 
-	// 2. SETUP USER (Basic instantiation, stats assigned during spawn)
-	m_userPlayer = std::make_unique<UserPlayer>((m_animServer.getPlayerTexture()));
-	m_userController = std::make_unique<UserController>(*m_userPlayer);
-	m_entities.push_back(m_userPlayer.get());
+	// ==========================================
+	// --- SPECTATOR BYPASS ---
+	// ==========================================
+	if (userPlayerId != "SPECTATOR") {
+		m_userPlayer = std::make_unique<UserPlayer>((m_animServer.getPlayerTexture()));
+		m_userController = std::make_unique<UserController>(*m_userPlayer);
+		m_entities.push_back(m_userPlayer.get());
+	}
+	else {
+		m_userPlayer.reset();
+		m_userController.reset();
+	}
 
-	// 3. SETUP BALL
 	m_ball = std::make_unique<Ball>();
 	m_entities.push_back(m_ball.get());
 
-	// 4. SETUP BRAINS & SPAWN THE STARTING XI
 	m_npcController = std::make_unique<NPCController>();
 
-	// Pass the actual TeamData struct to the dynamic spawner!
 	spawnTeamDynamic(m_homeside, m_entities, m_homeTeamData, true, userPlayerId);
 	spawnTeamDynamic(m_awayside, m_entities, m_awayTeamData, false, "");
 
 	m_ball->setPosition(m_pitch.centerSpot);
 
-	// 5. SETUP UI & GOALS
 	barBackground.setSize(barSize);
 	barBackground.setFillColor(sf::Color(50, 50, 50, 200));
 	barBackground.setOutlineThickness(2.f);
@@ -485,17 +514,18 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_homeGoal.initialize(sf::Vector2f{ m_pitch.margin, 3500.f }, true);
 	m_awayGoal.initialize(sf::Vector2f{ m_pitch.totalWidth - m_pitch.margin, 3500.f }, false);
 
-	m_playerCam.setCenter(m_userPlayer->getPosition());
-	m_playerCam.setSize({ 1920,1080 });
+	// Safely center the camera on the ball if there is no user
+	m_playerCam.setCenter(m_userPlayer ? m_userPlayer->getPosition() : m_pitch.centerSpot);
+	m_playerCam.setSize({ 1920, 1080 });
 	m_playerCam.zoom(0.50f);
 
 	std::vector<Player*> allPlayers;
-	allPlayers.push_back(m_userPlayer.get());
+	if (m_userPlayer) allPlayers.push_back(m_userPlayer.get()); // Only push if exists!
 	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
 	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
 	m_soundManager.loadAllSounds();
-	m_soundManager.playCrowd("ASSETS/SOUNDS/CROWD/stadium_noise.ogg", 80.f); // 40% volume background noise
+	m_soundManager.playCrowd("ASSETS/SOUNDS/CROWD/stadium_noise.ogg", 80.f);
 
 	m_referee.startMatch(*m_ball, m_pitch, allPlayers, m_soundManager);
 }
@@ -503,18 +533,25 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, TeamData& teamData, bool isHomeSide, const std::string& userPlayerId)
 {
 	bool userAssigned = false;
-
-	// 1. Fetch the tactical layout for this specific formation ONCE
 	auto layout = getFormationLayout(teamData.defaultTactics.formationName);
 
-	// 2. Loop through exactly the 11 slots designated in the Matchday Tactics
+	// --- THE FIX: Check if Player 8 is actually in the starting XI ---
+	bool hasPlayer8 = false;
+	if (userPlayerId.empty() && userPlayerId != "SPECTATOR") {
+		for (const auto& [slotId, pId] : teamData.defaultTactics.startingXI) {
+			if (pId == "8") {
+				hasPlayer8 = true;
+				break;
+			}
+		}
+	}
+
 	for (const auto& [slotId, playerId] : teamData.defaultTactics.startingXI)
 	{
 		PlayerData* pData = m_db->getPlayer(playerId);
 		if (!pData) continue;
 
-		// 3. Find the specific Match Role for this Slot ID from the layout
-		PositionRole matchRole = PositionRole::CenterMid; // Fallback
+		PositionRole matchRole = PositionRole::CenterMid;
 		for (const auto& line : layout) {
 			for (const auto& slot : line) {
 				if (slot.first == slotId) {
@@ -524,58 +561,53 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 			}
 		}
 
-		// --- NEW HIJACK LOGIC ---
 		bool isTargetUser = false;
 
-		if (isHomeSide && !userAssigned) {
+		// ONLY attempt to hijack if we are NOT in spectator mode
+		if (userPlayerId != "SPECTATOR" && isHomeSide && !userAssigned) {
 			if (!userPlayerId.empty()) {
-				// If they picked someone, check if this is them!
 				isTargetUser = (playerId == userPlayerId);
 			}
 			else {
-				// THE FIX: Allow Auto-Select to grab ANY player, including the Goalkeeper!
-				isTargetUser = true;
+				// Auto-pick Player 8! 
+				if (hasPlayer8) {
+					isTargetUser = (playerId == "8");
+				}
+				// THE FIX: If Player 8 isn't there, grab the first player who is NOT a Goalkeeper!
+				else if (matchRole != PositionRole::Goalkeeper) {
+					isTargetUser = true;
+				}
 			}
 		}
 
-		if (isTargetUser)
+		if (isTargetUser && m_userPlayer)
 		{
 			m_userPlayer->loadFromData(*pData);
 			m_userPlayer->setTeam(Team::Home);
-
-			// Override their generic profile role with the specific match role
 			m_userPlayer->setPositionRole(matchRole);
 
-			// --- Caching the Home Position ---
 			sf::Vector2f basePos = m_userPlayer->getBaseTacticalCoordinate(true, slotId, layout);
 			m_userPlayer->setBaseHomePosition(basePos);
-
-			// THE FIX: Forcefully set both the physics position and the sprite position
 			m_userPlayer->setPosition(basePos);
-
 			m_userPlayer->setKitColor(teamData.shirt.primaryColor);
 
 			userAssigned = true;
 			continue;
 		}
 
-		// --- NORMAL NPC SPAWN ---
 		auto player = std::make_unique<NPCPlayer>((m_animServer.getPlayerTexture()));
 		player->loadFromData(*pData);
 		player->setTeam(isHomeSide ? Team::Home : Team::Away);
-
 		player->setPositionRole(matchRole);
 
 		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
 		player->setBaseHomePosition(basePos);
-
 		player->setPosition(player->getHomePosition());
+
 		if (matchRole == PositionRole::Goalkeeper) {
-			// Give the GK a bright green/yellow kit so they stand out
 			player->setKitColor(sf::Color(50, 200, 50));
 		}
 		else {
-			// Outfield players get the standard team kit
 			player->setKitColor(teamData.shirt.primaryColor);
 		}
 
@@ -586,66 +618,58 @@ void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, s
 
 void GamePlay::updateCamera(sf::RenderWindow& t_window)
 {
-	// 1. Get world positions
-	sf::Vector2f playerPos = m_userPlayer->getPosition();
-	sf::Vector2f mouseWorldPos = t_window.mapPixelToCoords(sf::Mouse::getPosition(t_window), m_playerCam);
 	sf::Vector2f ballPos = m_ball->getPosition();
+	sf::Vector2f targetCenter;
+	float zoomFactor = 1.0f;
 
-	// 2. Vector Math & Distances
-	sf::Vector2f aimVec = mouseWorldPos - playerPos;
-	sf::Vector2f ballVec = ballPos - playerPos;
+	if (m_userPlayer) {
+		// --- PLAYER CAMERA ---
+		sf::Vector2f playerPos = m_userPlayer->getPosition();
+		sf::Vector2f mouseWorldPos = t_window.mapPixelToCoords(sf::Mouse::getPosition(t_window), m_playerCam);
 
-	float aimDist = std::sqrt(aimVec.x * aimVec.x + aimVec.y * aimVec.y);
-	float ballDist = std::sqrt(ballVec.x * ballVec.x + ballVec.y * ballVec.y);
+		sf::Vector2f aimVec = mouseWorldPos - playerPos;
+		sf::Vector2f ballVec = ballPos - playerPos;
 
-	// Clamp the aim vector so wild off-screen mouse flicks don't rip the camera away
-	float maxAimPull = 1800.f;
-	if (aimDist > maxAimPull) {
-		aimVec = (aimVec / aimDist) * maxAimPull;
-		aimDist = maxAimPull;
+		float aimDist = std::sqrt(aimVec.x * aimVec.x + aimVec.y * aimVec.y);
+		float ballDist = std::sqrt(ballVec.x * ballVec.x + ballVec.y * ballVec.y);
+
+		float maxAimPull = 1200.f;
+		if (aimDist > maxAimPull) {
+			aimVec = (aimVec / aimDist) * maxAimPull;
+			aimDist = maxAimPull;
+		}
+
+		targetCenter = playerPos + (aimVec * 0.35f) + (ballVec * 0.15f);
+		zoomFactor = 1.0f + (aimDist * 0.00015f) + (ballDist * 0.0001f);
+		zoomFactor = std::clamp(zoomFactor, 1.0f, 1.35f);
+	}
+	else {
+		// --- TV BROADCAST CAMERA (Spectator) ---
+		// Lead the camera slightly ahead of the ball's momentum
+		sf::Vector2f ballVel = m_ball->getVelocity();
+		targetCenter = ballPos + (ballVel * 0.3f);
+
+		// Zoom out slightly more depending on how fast the ball is moving
+		float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+		zoomFactor = 1.15f + (ballSpeed * 0.0001f);
+		zoomFactor = std::clamp(zoomFactor, 1.15f, 1.4f);
 	}
 
-	// 3. Dynamic Center Point (The "Action" Blend)
-	// Look 35% of the way toward the mouse, and 15% of the way toward the ball
-	sf::Vector2f targetCenter = playerPos + (aimVec * 0.35f) + (ballVec * 0.15f);
-
-	// 4. Dynamic Zoom Calculation
-	// Base size is your standard 1080p view scaled by 2.5 zoom
-	float baseSizeX = 1920.f * 1.5f;
-	float baseSizeY = 1080.f * 1.5f;
-
-	// Zoom out based on how far away we are aiming and how far away the ball is
-	float zoomFactor = 1.0f + (aimDist * 0.00030f) + (ballDist * 0.0002f);
-
-	// Clamp the zoom so it doesn't get unplayably tiny (Max 35% zoomed out)
-	zoomFactor = std::clamp(zoomFactor, 1.0f, 1.65f);
+	float baseSizeX = 1920.f * 2.5f;
+	float baseSizeY = 1080.f * 2.5f;
 	sf::Vector2f targetSize(baseSizeX * zoomFactor, baseSizeY * zoomFactor);
 
-	// 5. Interpolation (Smooth Lerping)
 	sf::Vector2f currentCenter = m_playerCam.getCenter();
 	sf::Vector2f currentSize = m_playerCam.getSize();
 
-	float lerpFactor = 0.025f;
-
+	float lerpFactor = 0.035f;
 	sf::Vector2f smoothedCenter = currentCenter + (targetCenter - currentCenter) * lerpFactor;
 	sf::Vector2f smoothedSize = currentSize + (targetSize - currentSize) * lerpFactor;
 
-	// 6. Apply to View
 	m_playerCam.setSize(smoothedSize);
 	m_playerCam.setCenter(smoothedCenter);
 	m_playerCam.setRotation(sf::degrees(90));
 	t_window.setView(m_playerCam);
-}
-
-/// <summary>
-/// Function in charge of deleting dead enemies and entities and updating their vectors
-/// </summary>
-void GamePlay::refreshEntities()
-{
-	if (m_userPlayer)
-	{
-		m_entities.push_back(m_userPlayer.get());
-	}
 }
 
 void GamePlay::powerBarUpdate()
@@ -715,15 +739,23 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	}
 
 	// --- 2. UPDATE HUMAN USER ---
-	m_userController->update(dt, *this);
-	m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
-	m_userPlayer->update(dt, m_animServer);
-
+	// (These are already perfectly guarded!)
+	if (m_userController) {
+		m_userController->update(dt, *this);
+		m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
+	}
+	if (m_userPlayer)
+	{
+		m_userPlayer->update(dt, m_animServer);
+	}
 
 	// --- 3. GATHER ACTIVE LISTS & FIND FIRST RESPONDERS ---
 	std::vector<Player*> homeFriends;
-	// Only add the user if they haven't been sent off!
-	if (!m_userPlayer->isSentOff()) homeFriends.push_back(m_userPlayer.get());
+
+	// THE FIX: Explicitly check if m_userPlayer exists before asking if they are sent off!
+	if (m_userPlayer && !m_userPlayer->isSentOff()) {
+		homeFriends.push_back(m_userPlayer.get());
+	}
 
 	for (auto& npc : m_homeside) {
 		if (!npc->isSentOff()) homeFriends.push_back(npc.get());
@@ -754,7 +786,8 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		// FIX: Lock them in the dressing room! Don't let the AI brain move them back to the pitch.
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager);
+		// THE FIX: Pass m_userPlayer as a pointer (m_userPlayer.get()) so it safely passes nullptr in Spectator Mode!
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager);
 		npc->update(dt, m_animServer); // Internal motor physics
 	}
 
@@ -762,7 +795,8 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		// FIX: Lock them in the dressing room!
 		if (npc->isSentOff()) continue;
 
-		m_npcController->update(*npc, *m_userPlayer, *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager);
+		// THE FIX: Pass m_userPlayer as a pointer here as well!
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager);
 		npc->update(dt, m_animServer);
 	}
 
@@ -843,19 +877,19 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	// 1. WORLD-SPACE UI (Player Indicator)
 	// ==========================================
 	// Draw this BEFORE changing the view so it stays attached to the player in the world!
+	if (m_userPlayer) {
+		// A CircleShape with 3 points is a triangle!
+		sf::CircleShape indicator(20.f, 3);
+		indicator.setFillColor(sf::Color(255, 255, 0, 130)); // Semi-transparent yellow
+		indicator.setOrigin({ 20.f, 20.f });
+		indicator.setRotation(sf::degrees(270.f)); // Rotate 180 degrees to point down
 
-	// A CircleShape with 3 points is a triangle!
-	sf::CircleShape indicator(20.f, 3);
-	indicator.setFillColor(sf::Color(255, 255, 0, 130)); // Semi-transparent yellow
-	indicator.setOrigin({ 20.f, 20.f });
-	indicator.setRotation(sf::degrees(270.f)); // Rotate 180 degrees to point down
+		// Position it hovering just above the player's head
+		sf::Vector2f playerPos = m_userPlayer->getPosition();
+		indicator.setPosition({ playerPos.x + 100.f, playerPos.y });
 
-	// Position it hovering just above the player's head
-	sf::Vector2f playerPos = m_userPlayer->getPosition();
-	indicator.setPosition({ playerPos.x + 100.f, playerPos.y });
-
-	t_window.draw(indicator);
-
+		t_window.draw(indicator);
+	}
 	// ==========================================
 	// 2. SCREEN-SPACE UI (Minimap & Scoreboard)
 	// ==========================================
@@ -945,7 +979,7 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	}
 
 	// Make sure the User's dot disappears too if you manage to get yourself sent off!
-	if (!m_userPlayer->isSentOff()) {
+	if (m_userPlayer && !m_userPlayer->isSentOff()) {
 		drawMinimapDot(m_userPlayer->getPosition(), sf::Color::Yellow, 4.f);
 	}
 
@@ -1060,112 +1094,112 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	// ==========================================
 	// --- E. PLAYER INFO PANEL (Bottom Right) ---
 	// ==========================================
+	if (m_userPlayer) {
+		// 1. Fetch Player State
+		float currentStamina = m_userPlayer->getCurrentStamina();
+		float maxStamina = m_userPlayer->getMaxStamina();
+		bool hasYellow = m_userPlayer->getYellowCards() > 0; // Make sure you have this getter in Player.h!
+		bool hasRed = m_userPlayer->isSentOff();
+		bool hasCard = hasYellow || hasRed;
 
-	// 1. Fetch Player State
-	float currentStamina = m_userPlayer->getCurrentStamina();
-	float maxStamina = m_userPlayer->getMaxStamina();
-	bool hasYellow = m_userPlayer->getYellowCards() > 0; // Make sure you have this getter in Player.h!
-	bool hasRed = m_userPlayer->isSentOff();
-	bool hasCard = hasYellow || hasRed;
+		// 2. Setup Text
+		std::string playerNum = std::to_string(m_userPlayer->getSquadNumber());
+		std::string playerName = m_userPlayer->getName();
+		std::string playerInfoStr = playerNum + "   " + playerName;
 
-	// 2. Setup Text
-	std::string playerNum = std::to_string(m_userPlayer->getSquadNumber());
-	std::string playerName = m_userPlayer->getName();
-	std::string playerInfoStr = playerNum + "   " + playerName;
+		sf::Text playerInfoText(m_font, playerInfoStr, 24);
+		playerInfoText.setFillColor(sf::Color::White);
 
-	sf::Text playerInfoText(m_font, playerInfoStr, 24);
-	playerInfoText.setFillColor(sf::Color::White);
+		// 3. Layout Dimensions
+		float infoPadding = 20.f;
+		float textWidth = playerInfoText.getLocalBounds().size.x;
+		float cardSpacing = hasCard ? 25.f : 0.f; // Add 25px of width if we need to draw a card
+		float infoBoxWidth = textWidth + 50.f + cardSpacing;
+		float infoBoxHeight = 50.f;
+		float staminaBarHeight = 6.f; // Thin bar attached to the bottom
 
-	// 3. Layout Dimensions
-	float infoPadding = 20.f;
-	float textWidth = playerInfoText.getLocalBounds().size.x;
-	float cardSpacing = hasCard ? 25.f : 0.f; // Add 25px of width if we need to draw a card
-	float infoBoxWidth = textWidth + 50.f + cardSpacing;
-	float infoBoxHeight = 50.f;
-	float staminaBarHeight = 6.f; // Thin bar attached to the bottom
+		// Shift the Y position UP slightly to accommodate the new stamina bar below it
+		sf::Vector2f infoBoxPos(
+			t_window.getSize().x - infoBoxWidth - infoPadding,
+			t_window.getSize().y - (infoBoxHeight + staminaBarHeight) - infoPadding
+		);
 
-	// Shift the Y position UP slightly to accommodate the new stamina bar below it
-	sf::Vector2f infoBoxPos(
-		t_window.getSize().x - infoBoxWidth - infoPadding,
-		t_window.getSize().y - (infoBoxHeight + staminaBarHeight) - infoPadding
-	);
+		// 4. Draw Main Background
+		sf::RectangleShape infoBg(sf::Vector2f(infoBoxWidth, infoBoxHeight));
+		infoBg.setPosition(infoBoxPos);
+		infoBg.setFillColor(sf::Color(20, 20, 30, 220));
+		infoBg.setOutlineThickness(2.f);
+		infoBg.setOutlineColor(sf::Color(255, 255, 255, 150));
+		t_window.draw(infoBg);
 
-	// 4. Draw Main Background
-	sf::RectangleShape infoBg(sf::Vector2f(infoBoxWidth, infoBoxHeight));
-	infoBg.setPosition(infoBoxPos);
-	infoBg.setFillColor(sf::Color(20, 20, 30, 220));
-	infoBg.setOutlineThickness(2.f);
-	infoBg.setOutlineColor(sf::Color(255, 255, 255, 150));
-	t_window.draw(infoBg);
+		// 5. Draw User Team Accent Bar
+		sf::Color userTeamColor = (m_userPlayer->getTeam() == Team::Home) ? m_homeTeamData.uiColor : m_awayTeamData.uiColor;
+		userTeamColor.a = 255; // Force full opacity
 
-	// 5. Draw User Team Accent Bar
-	sf::Color userTeamColor = (m_userPlayer->getTeam() == Team::Home) ? m_homeTeamData.uiColor : m_awayTeamData.uiColor;
-	userTeamColor.a = 255; // Force full opacity
+		sf::RectangleShape playerAccent(sf::Vector2f(12.f, infoBoxHeight));
+		playerAccent.setPosition(infoBoxPos);
+		playerAccent.setFillColor(userTeamColor);
+		t_window.draw(playerAccent);
 
-	sf::RectangleShape playerAccent(sf::Vector2f(12.f, infoBoxHeight));
-	playerAccent.setPosition(infoBoxPos);
-	playerAccent.setFillColor(userTeamColor);
-	t_window.draw(playerAccent);
+		// 6. Draw Card Indicator (If booked)
+		if (hasCard) {
+			sf::RectangleShape cardIcon(sf::Vector2f(12.f, 18.f));
+			cardIcon.setPosition({ infoBoxPos.x + 22.f, infoBoxPos.y + 16.f }); // Nestled next to the accent bar
 
-	// 6. Draw Card Indicator (If booked)
-	if (hasCard) {
-		sf::RectangleShape cardIcon(sf::Vector2f(12.f, 18.f));
-		cardIcon.setPosition({ infoBoxPos.x + 22.f, infoBoxPos.y + 16.f }); // Nestled next to the accent bar
+			if (hasRed) {
+				cardIcon.setFillColor(sf::Color(220, 20, 20, 255));
+			}
+			else {
+				cardIcon.setFillColor(sf::Color(220, 200, 20, 255)); // Yellow
+			}
 
-		if (hasRed) {
-			cardIcon.setFillColor(sf::Color(220, 20, 20, 255));
+			cardIcon.setOutlineThickness(1.f);
+			cardIcon.setOutlineColor(sf::Color(255, 255, 255, 150));
+			t_window.draw(cardIcon);
 		}
-		else {
-			cardIcon.setFillColor(sf::Color(220, 200, 20, 255)); // Yellow
-		}
 
-		cardIcon.setOutlineThickness(1.f);
-		cardIcon.setOutlineColor(sf::Color(255, 255, 255, 150));
-		t_window.draw(cardIcon);
+		// 7. Draw Text (Pushed further to the right if there is a card present)
+		playerInfoText.setPosition({ infoBoxPos.x + 25.f + cardSpacing, infoBoxPos.y + 10.f });
+		t_window.draw(playerInfoText);
+
+		// ==========================================
+		// --- NEW: STAMINA BAR ---
+		// ==========================================
+		sf::Vector2f staminaPos(infoBoxPos.x, infoBoxPos.y + infoBoxHeight);
+
+		// A. Background (Empty Gas Tank)
+		sf::RectangleShape staminaBg(sf::Vector2f(infoBoxWidth, staminaBarHeight));
+		staminaBg.setPosition(staminaPos);
+		staminaBg.setFillColor(sf::Color(30, 30, 30, 240));
+		staminaBg.setOutlineThickness(2.f);
+		staminaBg.setOutlineColor(sf::Color(255, 255, 255, 150));
+		t_window.draw(staminaBg);
+
+		// B. Foreground (Current Gas)
+		float staminaRatio = std::clamp(currentStamina / maxStamina, 0.0f, 1.0f);
+
+		// Only draw the fill if they actually have stamina left
+		if (staminaRatio > 0.01f)
+		{
+			sf::RectangleShape staminaFill(sf::Vector2f(infoBoxWidth * staminaRatio, staminaBarHeight));
+			staminaFill.setPosition(staminaPos);
+
+			// Color gradient: Green -> Yellow -> Red based on exhaustion
+			sf::Color stamColor;
+			if (staminaRatio > 0.5f) {
+				stamColor = sf::Color(40, 200, 40, 255);       // Healthy Green
+			}
+			else if (staminaRatio > 0.2f) {
+				stamColor = sf::Color(220, 200, 20, 255);      // Warning Yellow
+			}
+			else {
+				stamColor = sf::Color(220, 40, 40, 255);       // Danger Red
+			}
+
+			staminaFill.setFillColor(stamColor);
+			t_window.draw(staminaFill);
+		}
 	}
-
-	// 7. Draw Text (Pushed further to the right if there is a card present)
-	playerInfoText.setPosition({ infoBoxPos.x + 25.f + cardSpacing, infoBoxPos.y + 10.f });
-	t_window.draw(playerInfoText);
-
-	// ==========================================
-	// --- NEW: STAMINA BAR ---
-	// ==========================================
-	sf::Vector2f staminaPos(infoBoxPos.x, infoBoxPos.y + infoBoxHeight);
-
-	// A. Background (Empty Gas Tank)
-	sf::RectangleShape staminaBg(sf::Vector2f(infoBoxWidth, staminaBarHeight));
-	staminaBg.setPosition(staminaPos);
-	staminaBg.setFillColor(sf::Color(30, 30, 30, 240));
-	staminaBg.setOutlineThickness(2.f);
-	staminaBg.setOutlineColor(sf::Color(255, 255, 255, 150));
-	t_window.draw(staminaBg);
-
-	// B. Foreground (Current Gas)
-	float staminaRatio = std::clamp(currentStamina / maxStamina, 0.0f, 1.0f);
-
-	// Only draw the fill if they actually have stamina left
-	if (staminaRatio > 0.01f)
-	{
-		sf::RectangleShape staminaFill(sf::Vector2f(infoBoxWidth * staminaRatio, staminaBarHeight));
-		staminaFill.setPosition(staminaPos);
-
-		// Color gradient: Green -> Yellow -> Red based on exhaustion
-		sf::Color stamColor;
-		if (staminaRatio > 0.5f) {
-			stamColor = sf::Color(40, 200, 40, 255);       // Healthy Green
-		}
-		else if (staminaRatio > 0.2f) {
-			stamColor = sf::Color(220, 200, 20, 255);      // Warning Yellow
-		}
-		else {
-			stamColor = sf::Color(220, 40, 40, 255);       // Danger Red
-		}
-
-		staminaFill.setFillColor(stamColor);
-		t_window.draw(staminaFill);
-	}
-
 	// ==========================================
 		// --- F. GOAL BANNER (Broadcast Popup) ---
 		// ==========================================
@@ -1326,7 +1360,10 @@ void GamePlay::drawDebugNames(sf::RenderWindow& window, const sf::Font& font) {
 
 	// 2. Gather all players
 	std::vector<Player*> allPlayers;
-	allPlayers.push_back(m_userPlayer.get());
+	if (m_userPlayer)
+	{
+		allPlayers.push_back(m_userPlayer.get());
+	}
 	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
 	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 

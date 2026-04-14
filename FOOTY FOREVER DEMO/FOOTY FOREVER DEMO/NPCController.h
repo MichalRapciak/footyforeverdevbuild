@@ -32,7 +32,7 @@ public:
     ~NPCController();
 
     // The main entry point for the AI brain
-    void update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
+    void update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         const std::vector<Player*>& team, const std::vector<Player*>& opposition,
         const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
         const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager);

@@ -287,6 +287,9 @@
     <ClInclude Include="PlaystyleDatabase.h">
       <Filter>Header Files\Tactical Info\Player Tactics</Filter>
     </ClInclude>
+    <ClInclude Include="InjuryData.h">
+      <Filter>Header Files\Tactical Info</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

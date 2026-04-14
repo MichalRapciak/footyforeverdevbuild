@@ -32,43 +32,81 @@ void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& 
     float stat = isHighPass ? passer.getLongPassing() : ((rawDist < 1500.f) ? passer.getShortPassing() : passer.getLongPassing());
     float passingNorm = stat / 100.f;
 
-    // 1. Physics Prediction (Lead the target)
-    float arrivalSpeed = 500.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 300.f);
-    float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * 800.f * rawDist));
-    float travelTime = (rawDist > 1200.f) ? (rawDist / v0_est) + 0.3f : rawDist / ((v0_est + arrivalSpeed) * 0.5f);
+    float travelTime = 0.f;
+    float idealPowerWorld = 0.f;
+    sf::Vector2f aimSpot = targetPos;
 
-    sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
-    sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
+    if (isHighPass) {
+        // 1. Predict the Vz loft we will use (matches executePass exactly)
+        float maxLoft = std::clamp(500.f + (rawDist * 0.25f), 700.f, 1150.f);
+        float vzPower = std::max(maxLoft - ((stat / 100.f) * 80.f), 300.f);
 
-    // Elite players lead the pass further into space
-    float leadAmount = (passingNorm > 0.8f) ? 250.f : 80.f;
-    sf::Vector2f aimSpot = predictedPos + (dirToPredicted * leadAmount);
+        // 2. Exact Parabolic Time to reach Z = 30 (chest/hip height to control the ball)
+        // Solved via Quadratic Formula: 0.5*g*t^2 - Vz*t + Z = 0
+        float g = 980.f;
+        float targetZ = 30.f;
+        float discriminant = (vzPower * vzPower) - (2.f * g * targetZ);
 
+        if (discriminant > 0.f) {
+            // We take the '+' root because we want the time when the ball is falling DOWN to Z=30, not rising past it!
+            travelTime = (vzPower + std::sqrt(discriminant)) / g;
+        }
+        else {
+            travelTime = (2.0f * vzPower) / g; // Fallback to total flight time if Z=30 isn't reached
+        }
+
+        // 3. Predict receiver's position
+        sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
+
+        // Elite players lead the pass slightly into the space the player is running
+        float leadAmount = (passingNorm > 0.8f) ? 120.f : 40.f;
+        sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
+        aimSpot = predictedPos + (dirToPredicted * leadAmount);
+
+        float perfectDist = dist(playerPos, aimSpot);
+
+        // 4. Exact Horizontal Physics + Aerodynamic Drag Tax
+        float requiredVelocity = perfectDist / travelTime;
+        float dragTax = 1.0f + (travelTime * 0.12f); // ~12% power loss per second of flight
+        idealPowerWorld = requiredVelocity * dragTax;
+    }
+    else {
+        // GROUND PASS PHYSICS
+        float ballFriction = 800.f;
+        float arrivalSpeed = 500.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 300.f);
+
+        // Kinematics: V_initial = sqrt(V_final^2 + 2*a*d)
+        float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * rawDist));
+        travelTime = (v0_est - arrivalSpeed) / ballFriction;
+
+        sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
+
+        float leadAmount = (passingNorm > 0.8f) ? 200.f : 80.f;
+        sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
+        aimSpot = predictedPos + (dirToPredicted * leadAmount);
+
+        float perfectDist = dist(playerPos, aimSpot);
+        idealPowerWorld = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * perfectDist));
+    }
+
+    // --- 5. APPLY MAGNETISM TO AIM ---
     sf::Vector2f perfectPassDir = normalize(aimSpot - playerPos);
-    float perfectDist = dist(playerPos, aimSpot);
-
-    // 2. Aim Magnetism
     float aimDot = (aimDir.x * perfectPassDir.x) + (aimDir.y * perfectPassDir.y);
 
-    // If the player/NPC is looking generally in the right direction, snap the pass
     if (aimDot > 0.5f) {
-        float magnetism = 0.4f + (passingNorm * 0.5f); // 90 stat = 85% snap, 50 stat = 65% snap
+        float magnetism = 0.4f + (passingNorm * 0.5f);
         aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectPassDir * magnetism));
     }
 
-    // 3. Power Assistance
-    float idealPowerWorld = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * 800.f * perfectDist));
-    float idealPowerAssisted = idealPowerWorld / 52.0f;
-    idealPowerAssisted *= isHighPass ? 0.55f : 1.1f;
+    // --- 6. APPLY MAGNETISM TO POWER ---
+    float idealPowerAssisted = idealPowerWorld / 52.0f; // 52.0f is the KickPower -> Velocity conversion
 
     if (isNPC) {
-        // NPCs just use the ideal power, with a slight stat-based error
         float weightErrorFactor = (1.0f - passingNorm) * 0.12f;
         float randomWeight = 1.0f + (((rand() % 200) - 100) / 100.f) * weightErrorFactor;
         kickPower = std::min(idealPowerAssisted * randomWeight, passer.getKickPower());
     }
     else {
-        // Users blend their charged bar with the ideal power
         float powerMagnetism = 0.3f + (passingNorm * 0.6f);
         kickPower = (kickPower * (1.0f - powerMagnetism)) + (idealPowerAssisted * powerMagnetism);
         kickPower = std::min(kickPower, passer.getKickPower());
@@ -123,7 +161,7 @@ void AimAssist::applyShotAssist(Player& shooter, sf::Vector2f& aimDir, float& vz
         sf::Vector2f perfectDir = normalize(sf::Vector2f(goalX, targetY) - playerPos);
 
         // Finishing stat determines how strongly the aimbot pulls the shot into the corner
-        float magnetism = (shooter.getFinishing() / 100.f) * 0.75f;
+        float magnetism = (shooter.getFinishing() / 100.f) * 0.95f;
         aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectDir * magnetism));
 
         // 3D VZ Dip Calculation (Dipping shots)

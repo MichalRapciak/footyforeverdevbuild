@@ -30,7 +30,6 @@ public:
 	void update(float dt, AnimationServer& animServer) override;
 
 private:
-
 	sf::Vector2f m_tackleDirection;
 
 	sf::Vector2f m_playerAim{ 0, 0 }; // coordinates where player is aiming

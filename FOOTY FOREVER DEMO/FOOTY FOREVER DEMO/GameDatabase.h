@@ -6,6 +6,7 @@
 #include "PlayerStats.h"
 #include "PositionRole.h"
 #include "Playstyle.h"
+#include "InjuryData.h"
 
 // --- SUB-STRUCTURES ---
 
@@ -78,6 +79,11 @@ struct PlayerData {
 
     int sharpness;
     int loyalty;
+
+    bool isInjured = false;
+    std::string currentInjury = "";
+    int injuryDaysRemaining = 0;
+    InjurySeverity currentInjurySeverity = InjurySeverity::Knock;
 
     std::vector<std::string> traits;
     PositionRole positionRole; // <-- CHANGED to your Enum!

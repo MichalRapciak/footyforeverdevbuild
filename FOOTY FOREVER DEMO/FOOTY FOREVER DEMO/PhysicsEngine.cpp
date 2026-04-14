@@ -1,6 +1,7 @@
 #include "PhysicsEngine.h"
 #include "Player.h"
 #include "Ball.h"
+#include "NPCPlayer.h"
 #include "Pitch.h"
 #include <cmath>
 #include <algorithm>
@@ -17,14 +18,18 @@ void PhysicsEngine::applyBallAerodynamics(Ball& ball, float dt) {
     float trueSpeed = std::sqrt((speed * speed) + (ball.vz * ball.vz));
 
     // 1. THE MAGNUS EFFECT (Curve)
-    if (ball.z > 5.f && speed > 50.f && std::abs(ball.spin) > 0.1f) {
+        // THE FIX: Removed "ball.z > 5.f" so the ball can grip the grass and curve on the ground!
+    if (speed > 50.f && std::abs(ball.spin) > 0.1f) {
         sf::Vector2f perpendicular(-ball.velocity.y, ball.velocity.x);
         perpendicular /= speed;
 
         float heightFactor = std::clamp(ball.z / 400.f, 0.0f, 1.0f);
         float altitudeDampener = 1.0f - (heightFactor * 0.8f);
         float speedFactor = std::clamp(speed / 1000.f, 0.2f, 1.0f);
-        float spinStrength = 15.0f * altitudeDampener * speedFactor;
+
+        // Ground passes grip the grass and curve slightly more aggressively!
+        float gripMultiplier = (ball.z <= 5.f) ? 1.35f : 1.0f;
+        float spinStrength = 15.0f * altitudeDampener * speedFactor * gripMultiplier;
 
         ball.velocity += perpendicular * ball.spin * spinStrength * dt;
 
@@ -66,7 +71,9 @@ void PhysicsEngine::applyBallFrictionAndSpin(Ball& ball, float dt) {
     float speed = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.y * ball.velocity.y);
 
     // Decay Side Spin
-    float currentSpinFriction = (ball.z <= 0.f) ? 150.0f : 0.5f;
+    // THE FIX: Reduced ground spin friction from 150.f to 35.f! 
+    // Now a spin of 90 will last for ~2.5 seconds, allowing long ground passes to bend.
+    float currentSpinFriction = (ball.z <= 0.f) ? 35.0f : 0.5f;
     if (ball.spin > 0) ball.spin = std::max(0.f, ball.spin - currentSpinFriction * dt);
     else if (ball.spin < 0) ball.spin = std::min(0.f, ball.spin + currentSpinFriction * dt);
 
@@ -221,26 +228,9 @@ void PhysicsEngine::applyTangentialVelocityDamping(Player& player, sf::Vector2f 
     }
 }
 
-void PhysicsEngine::resolvePlayerPitchBoundaries(Player& player, const Pitch& pitch) {
-    sf::Vector2f pos = player.getPosition();
-    sf::Vector2f vel = player.getVelocity();
-    bool clamped = false;
-
-    // Use the pitch margin to keep them strictly on the grass
-    if (pos.x < pitch.margin) { pos.x = pitch.margin; vel.x *= 0.5f; clamped = true; }
-    if (pos.x > pitch.totalWidth - pitch.margin) { pos.x = pitch.totalWidth - pitch.margin; vel.x *= 0.5f; clamped = true; }
-
-    if (pos.y < pitch.margin) { pos.y = pitch.margin; vel.y *= 0.5f; clamped = true; }
-    if (pos.y > pitch.totalHeight - pitch.margin) { pos.y = pitch.totalHeight - pitch.margin; vel.y *= 0.5f; clamped = true; }
-
-    if (clamped) {
-        player.setPosition(pos);
-        player.setVelocity(vel); // Apply the 50% momentum loss from hitting the wall
-    }
-}
-
 void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir, float maxSpeed, float dt) {
     if (player.getState() == PlayerState::Tackling) return;
+    if (player.getState() == PlayerState::Injured) return;
 
     // Check for a "Micro-Input" threshold
     float inputLenSq = inputDir.x * inputDir.x + inputDir.y * inputDir.y;
@@ -256,77 +246,157 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
     float currentSpeed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
     float absoluteTopSpeed = player.getTopSpeed() * 10.f;
 
-    // 1. LOCAL AXES (Based on where the player is currently aiming)
-    sf::Vector2f forwardDir = player.getAimDirection();
-    sf::Vector2f rightDir(-forwardDir.y, forwardDir.x);
+    bool hasBall = player.getBallPossession();
+    float bcNorm = player.getBallControl() / 100.f;
+    float agilityNorm = player.getAgility() / 100.f;
 
-    float currentFwdSpeed = (vel.x * forwardDir.x + vel.y * forwardDir.y);
-    float currentSideSpeed = (vel.x * rightDir.x + vel.y * rightDir.y);
-    float inputForward = (inputDir.x * forwardDir.x + inputDir.y * forwardDir.y);
-    float inputRight = (inputDir.x * rightDir.x + inputDir.y * rightDir.y);
+    // ==========================================
+    // --- THE ASYMMETRICAL AI LOCK ---
+    // ==========================================
+    // Replace this with however your engine checks for AI vs User!
+    // e.g., bool isAI = (dynamic_cast<NPCPlayer*>(&player) != nullptr);
+    bool isAI = (dynamic_cast<NPCPlayer*>(&player) != nullptr);
 
-    // 2. BRAKING (If input opposes current momentum)
-    float brakeForce = player.getAgility() * 4.0f; // Buffed native braking slightly
-    if ((currentFwdSpeed > 0 && inputForward < -0.1f) || (currentFwdSpeed < 0 && inputForward > 0.1f)) {
-        float fwdBrake = brakeForce * 1.5f * std::abs(inputForward) * dt;
-        if (std::abs(currentFwdSpeed) < fwdBrake) vel -= forwardDir * currentFwdSpeed;
-        else vel -= forwardDir * (currentFwdSpeed > 0 ? fwdBrake : -fwdBrake);
-    }
-
-    if (std::abs(currentSideSpeed) > 10.f) {
-        float sideAlignment = (inputRight > 0) == (currentSideSpeed > 0) ? std::abs(inputRight) : -std::abs(inputRight);
-        if (sideAlignment < 0.5f) {
-            float sideBrake = brakeForce * 4.5f * dt;
-            if (std::abs(currentSideSpeed) < sideBrake) vel -= rightDir * currentSideSpeed;
-            else vel -= rightDir * (currentSideSpeed > 0 ? sideBrake : -sideBrake);
-        }
-    }
-
-    // 3. DYNAMIC TURN SHARPNESS & ORBITAL BRAKING
-    sf::Vector2f velDir = (currentSpeed > 5.f) ? (vel / currentSpeed) : inputDir;
-    float moveTurnDot = (velDir.x * inputDir.x) + (velDir.y * inputDir.y);
-
+    // ==========================================
+    // 1. DYNAMIC TURN SHARPNESS & REDIRECTION
+    // ==========================================
+    sf::Vector2f velDir = (currentSpeed > 5.f) ? (vel / currentSpeed) : normInput;
+    float moveTurnDot = (velDir.x * normInput.x) + (velDir.y * normInput.y);
     float speedRatio = std::clamp(currentSpeed / absoluteTopSpeed, 0.0f, 1.0f);
+
     float turnMultiplier = 1.8f;
+    bool isDrifting = false;
 
-    // THE FIX: If momentum is misaligned from the input direction, we brake!
-    // A slight curve (0.8) brakes a little. A sharp 90-degree turn (0.0) brakes hard. A U-turn (-1.0) slams the brakes.
-    if (moveTurnDot < 0.95f) {
-        float misalignment = 1.0f - moveTurnDot; // Ranges from 0.05 to 2.0
+    // If turning sharper than ~75 degrees (dot < 0.25) at over 75% speed!
+    if (moveTurnDot < 0.25f && speedRatio > 0.75f) {
+        if (((float)(rand() % 100) / 100.f) > agilityNorm) isDrifting = true;
+    }
 
-        // Massive friction applied to kill "orbital" drifting
-        float hardBrakeFriction = player.getAgility() * 15.0f * misalignment * dt;
+    if (moveTurnDot < 0.85f) {
+        float misalignment = 1.0f - moveTurnDot; // Ranges from 0.15 to 2.0
 
-        float newSpeed = std::max(0.0f, currentSpeed - hardBrakeFriction);
-        if (currentSpeed > 0.0f) {
-            vel = velDir * newSpeed; // Keep them on their momentum vector, just slow it down
-            currentSpeed = newSpeed;
+        if (isDrifting) {
+            // ICE SKATES! They lost their footing.
+            float driftBrake = player.getAgility() * 2.0f * dt;
+            currentSpeed = std::max(0.0f, currentSpeed - driftBrake);
+            vel = velDir * currentSpeed;
+            turnMultiplier = 0.0f; // Cannot cut into the new direction while sliding
+        }
+        else if (hasBall && isAI) {
+            // ==========================================
+            // THE FIX 1: AI-ONLY VECTOR SNAP
+            // ==========================================
+            // AI dribblers instantly bend their momentum toward the input!
+            float pivotRate = (3.0f + (agilityNorm * 7.0f)) * dt;
+            pivotRate = std::clamp(pivotRate, 0.0f, 1.0f);
+
+            // Mathematically carve the trajectory smoothly
+            velDir = normalize((velDir * (1.0f - pivotRate)) + (normInput * pivotRate));
+
+            // The U-Turn Tax
+            float baseFriction = player.getAgility() * 5.0f * misalignment * dt;
+            if (misalignment > 1.0f) baseFriction *= 1.8f;
+
+            currentSpeed = std::max(0.0f, currentSpeed - baseFriction);
+            vel = velDir * currentSpeed;
+
+            // High BC AI players keep a massive chunk of their burst
+            float minTurnAccel = 0.4f + (bcNorm * 0.4f);
+            float penalty = misalignment * (0.3f + (speedRatio * 0.4f));
+            turnMultiplier = std::max(minTurnAccel, 1.2f - penalty);
+        }
+        else {
+            // ==========================================
+            // STANDARD BRAKING (Off-Ball AND Human Dribblers)
+            // ==========================================
+            float hardBrakeFriction = player.getAgility() * 15.0f * misalignment * dt;
+            currentSpeed = std::max(0.0f, currentSpeed - hardBrakeFriction);
+            vel = velDir * currentSpeed;
+
+            float turnPenaltyIntensity = 0.6f + (speedRatio * 1.5f);
+            turnMultiplier = std::max(0.1f, 1.5f - (misalignment * turnPenaltyIntensity));
+        }
+    }
+
+    // ==========================================
+    // 2. ACCELERATION (Burst from standing still)
+    // ==========================================
+    float explosionFactor = std::pow(1.0f - speedRatio, 3.0f);
+    float burstMultiplier = 1.f + (explosionFactor * 25.f);
+
+    if (isDrifting) burstMultiplier = 0.2f;
+
+    sf::Vector2f accelVec(0.f, 0.f);
+
+    // ==========================================
+    // 3. OMNI-DIRECTIONAL vs TANK CONTROLS
+    // ==========================================
+    if (hasBall && isAI) {
+        // ==========================================
+        // THE FIX 2: AI-ONLY OMNI-DIRECTIONAL BURST
+        // ==========================================
+        float fwdAccel = player.getAcceleration() * burstMultiplier * turnMultiplier;
+
+        // Elite AI dribblers get an injection of base acceleration and top speed
+        fwdAccel *= 0.9f + (bcNorm * 0.5f) + (agilityNorm * 0.2f);
+        maxSpeed *= 0.9f + (bcNorm * 0.3f) + (agilityNorm * 0.1f);
+
+        accelVec = normInput * fwdAccel; // Drive directly into the input!
+    }
+    else {
+        // ==========================================
+        // TANK CONTROLS (Off-Ball AND Human Dribblers)
+        // ==========================================
+        sf::Vector2f forwardDir = player.getAimDirection();
+        sf::Vector2f rightDir(-forwardDir.y, forwardDir.x);
+
+        float currentFwdSpeed = (vel.x * forwardDir.x + vel.y * forwardDir.y);
+        float currentSideSpeed = (vel.x * rightDir.x + vel.y * rightDir.y);
+        float inputForward = (normInput.x * forwardDir.x + normInput.y * forwardDir.y);
+        float inputRight = (normInput.x * rightDir.x + normInput.y * rightDir.y);
+
+        // Braking against momentum
+        float brakeForce = player.getAgility() * 4.0f;
+        if ((currentFwdSpeed > 0 && inputForward < -0.1f) || (currentFwdSpeed < 0 && inputForward > 0.1f)) {
+            float fwdBrake = brakeForce * 1.5f * std::abs(inputForward) * dt;
+            if (std::abs(currentFwdSpeed) < fwdBrake) vel -= forwardDir * currentFwdSpeed;
+            else vel -= forwardDir * (currentFwdSpeed > 0 ? fwdBrake : -fwdBrake);
         }
 
-        // Reduce acceleration briefly while making sharp turns so they don't slide
-        float turnPenaltyIntensity = 0.2f + (speedRatio * 1.0f);
-        turnMultiplier = std::max(0.15f, 1.5f - (misalignment * turnPenaltyIntensity));
+        if (std::abs(currentSideSpeed) > 10.f) {
+            float sideAlignment = (inputRight > 0) == (currentSideSpeed > 0) ? std::abs(inputRight) : -std::abs(inputRight);
+            if (sideAlignment < 0.5f) {
+                float sideBrake = brakeForce * 4.5f * dt;
+                if (std::abs(currentSideSpeed) < sideBrake) vel -= rightDir * currentSideSpeed;
+                else vel -= rightDir * (currentSideSpeed > 0 ? sideBrake : -sideBrake);
+            }
+        }
+
+        float fwdAccel = player.getAcceleration() * burstMultiplier * turnMultiplier;
+        float sideAccel = player.getAgility() * (burstMultiplier * 0.5f + 0.4f);
+
+        if (inputForward < 0.f) {
+            fwdAccel *= 0.6f;
+            maxSpeed *= 0.7f;
+        }
+
+        // ==========================================
+        // HUMAN DRIBBLING PENALTY
+        // ==========================================
+        // The human player uses Tank Controls AND receives a realistic 
+        // physics penalty to their acceleration when carrying the ball!
+        if (hasBall && !isAI) {
+            fwdAccel *= 0.5f + (bcNorm * 0.25f);
+            maxSpeed *= 0.85f + (bcNorm * 0.15f);
+        }
+
+        accelVec = (forwardDir * inputForward * fwdAccel) + (rightDir * inputRight * sideAccel);
     }
 
-    // 4. ACCELERATION (Burst from standing still)
-    float burstMultiplier = 1.f + (1.f - std::min(speedRatio, 1.f)) * 12.f;
-    float fwdAccel = player.getAcceleration() * burstMultiplier * turnMultiplier;
-    float sideAccel = player.getAgility() * (burstMultiplier + 0.4f);
-
-    if (player.getBallPossession()) {
-        fwdAccel *= 0.5f + ((player.getBallControl() / 100.f) * 0.25f);
-    }
-
-    // Optional: Make backpedaling inherently slower than running forward
-    if (inputForward < 0.f) {
-        fwdAccel *= 0.6f;
-        maxSpeed *= 0.7f;
-    }
-
-    sf::Vector2f accelVec = (forwardDir * inputForward * fwdAccel) + (rightDir * inputRight * sideAccel);
-
-    // 5. APPLY ACCEL & SPEED LIMIT
-    float forwardSpeedAfterBrake = (vel.x * inputDir.x + vel.y * inputDir.y);
+    // ==========================================
+    // 4. APPLY ACCEL & SPEED LIMIT
+    // ==========================================
+    float forwardSpeedAfterBrake = (vel.x * normInput.x + vel.y * normInput.y);
     if (forwardSpeedAfterBrake < maxSpeed) {
         vel += accelVec * dt;
     }
@@ -337,6 +407,60 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
     }
 
     player.setVelocity(vel);
+}
+
+void PhysicsEngine::resolvePlayerPitchBoundaries(Player& player, const Pitch& pitch) {
+    sf::Vector2f pos = player.getPosition();
+    sf::Vector2f vel = player.getVelocity();
+    float radius = player.getCollisionRadius(); // Ensure we bounce from the edge of the player
+    bool bounced = false;
+
+    // The restitution (bounciness). 
+    // 0.4f means they lose 60% of their speed but definitely get pushed back.
+    const float adboardRestitution = 0.40f;
+
+    // ==========================================
+    // --- X-AXIS (Goal Ends / Corner Boards) ---
+    // ==========================================
+    if (pos.x < radius) {
+        pos.x = radius;
+        vel.x = -vel.x * adboardRestitution;
+        bounced = true;
+    }
+    else if (pos.x > pitch.totalWidth - radius) {
+        pos.x = pitch.totalWidth - radius;
+        vel.x = -vel.x * adboardRestitution;
+        bounced = true;
+    }
+
+    // ==========================================
+    // --- Y-AXIS (Touchlines / Long Adboards) ---
+    // ==========================================
+    if (pos.y < radius) {
+        pos.y = radius;
+        vel.y = -vel.y * adboardRestitution;
+        bounced = true;
+    }
+    else if (pos.y > pitch.totalHeight - radius) {
+        pos.y = pitch.totalHeight - radius;
+        vel.y = -vel.y * adboardRestitution;
+        bounced = true;
+    }
+
+    if (bounced) {
+        // Snap to the surface of the adboard
+        player.setPosition(pos);
+
+        // If they hit the wall hard enough, they should lose balance slightly
+        float impactSpeed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+        if (impactSpeed > 400.f && player.getState() == PlayerState::Normal) {
+            // Optional: trigger a small stumble or 0.1s stun so they can't 
+            // instantly turn and sprint away after hitting a wall at full tilt
+            player.setStumbled(0.15f);
+        }
+
+        player.setVelocity(vel);
+    }
 }
 
 // ==========================================
@@ -461,9 +585,9 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                 // --- FOUL / WIPEOUT ---
                                 sf::Vector2f impactDir = victim->getPosition() - tackler->getPosition();
                                 if (impactDir.x == 0 && impactDir.y == 0) impactDir.x = 1.f;
-
-                                victim->triggerFallOver(normalize(impactDir) * (isSameTeam ? 600.f : 800.f), animServer);
-
+                                float impactForce = isSameTeam ? 600.f : 800.f;
+                                victim->triggerFallOver(normalize(impactDir) * (impactForce), animServer);
+                                victim->checkInjury(impactForce);
                                 tackler->resetTackleCooldown();
                                 tackler->setState(PlayerState::Normal);
                                 tackler->setVelocity({ 0.f, 0.f });
@@ -563,9 +687,11 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
 
                     if (deltaV2 > thresh2 * 8.0f) {
                         p2->triggerFallOver(normalize(p2->getPosition() - p1->getPosition()) * 600.f, animServer);
+                        p2->checkInjury(deltaV2); // THE FIX: Big collision impact!
                     }
                     if (deltaV1 > thresh1 * 8.0f) {
                         p1->triggerFallOver(normalize(p1->getPosition() - p2->getPosition()) * 600.f, animServer);
+                        p1->checkInjury(deltaV1); // THE FIX: Big collision impact!
                     }
                 }
             }
@@ -916,4 +1042,10 @@ void PhysicsEngine::resolvePlayerGoalCollisions(Player& player, const Goal& goal
         };
     collideWithPost(goal.topPost);
     collideWithPost(goal.bottomPost);
+}
+
+sf::Vector2f PhysicsEngine::normalize(sf::Vector2f source) {
+    float length = std::sqrt(source.x * source.x + source.y * source.y);
+    if (length != 0) return source / length;
+    return source;
 }

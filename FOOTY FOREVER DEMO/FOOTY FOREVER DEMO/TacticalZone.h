@@ -1,12 +1,15 @@
 #pragma once
 
+/// <summary>
+///  // forwardLeash, backwardLeash, lateralLeash, ballInfluence, markingRange, roamingFreedom, widthPreference, supportDepth, pressingTrigger
+/// </summary>
 struct TacticalZone {
     float forwardLeash;
     float backwardLeash;
     float lateralLeash;
     float ballInfluence;
     float markingRange; // New: Distance to trigger man-marking
-
+    // forwardLeash, backwardLeash, lateralLeash, ballInfluence, markingRange, roamingFreedom, widthPreference, supportDepth, pressingTrigger
     // --- NEW: Playstyle Modifiers ---
 
     // 0.0 = Rigid (Stays strictly in position), 1.0 = Free Roam (Ignores leashes to find space)

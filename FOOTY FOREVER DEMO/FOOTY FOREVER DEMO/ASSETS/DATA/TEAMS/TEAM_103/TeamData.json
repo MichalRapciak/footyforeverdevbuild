@@ -1,0 +1,64 @@
+{
+    "TEAM_103": {
+        "badge_id": "Badge_Default",
+        "full_name": "Manchester City",
+        "kits": {
+            "shirt": {
+                "design_layers": [],
+                "primary_color": "#00FFD9"
+            },
+            "shorts": {
+                "design_layers": [],
+                "primary_color": "#53D7CA"
+            },
+            "socks": {
+                "design_layers": [],
+                "primary_color": "#4FCBC1"
+            }
+        },
+        "manager_name": "Pep Guardiola",
+        "roster": [
+            "PLY_1036",
+            "PLY_1037",
+            "PLY_1038",
+            "PLY_1040",
+            "PLY_1041",
+            "PLY_1042",
+            "PLY_1043",
+            "PLY_1044",
+            "PLY_1045",
+            "PLY_1046",
+            "PLY_1039"
+        ],
+        "short_name": "MCFC",
+        "stadium_name": "Etihad Stadium",
+        "tactics": {
+            "attacking_width": 59,
+            "captain_id": "PLY_1042",
+            "defensive_depth": 42,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1042",
+            "left_corner_taker_id": "PLY_1043",
+            "passing_length": 15,
+            "passing_speed": 91,
+            "penalty_taker_id": "PLY_1036",
+            "positional_freedom": 72,
+            "pressing_intensity": 60,
+            "right_corner_taker_id": "PLY_1043",
+            "starting_xi": {
+                "0": "PLY_1040",
+                "1": "PLY_1046",
+                "10": "PLY_1037",
+                "2": "PLY_1041",
+                "3": "PLY_1045",
+                "4": "PLY_1044",
+                "5": "PLY_1042",
+                "6": "PLY_1038",
+                "7": "PLY_1043",
+                "8": "PLY_1039",
+                "9": "PLY_1036"
+            }
+        },
+        "ui_color": "#73CAC7"
+    }
+}

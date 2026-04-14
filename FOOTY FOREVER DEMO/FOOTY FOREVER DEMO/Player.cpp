@@ -28,6 +28,10 @@ void Player::loadFromData(const PlayerData& data)
     m_preferredFoot = data.preferredFoot;
     m_traits = data.traits;
     m_playstyle = PlaystyleDatabase::getPlaystyle(data.playstyle.type);
+    isInjured = data.isInjured;
+    currentInjury = data.currentInjury;
+    injuryDaysRemaining = data.injuryDaysRemaining;
+    currentInjurySeverity = data.currentInjurySeverity;
 
     height = static_cast<float>(data.heightCm);
     weight = static_cast<float>(data.weightKg);
@@ -97,6 +101,12 @@ void Player::swapIdentityWith(Player* other) {
     std::swap(this->m_currentStamina, other->m_currentStamina);
     std::swap(this->m_yellowCards, other->m_yellowCards);
     std::swap(this->m_isSentOff, other->m_isSentOff);
+
+    // Injury info
+    std::swap(this->isInjured, other->isInjured);
+    std::swap(this->currentInjury, other->currentInjury);
+    std::swap(this->injuryDaysRemaining, other->injuryDaysRemaining);
+    std::swap(this->currentInjurySeverity, other->currentInjurySeverity);
 
     // 6. Graphics Sync (Apply the new heights and visually snap the sprites)
     this->applyPhysicalScale();
@@ -287,7 +297,20 @@ void Player::update(float dt, AnimationServer& animServer)
     float BASE_RUN_SPEED = 400.f;
 
     float animSpeedMultiplier = 1.0f;
-    if (speed > 10.f) {
+
+    // ==========================================
+    // --- THE FIX: ANIMATION DEADZONE ---
+    // ==========================================
+    if (speed < 10.f && m_currentState != PlayerState::Tackling) {
+        // Player is practically stationary. 
+        // Stop the animation clock entirely so they don't jitter!
+        animSpeedMultiplier = 0.0f;
+
+        // Force the animator to reset to the standing frame (Frame 0)
+        m_animator.setFrame(0);
+    }
+    else {
+        // Player is moving. Scale the animation speed dynamically!
         animSpeedMultiplier = speed / BASE_RUN_SPEED;
         animSpeedMultiplier = std::clamp(animSpeedMultiplier, 0.6f, 2.5f);
     }
@@ -298,7 +321,7 @@ void Player::update(float dt, AnimationServer& animServer)
     if (m_currentState == PlayerState::Tackling)
     {
         m_tackleTimer -= dt;
-        m_velocity *= 0.98f;
+        m_velocity *= 0.985f;
 
         if (!m_tackleAnimTriggered) {
             m_sprite.setTexture(animServer.getTackleTexture());
@@ -348,7 +371,7 @@ void Player::startTackle(sf::Vector2f direction)
     if (len > 0.f) direction /= len;
 
     float currentSpeed = std::sqrt(m_velocity.x * m_velocity.x + m_velocity.y * m_velocity.y);
-    float lungeForce = std::max(currentSpeed * 2.0f, m_stats.getTopSpeed() * 1.5f);
+    float lungeForce = std::max(currentSpeed * 2.0f, m_stats.getTopSpeed() * 1.75f);
 
     m_velocity = direction * lungeForce;
     deductStaminaAction(1.5f);
@@ -357,6 +380,7 @@ void Player::startTackle(sf::Vector2f direction)
 sf::FloatRect Player::getTackleHitbox()
 {
     sf::Vector2f pos = m_position;
+    sf::Vector2f vel = getVelocity(); // Read the raw physics velocity
 
     // 1. Dynamic Reach: Base 40px + (Height * 0.2). 
     // A 175cm player gets 75px reach. A 195cm player gets 79px reach.
@@ -371,14 +395,39 @@ sf::FloatRect Player::getTackleHitbox()
     float boxWidth = thickness;
     float boxHeight = thickness;
 
-    // 3. Shift the box explicitly in the 8 directions!
+    // ==========================================
+    // --- VELOCITY-BASED DIRECTION OVERRIDE ---
+    // ==========================================
+    // Default to where they are looking if they are standing completely still
+    Direction tackleDir = m_currentDirection;
+
+    float speedSq = vel.x * vel.x + vel.y * vel.y;
+
+    // If the player has actual momentum, calculate the true physics direction!
+    if (speedSq > 2.0f) {
+        // atan2 gives us the angle in radians. Convert to degrees (0 to 360)
+        float angle = std::atan2(vel.y, vel.x) * 180.f / 3.14159f;
+        if (angle < 0.f) angle += 360.f;
+
+        // Map the 360 degree circle into 8 exact 45-degree slices based on your World Axes
+        if (angle >= 337.5f || angle < 22.5f)  tackleDir = Direction::Up;         // +X
+        else if (angle >= 22.5f && angle < 67.5f)  tackleDir = Direction::UpRight;    // +X, +Y
+        else if (angle >= 67.5f && angle < 112.5f) tackleDir = Direction::Right;      // +Y
+        else if (angle >= 112.5f && angle < 157.5f) tackleDir = Direction::DownRight;  // -X, +Y
+        else if (angle >= 157.5f && angle < 202.5f) tackleDir = Direction::Down;       // -X
+        else if (angle >= 202.5f && angle < 247.5f) tackleDir = Direction::DownLeft;   // -X, -Y
+        else if (angle >= 247.5f && angle < 292.5f) tackleDir = Direction::Left;       // -Y
+        else if (angle >= 292.5f && angle < 337.5f) tackleDir = Direction::UpLeft;     // +X, -Y
+    }
+
+    // 3. Shift the box explicitly in the 8 directions using the calculated momentum!
     // NOTE: Because the camera is rotated 90 degrees clockwise, 
     // Visual UP = World +X (Right)
     // Visual RIGHT = World +Y (Down)
     // Visual DOWN = World -X (Left)
     // Visual LEFT = World -Y (Up)
 
-    switch (m_currentDirection) {
+    switch (tackleDir) {
     case Direction::Up: // Visual Up -> World Right (+X)
         left = pos.x;
         top = pos.y - (thickness / 2.f);
@@ -439,6 +488,77 @@ sf::FloatRect Player::getTackleHitbox()
 
     // Return the correctly constructed SFML 3 FloatRect
     return sf::FloatRect({ left, top }, { boxWidth, boxHeight });
+}
+
+void Player::checkInjury(float impactForce) {
+    // If they are already seriously injured, don't overwrite it with a minor knock
+    if (isInjured && currentInjurySeverity == InjurySeverity::Severe) return;
+
+    float resNorm = getInjuryResistance() / 100.0f;
+    float stamNorm = getCurrentStamina() / getMaxStamina();
+
+    // 1. Normalize the impact force (assuming 1000.f is a massive, bone-crunching tackle)
+    float impactNorm = std::clamp(impactForce / 1000.f, 0.0f, 1.0f);
+
+    // 2. The Fatigue Multiplier
+    // A player at 100% stamina has a 1.0x risk. A player at 0% stamina has a 2.5x risk!
+    float fatigueMultiplier = 1.0f + ((1.0f - stamNorm) * 1.5f);
+
+    // 3. The Resistance Shield
+    // 99 Injury Resistance blocks 80% of all injury math. 
+    // 1 Injury Resistance blocks almost nothing.
+    float resistanceShield = 1.0f - (resNorm * 0.8f);
+
+    // 4. Calculate Final Risk Percentage
+    // Max theoretical risk here is ~15% on a single massive tackle when completely exhausted with 0 resistance.
+    float injuryRiskPercent = (impactNorm * fatigueMultiplier * resistanceShield) * 15.0f;
+
+    // Roll the dice (0.0 to 100.0)
+    float roll = (rand() % 10000) / 100.f;
+
+    if (roll < injuryRiskPercent) {
+        applyRandomInjury(impactNorm);
+    }
+}
+
+void Player::applyRandomInjury(float impactNorm) {
+    std::vector<InjuryType> validInjuries;
+
+    // Filter injuries based on the tackle impact. 
+    // You can't tear your ACL from a tiny 100.f bump!
+    for (const auto& inj : InjuryDatabase) {
+        if (inj.severity == InjurySeverity::Severe && impactNorm < 0.6f) continue;
+        validInjuries.push_back(inj);
+    }
+
+    if (validInjuries.empty()) validInjuries = InjuryDatabase; // Fallback
+
+    // Pick a random injury from the valid pool
+    int idx = rand() % validInjuries.size();
+    InjuryType selected = validInjuries[idx];
+
+    // Apply to PlayerData
+    isInjured = true;
+    currentInjury = selected.name;
+    currentInjurySeverity = selected.severity;
+
+    // Calculate randomized duration within the bounds
+    int durationRange = selected.maxDays - selected.minDays;
+    injuryDaysRemaining = selected.minDays + (durationRange > 0 ? (rand() % durationRange) : 0);
+
+    // ==========================================
+        // --- THE SEVERE INJURY TRIGGER ---
+        // ==========================================
+    if (selected.severity == InjurySeverity::Severe) {
+        // 1. Play the horrific scream audio
+
+
+        // 2. Lock them in the injured state so they writhe on the floor
+        setState(PlayerState::Injured);
+
+        // 3. Kill all their momentum so they don't slide around while screaming
+        setVelocity({ 0.f, 0.f });
+    }
 }
 
 sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, const std::vector<std::vector<std::pair<int, PositionRole>>>& layout) const
@@ -624,3 +744,34 @@ float Player::getGeneralMultiplier() const {
     // Max 10% debuff -> Exhaustion * 0.10
     return 1.0f - (exhaustion * 0.10f);
 }
+
+void Player::setState(PlayerState newState)
+{
+    // If the state isn't actually changing, do nothing
+    if (m_currentState == newState) return;
+
+    // ==========================================
+    // --- 1. EXIT STATE LOGIC (Cleanup) ---
+    // ==========================================
+    if (m_currentState == PlayerState::FallOver)
+    {
+        // We are being forced out of a fall prematurely (e.g. Referee blew the whistle).
+        // Manually trigger the visual recovery so we don't get stuck sideways!
+        m_sprite.setRotation(sf::degrees(90.f));
+        applyPhysicalScale();
+        m_stumbleTimer = 0.f;
+    }
+    else if (m_currentState == PlayerState::Tackling)
+    {
+        // If the referee teleports us while we are mid-slide tackle, 
+        // force the update loop to instantly reset our texture back to running/standing.
+        m_tackleAnimTriggered = true;
+        m_tackleTimer = 0.f;
+    }
+
+    // ==========================================
+    // --- 2. APPLY NEW STATE ---
+    // ==========================================
+    m_currentState = newState;
+}
+

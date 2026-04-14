@@ -1,0 +1,64 @@
+{
+    "TEAM_105": {
+        "badge_id": "Badge_Default",
+        "full_name": "Arsenal FC",
+        "kits": {
+            "shirt": {
+                "design_layers": [],
+                "primary_color": "#FF4848"
+            },
+            "shorts": {
+                "design_layers": [],
+                "primary_color": "#D32626"
+            },
+            "socks": {
+                "design_layers": [],
+                "primary_color": "#FFFFFF"
+            }
+        },
+        "manager_name": "Mikel Arteta",
+        "roster": [
+            "PLY_1047",
+            "PLY_1048",
+            "PLY_1050",
+            "PLY_1051",
+            "PLY_1052",
+            "PLY_1049",
+            "PLY_1053",
+            "PLY_1054",
+            "PLY_1055",
+            "PLY_1056",
+            "PLY_1057"
+        ],
+        "short_name": "AFC",
+        "stadium_name": "Emirates Stadium",
+        "tactics": {
+            "attacking_width": 67,
+            "captain_id": "PLY_1051",
+            "defensive_depth": 9,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1049",
+            "left_corner_taker_id": "PLY_1049",
+            "passing_length": 23,
+            "passing_speed": 85,
+            "penalty_taker_id": "PLY_1054",
+            "positional_freedom": 74,
+            "pressing_intensity": 74,
+            "right_corner_taker_id": "PLY_1049",
+            "starting_xi": {
+                "0": "PLY_1052",
+                "1": "PLY_1056",
+                "10": "PLY_1055",
+                "2": "PLY_1050",
+                "3": "PLY_1047",
+                "4": "PLY_1057",
+                "5": "PLY_1051",
+                "6": "PLY_1049",
+                "7": "PLY_1053",
+                "8": "PLY_1048",
+                "9": "PLY_1054"
+            }
+        },
+        "ui_color": "#D93333"
+    }
+}

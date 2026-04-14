@@ -40,7 +40,7 @@ void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, co
     m_opposingBlockPush = std::clamp((distToTheirGoal - 1500.f) / 3000.f, 0.0f, 1.0f);
 }
 
-float TeamAI::getDefensiveLineOffset() const {
+float TeamAI::getDefensiveLineOffset(bool isDefender) const {
     float shiftMagnitude = 0.f;
     float progressDiff = m_ballProgress - 0.5f;
 
@@ -57,10 +57,20 @@ float TeamAI::getDefensiveLineOffset() const {
         shiftMagnitude = progressDiff * (2000.f + ((1.0f - depthNorm) * 1500.f));
     }
     else {
-        // --- BUFFED: DROPPING BACK QUICKER ---
-        // High Line teams drop back with urgency (3000x multiplier).
-        // Low Block teams absolutely sprint backwards (up to 8000x multiplier).
-        shiftMagnitude = progressDiff * (3000.f + (depthNorm * 5000.f));
+        // --- THE FIX: AGGRESSIVE SPLIT-BLOCK COMPRESSION ---
+        // Calculate the base dropping speed
+        float baseDrop = progressDiff * (3000.f + (depthNorm * 5000.f));
+
+        if (isDefender) {
+            // Defenders drop 10% quicker. They retreat safely but don't drop so deep 
+            // that they play the opposing Strikers onside too early!
+            shiftMagnitude = baseDrop * 1.10f;
+        }
+        else {
+            // Midfielders and Attackers drop 30% quicker! 
+            // They actively sprint back to compress the space between the lines.
+            shiftMagnitude = baseDrop * 1.30f;
+        }
     }
 
     // ==========================================
@@ -76,9 +86,7 @@ float TeamAI::getDefensiveLineOffset() const {
     // ==========================================
     float minAnchor = -1200.f + ((1.0f - depthNorm) * 1000.f);
 
-    // THE FIX: Stop the anchor from pushing the defense into the opponent's half!
-    // A High Line (depthNorm = 0.0) caps out at +800.f (holding right at the center circle).
-    // A Low Block (depthNorm = 1.0) caps out at +200.f (barely stepping out of their own third).
+    // Stop the anchor from pushing the defense into the opponent's half!
     float maxAnchor = 200.f + ((1.0f - depthNorm) * 600.f);
 
     totalOffset = std::clamp(totalOffset, minAnchor, maxAnchor);

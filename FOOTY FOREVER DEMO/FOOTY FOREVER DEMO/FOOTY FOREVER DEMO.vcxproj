@@ -187,6 +187,7 @@
     <ClInclude Include="imgui-1.92.6\imstb_rectpack.h" />
     <ClInclude Include="imgui-1.92.6\imstb_textedit.h" />
     <ClInclude Include="imgui-1.92.6\imstb_truetype.h" />
+    <ClInclude Include="InjuryData.h" />
     <ClInclude Include="MatchDayScreen.h" />
     <ClInclude Include="PhysicsEngine.h" />
     <ClInclude Include="PlayerAI.h" />

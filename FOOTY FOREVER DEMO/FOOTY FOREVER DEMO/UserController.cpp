@@ -50,18 +50,18 @@ void UserController::inputHandler(const sf::Event t_event)
 		}
 		if (keyPressed->scancode == sf::Keyboard::Scancode::LControl)
 		{
-			if (m_userPlayer.canTackle())
-			{
-				m_userPlayer.startTackle(m_userPlayer.getAimDirection());
-			}
-		}
-		// --- NEW: FOOT SWITCH ON 'Q' ---
-		if (keyPressed->scancode == sf::Keyboard::Scancode::Q)
-		{
 			if (m_userPlayer.getBallPossession())
 			{
 				m_userPlayer.changeFoot();
 			}
+			else if (m_userPlayer.canTackle())
+			{
+				m_userPlayer.startTackle(m_userPlayer.getAimDirection());
+			}
+		}// --- NEW: FOOT SWITCH ON 'Q' ---
+		if (keyPressed->scancode == sf::Keyboard::Scancode::Q)
+		{
+			isPressing = true;
 		}
 		if (keyPressed->scancode == sf::Keyboard::Scancode::Space)
 		{
@@ -120,11 +120,15 @@ void UserController::inputHandler(const sf::Event t_event)
 		{
 			isSprinting = false;
 		}
+		if (keyReleased->scancode == sf::Keyboard::Scancode::Q)
+		{
+			isPressing = false;
+		}
 	}
 	if (const auto buttonPressed = t_event.getIf<sf::Event::MouseButtonPressed>())
 	{
 		if (buttonPressed->button == sf::Mouse::Button::Left) {
-			dribblePressed = true;
+
 			kickPressed = true;
 			isHighKick = false; // We are doing a ground action
 			isShooting = true;
@@ -140,7 +144,6 @@ void UserController::inputHandler(const sf::Event t_event)
 		if (buttonReleased->button == sf::Mouse::Button::Left ||
 			buttonReleased->button == sf::Mouse::Button::Right)
 		{
-			dribblePressed = false;
 			isChasingLooseBall = false;
 			isJockeying = false;
 			kickPressed = false;
@@ -160,6 +163,37 @@ void UserController::inputHandler(const sf::Event t_event)
 /// <param name="isPressed"></param>
 void UserController::update(float dt, GamePlay& game)
 {
+	// ==========================================
+	// --- THE FIX: USER INJURY EJECTION ---
+	// ==========================================
+	if (m_userPlayer.getState() == PlayerState::Injured) {
+		// Bleed momentum
+		PhysicsEngine::applyPlayerIdleFriction(m_userPlayer, dt);
+		PhysicsEngine::updatePlayerAirPhysics(m_userPlayer, dt);
+
+		// Find a healthy teammate to auto-switch to!
+		std::vector<Player*> myTeam;
+		auto& npcList = (m_userPlayer.getTeam() == Team::Home) ? game.m_homeside : game.m_awayside;
+
+		for (auto& npc : npcList) {
+			if (!npc->isSentOff() && npc->getState() != PlayerState::Injured && npc->getPositionRole() != PositionRole::Goalkeeper) {
+				myTeam.push_back(npc.get());
+			}
+		}
+
+		if (!myTeam.empty()) {
+			// Hijack the nearest healthy defender
+			Player* rescueTarget = findBestDefensiveSwitch(m_userPlayer, myTeam, *game.m_ball, game.m_pitch);
+			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
+			game.executePlayerSwitch(rescueTarget);
+			game.m_referee.notifyPlayerSwap(&m_userPlayer, rescueTarget);
+			resetInputs();
+			m_userPlayer.updateAim(tempAim);
+		}
+		return; // Halt the update loop for the injured player
+	}
+
+
 	MatchState state = game.m_referee.getMatchState();
 	Player* currentOwner = game.m_ball->getOwner();
 
@@ -169,15 +203,14 @@ void UserController::update(float dt, GamePlay& game)
 	// ==========================================
 	// --- AUTOMATIC OFFENSIVE SWITCHING ---
 	// ==========================================
-	// If a teammate (not us, not the GK) picks up the ball, instantly take control of them!
 	if (state == MatchState::InPlay && userTeamHasPossession && !hasPossession) {
 		if (currentOwner->getPositionRole() != PositionRole::Goalkeeper) {
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
 			game.executePlayerSwitch(currentOwner);
+			game.m_referee.notifyPlayerSwap(&m_userPlayer, currentOwner);
 			resetInputs();
 			m_userPlayer.updateAim(tempAim);
-
-			hasPossession = true; // Update local variable since we just possessed them!
+			hasPossession = true;
 		}
 	}
 
@@ -185,37 +218,33 @@ void UserController::update(float dt, GamePlay& game)
 	// --- MANUAL SWITCHING (Offense & Defense) ---
 	// ==========================================
 	if (switchPressed) {
-		switchPressed = false; // Consume input
+		switchPressed = false;
 
-		// Gather all outfield teammates dynamically
 		std::vector<Player*> myTeam;
 		auto& npcList = (m_userPlayer.getTeam() == Team::Home) ? game.m_homeside : game.m_awayside;
 
 		for (auto& npc : npcList) {
-			// Exclude red cards and the Goalkeeper from manual switching
-			if (!npc->isSentOff() && npc->getPositionRole() != PositionRole::Goalkeeper) {
-				myTeam.push_back(npc.get());
-			}
-		}
+            // THE FIX: Added `npc->getState() != PlayerState::Injured`
+            if (!npc->isSentOff() && npc->getState() != PlayerState::Injured && npc->getPositionRole() != PositionRole::Goalkeeper) {
+                myTeam.push_back(npc.get());
+            }
+        }
 
 		Player* targetPlayer = nullptr;
 
 		if (!userTeamHasPossession) {
-			// DEFENSE: Find the smartest goal-side defender
 			targetPlayer = findBestDefensiveSwitch(m_userPlayer, myTeam, *game.m_ball, game.m_pitch);
 		}
 		else {
-			// OFFENSE: Find the teammate closest to the ball (to make a manual run)
 			float minDist = 999999.f;
 			sf::Vector2f ballPos = game.m_ball->getPosition();
 
 			for (Player* teammate : myTeam) {
-				// Don't switch to the player we are already controlling
 				if (teammate == &m_userPlayer) continue;
 
 				float dx = teammate->getPosition().x - ballPos.x;
 				float dy = teammate->getPosition().y - ballPos.y;
-				float distSq = (dx * dx) + (dy * dy); // Using squared distance is faster for comparisons
+				float distSq = (dx * dx) + (dy * dy);
 
 				if (distSq < minDist) {
 					minDist = distSq;
@@ -224,40 +253,28 @@ void UserController::update(float dt, GamePlay& game)
 			}
 		}
 
-		// Execute the switch if we found a valid target
 		if (targetPlayer && targetPlayer != &m_userPlayer) {
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
 			game.executePlayerSwitch(targetPlayer);
-
-			resetInputs(); // Prevent the new player from instantly sliding/passing
-			m_userPlayer.updateAim(tempAim); // Keep the mouse aiming stable after the teleport
+			game.m_referee.notifyPlayerSwap(&m_userPlayer, targetPlayer);
+			resetInputs();
+			m_userPlayer.updateAim(tempAim);
 		}
 	}
 
 	// ==========================================
 	// --- BUG FIX: INPUT BLEED INTERCEPTORS ---
 	// ==========================================
-	// 1. Did the match state just change? (e.g., InPlay -> FoulDelay)
-	if (state != m_lastMatchState) {
-		resetInputs();
-	}
+	if (state != m_lastMatchState) resetInputs();
+	if (hasPossession && !m_hadPossessionLastFrame) resetInputs();
 
-	// 2. Did we just pick up the ball this exact frame while chasing?
-	if (hasPossession && !m_hadPossessionLastFrame) {
-		resetInputs();
-	}
-
-	// Save for next frame
 	m_lastMatchState = state;
 	m_hadPossessionLastFrame = hasPossession;
-	// ==========================================
 
-	// 1. Process Gravity and Jumping FIRST
 	PhysicsEngine::updatePlayerAirPhysics(m_userPlayer, dt);
 
 	bool isTaker = (game.m_referee.getSetPieceTaker() == &m_userPlayer);
 
-	// --- CANCEL TACKLES ON THE WHISTLE ---
 	if (state != MatchState::InPlay && m_userPlayer.getState() == PlayerState::Tackling) {
 		m_userPlayer.setState(PlayerState::Normal);
 	}
@@ -267,9 +284,7 @@ void UserController::update(float dt, GamePlay& game)
 	// ==========================================
 	if (state == MatchState::HalfTime || state == MatchState::FullTime || state == MatchState::GoalScored)
 	{
-		// --- STAMINA HOOK: Catching breath while play is dead ---
 		m_userPlayer.updateStamina(dt, false);
-
 		m_userPlayer.setVelocity(m_userPlayer.getVelocity() * 0.85f);
 		return;
 	}
@@ -281,27 +296,62 @@ void UserController::update(float dt, GamePlay& game)
 	{
 		// --- STAMINA HOOK: Catching breath while setting up the play ---
 		m_userPlayer.updateStamina(dt, false);
-
 		updateTargetScanning(game);
 
 		if (isTaker) {
-			m_userPlayer.setVelocity({ 0.f, 0.f });
-
-			if (game.m_ball->getOwner() != &m_userPlayer) {
-				game.m_ball->possess(&m_userPlayer);
-			}
+			// THE FIX: Kick-offs, Throw-ins, and Penalties do not use the free-roaming run-up!
+			bool needsRunUp = (state == MatchState::FreeKick || state == MatchState::Corner || state == MatchState::GoalKick);
+			m_isSetPieceRunUp = needsRunUp;
 
 			if (game.m_referee.isWhistleBlown()) {
+				// 1. ALLOW MOVEMENT FOR THE TAKER
+				m_speedVector = m_userPlayer.getVelocity();
+				playerMovement(dt, game);
+
+				if (needsRunUp) {
+					// 2. THE TETHER (3 Meters / 300px)
+					sf::Vector2f ballPos = game.m_ball->getPosition();
+					sf::Vector2f myPos = m_userPlayer.getPosition();
+					float distToBall = dist(myPos, ballPos);
+
+					if (distToBall > 300.f) {
+						sf::Vector2f toPlayer = myPos - ballPos;
+						float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
+
+						if (len > 0.001f) {
+							sf::Vector2f normal = toPlayer / len;
+							sf::Vector2f tetherPos = ballPos + (normal * 300.f);
+							m_userPlayer.setPosition(tetherPos);
+
+							// THE FIX: Kill outward momentum so they don't get stuck in molasses!
+							sf::Vector2f currentVel = m_userPlayer.getVelocity();
+							float outwardSpeed = (currentVel.x * normal.x) + (currentVel.y * normal.y);
+
+							// If velocity is pushing them outside the circle, strip it away!
+							// (This leaves tangential velocity intact, allowing smooth orbiting)
+							if (outwardSpeed > 0.f) {
+								m_userPlayer.setVelocity(currentVel - (normal * outwardSpeed));
+							}
+						}
+					}
+				}
+				else {
+					// 3. INSTANT POSSESSION (Kick-Offs, Throw-Ins, Penalties)
+					// If we don't need a run-up, automatically put the ball at our feet!
+					if (game.m_ball->getOwner() != &m_userPlayer && dist(m_userPlayer.getPosition(), game.m_ball->getPosition()) < 70.f) {
+						game.m_ball->possess(&m_userPlayer);
+					}
+				}
+
 				playerShooting(dt, game);
+			}
+			else {
+				m_userPlayer.setVelocity({ 0.f, 0.f }); // Freeze before the whistle
 			}
 		}
 		else {
+			m_isSetPieceRunUp = false;
 			if (state == MatchState::KickOff && !game.m_referee.isWhistleBlown()) {
-				bool isHome = (m_userPlayer.getTeam() == Team::Home);
-				float startX = game.m_pitch.totalWidth / 2.f + (isHome ? -400.f : 400.f);
-				float startY = game.m_pitch.totalHeight / 2.f + 200.f;
-
-				m_userPlayer.setPosition({ startX, startY });
 				m_userPlayer.setVelocity({ 0.f, 0.f });
 			}
 			else {
@@ -309,8 +359,10 @@ void UserController::update(float dt, GamePlay& game)
 				playerMovement(dt, game);
 			}
 		}
-
 		return;
+	}
+	else {
+		m_isSetPieceRunUp = false;
 	}
 
 	// ==========================================
@@ -324,6 +376,28 @@ void UserController::update(float dt, GamePlay& game)
 
 void UserController::draw(sf::RenderWindow& window)
 {
+	if (m_currentTarget) {
+		if (charging) {
+			// Grow the circle based on the live kickStrength
+			float pulse = 80.f + (kickStrength * 20.f);
+			m_targetHighlight.setRadius(pulse);
+			m_targetHighlight.setOrigin({ pulse, pulse });
+
+			// Visual feedback: Orange while waiting to strike, Green while actively charging
+			if (!kickPressed) {
+				m_targetHighlight.setOutlineColor(sf::Color(255, 165, 0, 200)); // Orange/Gold
+			}
+			else {
+				m_targetHighlight.setOutlineColor(sf::Color(100, 255, 100, 200)); // Green
+			}
+		}
+		else {
+			m_targetHighlight.setRadius(40.f);
+			m_targetHighlight.setOrigin({ 40.f, 40.f });
+			m_targetHighlight.setOutlineColor(sf::Color(255, 255, 255, 150));
+		}
+		window.draw(m_targetHighlight);
+	}
 }
 
 /// <summary>
@@ -362,7 +436,7 @@ void UserController::playerMovement(float dt, GamePlay& game)
 		if (m_right) directionInput += rightDir;
 
 		// --- 2. CONTEXT AWARENESS (Dribble/Jockey/Chase) ---
-		if (dribblePressed)
+		if (isPressing)
 		{
 			if (!game.m_ball->hasOwner()) {
 				isChasingLooseBall = true;
@@ -382,7 +456,7 @@ void UserController::playerMovement(float dt, GamePlay& game)
 			isSprinting = false;
 			isChasingLooseBall = false;
 			isJockeying = false;
-		}
+		}	
 
 		// Update the gauge based on their final verified effort level
 		m_userPlayer.updateStamina(dt, isEffectivelySprinting);
@@ -474,7 +548,11 @@ void UserController::playerMovement(float dt, GamePlay& game)
 		// Determine maximum permitted speed based on context
 		float currentMax = m_userPlayer.getTopSpeed() * 10.0f;
 
-		if (isChasingLooseBall) {
+		if (m_isSetPieceRunUp) {
+			// THE FIX: Boost base movement speed during run-ups for snappy adjustments!
+			currentMax = isSprinting ? currentMax : currentMax * 0.85f;
+		}
+		else if (isChasingLooseBall) {
 			currentMax = m_userPlayer.getTopSpeed() * 10.0f;
 		}
 		else if (isJockeying) {
@@ -517,34 +595,65 @@ void UserController::playerShooting(float dt, GamePlay& game)
 	}
 	if (kickCooldownTimer < 0.f) kickCooldownTimer = 0.f;
 
-	if (!game.m_ball->hasOwner() && kickCooldownTimer <= 0.f) {
-		float dist = game.distance(m_userPlayer.getPosition(), game.m_ball->getPosition());
-		if (dist < 70.f && m_userPlayer.getState() != PlayerState::Tackling && m_userPlayer.getState() != PlayerState::Stunned && m_userPlayer.getState() != PlayerState::Stumbled && m_userPlayer.getState() != PlayerState::FallOver && game.m_ball->z < 40.f) {
+	float distToBall = game.distance(m_userPlayer.getPosition(), game.m_ball->getPosition());
+	bool hasPossession = (game.m_ball->getOwner() == &m_userPlayer);
+
+	// Prevent auto-possess during a Set Piece run-up so the ball stays perfectly still!
+	if (!hasPossession && kickCooldownTimer <= 0.f && !m_isSetPieceRunUp) {
+		if (distToBall < 70.f && m_userPlayer.getState() != PlayerState::Tackling && m_userPlayer.getState() != PlayerState::Stunned && m_userPlayer.getState() != PlayerState::Stumbled && m_userPlayer.getState() != PlayerState::FallOver && game.m_ball->z < 40.f) {
 			game.m_ball->possess(&m_userPlayer);
+			hasPossession = true;
 		}
 	}
 
-	// --- 2. INPUT & CHARGING STATE ---
-	float distToBall = game.distance(m_userPlayer.getPosition(), game.m_ball->getPosition());
-	bool hasPossession = (game.m_ball->getOwner() == &m_userPlayer);
 	bool canContestAir = (game.m_ball->z > 40.f && distToBall < 150.f);
 
-	if (kickPressed && (hasPossession || canContestAir)) {
+	// ==========================================
+	// --- 2. UNIFIED CHARGING SYSTEM ---
+	// ==========================================
+	if (kickPressed) {
 		justKicked = false;
 		charging = true;
+		m_preChargeTimer = 1.0f; // Refresh the 1-second forgiveness buffer
 
+		// Standard Oscillating Charge
 		if (increasing) {
 			kickStrength += kickSpeed * dt;
-			if (kickStrength >= 1) { kickStrength = 1; increasing = false; }
+			if (kickStrength >= 1.f) { kickStrength = 1.f; increasing = false; }
 		}
 		else {
 			kickStrength -= kickSpeed * dt;
 			if (kickStrength <= 0.f) { kickStrength = 0.f; increasing = true; }
 		}
 	}
-	else if (charging) {
-		// The trigger was released, execute the kick pipeline!
-		executeKickRelease(game);
+	else {
+		// The button was released!
+		if (charging) {
+
+			bool canStrikeNow = (hasPossession || canContestAir) && !m_isSetPieceRunUp;
+			bool canSetPieceStrikeNow = m_isSetPieceRunUp && (distToBall < 100.f);
+
+			// A. If we have the ball (or just walked up to a free kick), fire immediately!
+			if (canStrikeNow || canSetPieceStrikeNow) {
+				executeKickRelease(game);
+				m_preChargeTimer = 0.0f;
+				if (canSetPieceStrikeNow) m_isSetPieceRunUp = false;
+			}
+			// B. If we don't have the ball yet, we are PRE-CHARGING.
+			else {
+				// The power bar is frozen. Tick down the expiration timer!
+				if (m_preChargeTimer > 0.0f) {
+					m_preChargeTimer -= dt;
+
+					if (m_preChargeTimer <= 0.0f) {
+						// Pre-charge expired after 1 second!
+						kickStrength = 0.0f;
+						charging = false;
+						increasing = true;
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -718,7 +827,7 @@ void UserController::updateTargetScanning(GamePlay& game)
 	m_currentTarget = AimAssist::getTargetLock(m_userPlayer.getPosition(), m_userPlayer.getAimDirection(), teammatesRaw);
 
 	if (m_currentTarget) {
-		m_targetHighlight.setPosition(m_currentTarget->getPosition());
+		m_targetHighlight.setPosition({ m_currentTarget->getPosition().x - 30 , m_currentTarget->getPosition().y });
 	}
 }
 
@@ -727,11 +836,11 @@ void UserController::resetInputs() {
 	kickStrength = 0.f;
 	charging = false;
 	increasing = true;
+	m_preChargeTimer = 0.0f; // <-- Added to kill the timer!
 
-	// 2. Force the buttons to 'unpress' so holding the mouse 
-	// through a cutscene doesn't instantly shoot when play resumes
+	// 2. Force the buttons to 'unpress'
 	kickPressed = false;
-	dribblePressed = false;
+	isPressing = false;
 	isShooting = false;
 
 	// 3. Reset automated movement states

@@ -14,6 +14,7 @@ public:
 
     // --- NEW: Expose the current frame and state ---
     int getCurrentFrameIndex() const { return m_currentFrameIndex; }
+    void setFrame(int frame) { m_currentFrameIndex = frame; }
     void releaseHold() { m_isHolding = false; m_holdFrame = -1; }
     bool isFinished() const { return m_isFinished; }
 

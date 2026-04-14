@@ -249,6 +249,10 @@ Playstyle PlaystyleDatabase::getPlaystyle(PlaystyleType type) {
         ps.zoneMod = { 5000.f, 1500.f, 3500.f, 0.7f, 400.f, 0.9f, -0.4f, 0.4f, 300.f };
         ps.behavior = { 0.8f, 0.7f, 0.6f, 0.4f, 0.7f, 0.3f };
         break;
+    case PlaystyleType::JogaBonito:
+        ps.zoneMod = {6000.f, 1500.f, 2500.f, 0.7f, 300.f, 0.7f, -0.4f, 0.4f, 300.f };
+        ps.behavior = { 1.2f, 0.9f, 0.4f, 0.8f, 0.1f};
+        break;
 
         // ==========================================
         // --- CENTER FORWARDS / SECOND STRIKERS ---

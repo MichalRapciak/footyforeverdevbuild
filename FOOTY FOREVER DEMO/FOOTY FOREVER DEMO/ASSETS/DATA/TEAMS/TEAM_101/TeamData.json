@@ -20,7 +20,7 @@
                     }
                 ],
                 "manufacturer_id": "Logo_Nike",
-                "primary_color": "#C8102E",
+                "primary_color": "#8D1429",
                 "sponsor_id": "Logo_StandardChartered"
             },
             "shorts": {
@@ -59,9 +59,10 @@
             "PLY_1009",
             "PLY_1010",
             "PLY_1022",
-            "PLY_1023"
+            "PLY_1023",
+            "PLY_1035"
         ],
-        "short_name": "LIV",
+        "short_name": "LFC",
         "stadium_name": "Anfield",
         "tactics": {
             "attacking_width": 78,
@@ -73,21 +74,21 @@
             "passing_length": 31,
             "passing_speed": 62,
             "penalty_taker_id": "PLY_1000",
-            "positional_freedom": 83,
+            "positional_freedom": 67,
             "pressing_intensity": 44,
             "right_corner_taker_id": "PLY_1000",
             "starting_xi": {
                 "0": "PLY_1010",
                 "1": "PLY_1009",
-                "10": "PLY_1002",
+                "10": "PLY_1035",
                 "2": "PLY_1008",
                 "3": "PLY_1007",
-                "4": "PLY_1006",
+                "4": "PLY_1023",
                 "5": "PLY_1004",
                 "6": "PLY_1005",
                 "7": "PLY_1003",
                 "8": "PLY_1000",
-                "9": "PLY_1001"
+                "9": "PLY_1022"
             }
         },
         "ui_color": "#FF102E"

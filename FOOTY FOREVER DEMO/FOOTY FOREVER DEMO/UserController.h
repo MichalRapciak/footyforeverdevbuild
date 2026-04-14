@@ -47,7 +47,7 @@ private:
 	bool increasing = true;
 	float kickSpeed = 2.0f;        // oscillation speed (cycles/sec)
 	bool kickPressed = false;
-	bool dribblePressed = false;
+	bool isPressing = false;
 
 	bool justKicked = false;
 	float kickCooldown = 0.5f; // seconds before you can possess again
@@ -79,6 +79,9 @@ private:
 
 	void resetInputs();
 
+	float m_preChargePower = 0.0f;
+	float m_preChargeTimer = 0.0f;
+	bool m_isSetPieceRunUp = false;
 
 	bool isHighKick = false;
 	bool isJockeying = false;

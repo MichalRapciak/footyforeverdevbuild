@@ -115,7 +115,7 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
 
             for (Player* p : players)
             {
-                if (p == m_setPieceTaker || p->getTeam() == m_awardedTo) continue;
+                if (p == m_setPieceTaker || p->getTeam() == m_awardedTo || p->isSentOff() || p->getState() == PlayerState::Injured) continue;
 
                 bool isDefenderOrMid = (p->getPositionRole() != PositionRole::Goalkeeper &&
                     p->getPositionRole() != PositionRole::Striker &&
@@ -405,6 +405,12 @@ PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& p
         float xOff = attackingAway ? -45.f : 45.f;
         float yOff = (attackingAway) ? (isRightFooted ? -15.f : 15.f) : (isRightFooted ? 15.f : -15.f);
 
+        // THE FIX: Reverse the positioning for Kick-Offs!
+        if (effectiveState == MatchState::KickOff) {
+            xOff = -xOff; // Stand on the opponent's side of the ball
+            yOff = -yOff; // Swap feet offset since we turned 180 degrees
+        }
+
         mask.manualTarget = m_restartPos + sf::Vector2f(xOff, yOff);
         return mask;
     }
@@ -412,9 +418,6 @@ PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& p
     // ==========================================
        // --- FORMATION-RELATIVE CORNERS ---
        // ==========================================
-// ==========================================
-    // --- FORMATION-RELATIVE CORNERS ---
-    // ==========================================
     if (effectiveState == MatchState::Corner) {
         mask.useManualTarget = true;
 
@@ -502,13 +505,31 @@ PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& p
     return mask;
 }
 
+void MatchReferee::notifyPlayerSwap(Player* p1, Player* p2) {
+    // Repair the Set Piece Taker
+    if (m_setPieceTaker == p1) m_setPieceTaker = p2;
+    else if (m_setPieceTaker == p2) m_setPieceTaker = p1;
+
+    // Repair the Fouled Player
+    if (m_fouledPlayer == p1) m_fouledPlayer = p2;
+    else if (m_fouledPlayer == p2) m_fouledPlayer = p1;
+
+    // Repair the Offside Trap Tracker
+    if (m_prevBallOwner == p1) m_prevBallOwner = p2;
+    else if (m_prevBallOwner == p2) m_prevBallOwner = p1;
+
+    for (size_t i = 0; i < m_offsideSnapshot.flaggedPlayers.size(); ++i) {
+        if (m_offsideSnapshot.flaggedPlayers[i] == p1) m_offsideSnapshot.flaggedPlayers[i] = p2;
+        else if (m_offsideSnapshot.flaggedPlayers[i] == p2) m_offsideSnapshot.flaggedPlayers[i] = p1;
+    }
+}
+
 void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager) {
     updateMatchContexts();
 
     m_matchState = state;
     m_whistleTimer = 5.0f;
 
-    // Blow the whistle to announce the start of major set pieces!
     if (state == MatchState::KickOff || state == MatchState::Penalty || state == MatchState::FreeKick) {
         soundManager.playSound("ref_whistle", 100.f);
     }
@@ -529,28 +550,33 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
     m_setPieceTaker = nullptr;
 
     for (Player* p : players) {
+        // THE FIX 1: Do not interact with Sent Off or Injured players! Let them lie.
+        if (p->isSentOff() || p->getState() == PlayerState::Injured) continue;
+
         p->setVelocity({ 0.f, 0.f });
-        p->setState(PlayerState::Normal);
+        if (p->getState() == PlayerState::Tackling || p->getState() == PlayerState::Diving) {
+            p->setState(PlayerState::Normal);
+        }
 
         if (p->getTeam() == m_awardedTo) {
             if (state == MatchState::KickOff) {
                 if (p->getPositionRole() == PositionRole::Striker || p->getPositionRole() == PositionRole::CenterForward) {
                     m_setPieceTaker = p;
                     ball.possess(m_setPieceTaker);
-                    break;
                 }
             }
             else if (state == MatchState::GoalKick) {
                 if (p->getPositionRole() == PositionRole::Goalkeeper) {
                     m_setPieceTaker = p;
                     ball.possess(m_setPieceTaker);
-                    break;
                 }
             }
             else if (state == MatchState::Penalty || state == MatchState::FreeKick) {
-                m_setPieceTaker = m_fouledPlayer;
-                ball.possess(m_setPieceTaker);
-                break;
+                // Only let the fouled player take it if they are healthy!
+                if (m_fouledPlayer && m_fouledPlayer == p) {
+                    m_setPieceTaker = m_fouledPlayer;
+                    ball.possess(m_setPieceTaker);
+                }
             }
             else if (state == MatchState::ThrowIn || state == MatchState::Corner) {
                 if (p->getPositionRole() != PositionRole::Goalkeeper) {
@@ -558,23 +584,32 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
                     if (d < closestDist) {
                         closestDist = d;
                         m_setPieceTaker = p;
-                        ball.possess(m_setPieceTaker);
                     }
                 }
             }
         }
     }
+
     // ==========================================
-    // --- THE FIX: ENSURE TAKER IS FOUND ---
+    // --- THE FIX 2: DYNAMIC TAKER FALLBACK ---
     // ==========================================
     if (m_setPieceTaker == nullptr) {
-        // If we couldn't find the "ideal" role, just grab the first available player on the team
+        // Find the most "Forward" healthy player on the pitch
+        float mostForwardX = (m_awardedTo == Team::Home) ? -9999.f : 99999.f;
+
         for (Player* p : players) {
-            if (p->getTeam() == m_awardedTo && p->getPositionRole() != PositionRole::Goalkeeper) {
-                m_setPieceTaker = p;
-                break;
+            if (p->getTeam() == m_awardedTo && p->getPositionRole() != PositionRole::Goalkeeper && !p->isSentOff() && p->getState() != PlayerState::Injured) {
+
+                float xPos = p->getHomePosition().x;
+                bool isMoreForward = (m_awardedTo == Team::Home) ? (xPos > mostForwardX) : (xPos < mostForwardX);
+
+                if (isMoreForward) {
+                    mostForwardX = xPos;
+                    m_setPieceTaker = p;
+                }
             }
         }
+        if (m_setPieceTaker) ball.possess(m_setPieceTaker);
     }
 
     if (m_setPieceTaker) {
@@ -587,6 +622,12 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
         if (attackingAway) yOffset = isRightFooted ? -15.f : 15.f;
         else yOffset = isRightFooted ? 15.f : -15.f;
 
+        // THE FIX: Reverse the teleport offset for Kick-Offs!
+        if (state == MatchState::KickOff) {
+            xOffset = -xOffset;
+            yOffset = -yOffset;
+        }
+
         m_setPieceTaker->setPosition(m_restartPos + sf::Vector2f(xOffset, yOffset));
         ball.setPosition(m_restartPos);
         ball.possess(m_setPieceTaker);
@@ -596,14 +637,14 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
     // --- TACTICAL TELEPORT FIXES ---
     // ==========================================
     for (Player* p : players) {
-        if (p == m_setPieceTaker || p->isSentOff()) continue;
+        // THE FIX 3: Do not teleport Sent Off or Injured players!
+        if (p == m_setPieceTaker || p->isSentOff() || p->getState() == PlayerState::Injured) continue;
 
         if (state == MatchState::KickOff) {
             p->setPosition(p->getHomePosition());
             p->setVelocity({ 0.f, 0.f });
         }
         else if (state == MatchState::Corner) {
-            // Pass the player object explicitly to the mask!
             PositioningMask mask = getPositioningMask(p, pitch);
             if (mask.useManualTarget) {
                 p->setPosition(mask.manualTarget);
@@ -611,14 +652,11 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
             }
         }
 
-        sf::Vector2f pPos = p->getPosition();
-
         if (state == MatchState::Penalty) {
             if (p->getPositionRole() == PositionRole::Goalkeeper && p->getTeam() != m_awardedTo) {
                 p->setPosition(m_awardedTo == Team::Home ? pitch.awayGoalCenter : pitch.homeGoalCenter);
             }
             else {
-                // Pass the player explicitly to the mask to snap them to the D-Arc
                 PositioningMask mask = getPositioningMask(p, pitch);
                 if (mask.useManualTarget) {
                     p->setPosition(mask.manualTarget);

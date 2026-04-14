@@ -1,6 +1,6 @@
 {
-    "PLY_1024": {
-        "age": 18,
+    "PLY_1028": {
+        "age": 26,
         "graphics": {
             "accessories": [],
             "beard_color": "#282828",
@@ -10,45 +10,46 @@
             "face_type": "Face_01",
             "hair_color": "#282828",
             "hair_type": "Hair_Short",
-            "skin_color": "#FFE0BD"
+            "skin_color": "#C8AB8F"
         },
-        "height_cm": 180,
-        "loyalty": 157831328,
-        "name": "New Player",
-        "number": 99,
-        "playstyle": "Box To Box",
+        "height_cm": 183,
+        "loyalty": 90,
+        "name": "F. De Jong",
+        "number": 15,
+        "playstyle": "Quick Passer",
         "position": "Center Mid",
         "preferred_foot": "Right",
-        "sharpness": 157151824,
+        "sharpness": 99,
         "stats": {
-            "acceleration": 76.0,
-            "aggression": 72.0,
-            "agility": 78.0,
-            "awareness": 85.0,
-            "balancing": 80.0,
+            "acceleration": 83.0,
+            "aggression": 59.0,
+            "agility": 75.0,
+            "awareness": 88.0,
+            "balancing": 87.0,
             "ball_control": 84.0,
-            "blocking": 68.0,
-            "body_strength": 74.0,
+            "blocking": 52.0,
+            "body_strength": 77.0,
             "curl": 76.0,
             "dead_ball": 72.0,
-            "finishing": 70.0,
-            "fitness": 0.0,
+            "finishing": 54.0,
+            "fitness": 83.0,
             "gk_awareness": 0.0,
             "gk_blocking": 0.0,
             "gk_catching": 0.0,
             "gk_coverage": 0.0,
             "gk_reactions": 0.0,
             "gk_throwing": 0.0,
-            "heading": 68.0,
+            "heading": 74.0,
+            "injury_resistance": 5,
             "jumping_strength": 70.0,
             "kick_power": 80.0,
-            "long_passing": 84.0,
-            "short_passing": 86.0,
-            "top_speed": 74.0,
-            "weak_foot_accuracy": 0
+            "long_passing": 83.0,
+            "short_passing": 88.0,
+            "top_speed": 71.0,
+            "weak_foot_accuracy": 3
         },
-        "team_id": "",
+        "team_id": "TEAM_104",
         "traits": [],
-        "weight_kg": 75
+        "weight_kg": 73
     }
 }

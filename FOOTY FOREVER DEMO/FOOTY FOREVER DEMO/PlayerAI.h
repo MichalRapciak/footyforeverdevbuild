@@ -47,13 +47,13 @@ public:
     // ==========================================
     // Returns the vector the player should dribble towards.
     // NOTE: This will also automatically execute passes or shots if the AI decides to do so!
-    static sf::Vector2f handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer& user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI, SoundManager& soundManager);
+    static sf::Vector2f handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer* user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI, SoundManager& soundManager);
 
-    static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer& user, const TeamAI& teamAI, const Pitch& pitch);
+    static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer* user, const TeamAI& teamAI, const Pitch& pitch);
 
     static sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI);
 
-
+    static Player* identifyTargetReceiver(Ball& ball, const std::vector<Player*>& team);
 
     // ==========================================
     // --- AERIAL LOGIC ---

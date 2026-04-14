@@ -25,7 +25,7 @@ public:
     PositioningMask getPositioningMask(const Player* p, const Pitch& pitch) const;
     int getHomeScore() { return m_homeScore; }
     int getAwayScore() { return m_awayScore; }
-
+    void notifyPlayerSwap(Player* p1, Player* p2);
 
     MatchState getMatchState() const { return m_matchState; }
     void setMatchState(MatchState newState) { m_matchState = newState; }
@@ -39,6 +39,7 @@ public:
     void applyForfeitScore(bool homeForfeited);
     // Teleports the players but holds the game state
     void setupReplayTeleports(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
+    float getTimeScale() { return m_timeScale; }
 
     Team getAwardedTo() { return m_awardedTo; }
 
@@ -68,7 +69,7 @@ private:
     Player* m_fouledPlayer;
 
     float m_matchMinute = 0.0f;
-    float m_timeScale = 20.0f; // 1 real second = 20 in-game seconds (adjust to your liking!)
+    float m_timeScale = 22.5f; // 1 real second = 20 in-game seconds // 22.5:1 is 90mins = 4 mins
     int m_half = 1;
 
     float m_whistleTimer = 0.0f;

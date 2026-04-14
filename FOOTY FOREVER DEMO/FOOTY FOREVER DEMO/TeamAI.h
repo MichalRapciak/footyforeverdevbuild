@@ -30,7 +30,7 @@ public:
     // ==========================================
 
     // TACTICAL SLIDERS (Normalized 0.0f to 1.0f for easy math)
-    float getPassingLengthPref() const { return m_tactics.passingLength / 100.0f; }     // 0.0 = Long, 1.0 = Tiki Taka
+    float getPassingLengthPref() const { return m_tactics.passingLength / 100.0f; }     // 0.0 = Tiki Taka, 1.0 = Long
     float getPassingSpeedPref() const { return m_tactics.passingSpeed / 100.0f; }      // 0.0 = Slow, 1.0 = Fast Counter
     float getAttackingWidthPref() const { return m_tactics.attackingWidth / 100.0f; }    // 0.0 = Narrow, 1.0 = Wide
     float getDefensiveDepthPref() const { return m_tactics.defensiveDepth / 100.0f; }    // 0.0 = High Line, 1.0 = Low Block
@@ -51,7 +51,7 @@ public:
     // --- TACTICAL ENGINE MATH ---
     // ==========================================
     // Calculates the macro defensive line shift based on the "Defensive Depth" slider
-    float getDefensiveLineOffset() const;
+    float getDefensiveLineOffset(bool isDefender) const;
 
     // Takes a player's personal Playstyle and warps it to fit the Manager's sliders
     TacticalZone getEffectiveTacticalZone(const Playstyle& playstyle) const;

@@ -7,5 +7,6 @@ enum class PlayerState {
 	Diving,
 	Stumbled,
 	Jumping,
-	FallOver
+	FallOver,
+	Injured
 };

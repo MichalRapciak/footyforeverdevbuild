@@ -25,7 +25,7 @@ enum class PlaystyleType {
     ClassicWideMid, DefensiveWinger, InvertedWideMid,
 
     // Wingers
-    WideWinger, FalseWinger, RoamerWinger, TricksterWinger,
+    JogaBonito, WideWinger, FalseWinger, RoamerWinger, TricksterWinger,
 
     // Center Forward
     SecondStriker, ShadowStriker,
@@ -36,6 +36,12 @@ enum class PlaystyleType {
 
 struct Playstyle {
     PlaystyleType type;
+    /// <summary>
+    ///  // forwardLeash, backwardLeash, lateralLeash, ballInfluence, markingRange, roamingFreedom, widthPreference, supportDepth, pressingTrigger
+    /// </summary>
     TacticalZone zoneMod;
+    /// <summary>
+/// dribbleBias, passRiskBias, shootBias, crossBias, runFrequency, tackleAggression
+/// </summary>
     PlayerBehavior behavior;
 };

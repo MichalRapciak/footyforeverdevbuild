@@ -40,6 +40,7 @@
             "gk_reactions": 0.0,
             "gk_throwing": 0.0,
             "heading": 79.0,
+            "injury_resistance": 3,
             "jumping_strength": 77.0,
             "kick_power": 77.0,
             "long_passing": 63.0,

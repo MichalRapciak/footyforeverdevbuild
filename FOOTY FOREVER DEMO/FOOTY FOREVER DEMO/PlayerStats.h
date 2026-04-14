@@ -1,8 +1,13 @@
 #pragma once
 #include "PositionRole.h"
+#include <cmath>
 
 struct PlayerStats
 {
+
+	float overallRating = 0.0f;
+
+
 	float naturalFitness = 0.0f;
 	float getFitness() const
 	{
@@ -13,10 +18,16 @@ struct PlayerStats
 	{
 		return weakFootAccuracy;
 	}
+	int injuryResistance = 0;
+	int getInjuryResistance() const
+	{
+		return injuryResistance;
+	}
 
 	/// SHOOTING STATS
 	float finishing = 0.0f;
 	float heading = 0.0f;
+	float kickPower = 0.f;
 	float getFinishing() const
 	{
 		return finishing;
@@ -25,29 +36,9 @@ struct PlayerStats
 	{
 		return heading;
 	}
-
-	/// DRIBBLING STATS
-	float ballControl = 0.f; // BALL CONTROL
-	float balancing = 0.f; // BALANCING
-	float getBallControl() const
+	float getKickPower() const
 	{
-		return ballControl;
-	}
-	float getBalancing() const
-	{
-		return balancing;
-	}
-
-	// TECHNIQUE STATS
-	float curl = 0.f; // CURL
-	float deadBall = 0.0f;
-	float getCurl() const
-	{
-		return curl;
-	}
-	float getDeadBall() const
-	{
-		return deadBall;
+		return kickPower;
 	}
 
 	/// PASSING STATS
@@ -61,6 +52,24 @@ struct PlayerStats
 	{
 		return longPassing;
 	}
+
+	// TECHNIQUE STATS
+	float deadBall = 0.0f;
+	float curl = 0.f; // CURL
+	float ballControl = 0.f; // BALL CONTROL
+	float getDeadBall() const
+	{
+		return deadBall;
+	}
+	float getCurl() const
+	{
+		return curl;
+	}
+	float getBallControl() const
+	{
+		return ballControl;
+	}
+
 
 	///  SPEED STATS
 	float topSpeed = 0.f;
@@ -81,19 +90,19 @@ struct PlayerStats
 
 	/// PHYSICAL STATS
 	float bodyStrength = 0.0f;
-	float kickPower = 0.f;
 	float jumpingStrength = 0.f;
+	float balancing = 0.f; // BALANCING
 	float getBodyStrength() const
 	{
 		return bodyStrength;
 	}
-	float getKickPower() const
-	{
-		return kickPower;
-	}
 	float getJumpingStrength() const
 	{
 		return jumpingStrength;
+	}
+	float getBalancing() const
+	{
+		return balancing;
 	}
 
 	/// MENTAL STATS
@@ -145,6 +154,178 @@ struct PlayerStats
 		return gkBlocking;
 	}
 
+
+	/// <summary>
+	/// HEXAGON UI AVERAGES
+	/// Calculates the mean average of each core stat group for radar charts.
+	/// </summary>
+
+	float getShootingAverage() const {
+		return std::ceil((finishing + heading + kickPower) / 3.0f);
+	}
+
+	float getPassingAverage() const {
+		return std::ceil((shortPassing + longPassing) / 2.0f);
+	}
+
+	float getTechniqueAverage() const {
+		return std::ceil((deadBall + curl + ballControl) / 3.0f);
+	}
+
+	float getSpeedAverage() const {
+		return std::ceil((topSpeed + acceleration + agility) / 3.0f);
+	}
+
+	float getPhysicalAverage() const {
+		return std::ceil((jumpingStrength + bodyStrength + balancing) / 3.0f);
+	}
+
+	float getMentalAverage() const {
+		return std::ceil((awareness + aggression + blocking) / 3.0f);
+	}
+
+	void calculateOverallRating(PositionRole role) {
+		switch (role) {
+		case PositionRole::Goalkeeper:
+			overallRating = std::ceil(
+				gkCoverage * 0.17f + gkReactions * 0.17f + gkCatching * 0.16f +
+				gkThrowing * 0.08f + gkAwareness * 0.18f + gkBlocking * 0.16f +
+				longPassing * 0.08
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::CenterBack:
+			overallRating = std::ceil(
+				naturalFitness * 0.02f +
+				finishing * 0.01f + heading * 0.15f + kickPower * 0.01f +
+				shortPassing * 0.05f + longPassing * 0.05f +
+				deadBall * 0.01f + curl * 0.01f + ballControl * 0.04f +
+				topSpeed * 0.03f + acceleration * 0.02f + agility * 0.02f +
+				jumpingStrength * 0.10f + bodyStrength * 0.14f + balancing * 0.02f +
+				awareness * 0.14f + aggression * 0.08f + blocking * 0.18f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::LeftBack:
+		case PositionRole::RightBack:
+			overallRating = std::ceil(
+				naturalFitness * 0.04f +
+				finishing * 0.01f + heading * 0.04f + kickPower * 0.01f +
+				shortPassing * 0.08f + longPassing * 0.12f +
+				deadBall * 0.01f + curl * 0.01f + ballControl * 0.07f +
+				topSpeed * 0.12f + acceleration * 0.10f + agility * 0.07f +
+				jumpingStrength * 0.02f + bodyStrength * 0.05f + balancing * 0.05f +
+				awareness * 0.08f + aggression * 0.06f + blocking * 0.10f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::LeftWingBack:
+		case PositionRole::RightWingBack:
+			overallRating = std::ceil(
+				naturalFitness * 0.06f +
+				finishing * 0.02f + heading * 0.01f + kickPower * 0.01f +
+				shortPassing * 0.08f + longPassing * 0.14f +
+				deadBall * 0.01f + curl * 0.04f + ballControl * 0.09f +
+				topSpeed * 0.12f + acceleration * 0.12f + agility * 0.08f +
+				jumpingStrength * 0.01f + bodyStrength * 0.04f + balancing * 0.05f +
+				awareness * 0.06f + aggression * 0.05f + blocking * 0.07f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::DefensiveMid:
+			overallRating = std::ceil(
+				naturalFitness * 0.05f +
+				finishing * 0.01f + heading * 0.05f + kickPower * 0.01f +
+				shortPassing * 0.14f + longPassing * 0.11f +
+				deadBall * 0.01f + curl * 0.01f + ballControl * 0.08f +
+				topSpeed * 0.03f + acceleration * 0.02f + agility * 0.04f +
+				jumpingStrength * 0.02f + bodyStrength * 0.09f + balancing * 0.06f +
+				awareness * 0.12f + aggression * 0.08f + blocking * 0.12f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::CenterMid:
+			overallRating = std::ceil(
+				naturalFitness * 0.08f +
+				finishing * 0.02f + heading * 0.02f + kickPower * 0.03f +
+				shortPassing * 0.16f + longPassing * 0.12f +
+				deadBall * 0.02f + curl * 0.02f + ballControl * 0.14f +
+				topSpeed * 0.04f + acceleration * 0.04f + agility * 0.06f +
+				jumpingStrength * 0.01f + bodyStrength * 0.05f + balancing * 0.06f +
+				awareness * 0.12f + aggression * 0.04f + blocking * 0.05f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::LeftMid:
+		case PositionRole::RightMid:
+			overallRating = std::ceil(
+				naturalFitness * 0.08f +
+				finishing * 0.04f + heading * 0.01f + kickPower * 0.04f +
+				shortPassing * 0.10f + longPassing * 0.12f +
+				deadBall * 0.02f + curl * 0.05f + ballControl * 0.12f +
+				topSpeed * 0.12f + acceleration * 0.12f + agility * 0.10f +
+				jumpingStrength * 0.01f + bodyStrength * 0.03f + balancing * 0.06f +
+				awareness * 0.08f + aggression * 0.01f + blocking * 0.02f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::AttackingMid:
+			overallRating = std::ceil(
+				finishing * 0.05f + heading * 0.01f + kickPower * 0.02f +
+				shortPassing * 0.10f + longPassing * 0.08f +
+				deadBall * 0.04f + curl * 0.03f + ballControl * 0.14f +
+				topSpeed * 0.05f + acceleration * 0.09f + agility * 0.12f +
+				jumpingStrength * 0.01f + bodyStrength * 0.01f + balancing * 0.08f +
+				awareness * 0.18f + aggression * 0.01f + blocking * 0.01f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::LeftWing:
+		case PositionRole::RightWing:
+			overallRating = std::ceil(
+				finishing * 0.10f + heading * 0.01f + kickPower * 0.02f +
+				shortPassing * 0.06f + longPassing * 0.09f +
+				deadBall * 0.02f + curl * 0.05f + ballControl * 0.12f +
+				topSpeed * 0.14f + acceleration * 0.12f + agility * 0.10f +
+				jumpingStrength * 0.01f + bodyStrength * 0.01f + balancing * 0.08f +
+				awareness * 0.07f + aggression * 0.01f + blocking * 0.01f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::CenterForward:
+			overallRating = std::ceil(
+				finishing * 0.14f + heading * 0.02f + kickPower * 0.04f +
+				shortPassing * 0.07f + longPassing * 0.03f +
+				deadBall * 0.03f + curl * 0.03f + ballControl * 0.14f +
+				topSpeed * 0.08f + acceleration * 0.10f + agility * 0.09f +
+				jumpingStrength * 0.02f + bodyStrength * 0.02f + balancing * 0.06f +
+				awareness * 0.14f + aggression * 0.01f + blocking * 0.01f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+
+		case PositionRole::Striker:
+			overallRating = std::ceil(
+				finishing * 0.17f + heading * 0.10f + kickPower * 0.08f +
+				shortPassing * 0.02f + longPassing * 0.01f +
+				deadBall * 0.04f + curl * 0.01f + ballControl * 0.08f +
+				topSpeed * 0.06f + acceleration * 0.07f + agility * 0.04f +
+				jumpingStrength * 0.06f + bodyStrength * 0.08f + balancing * 0.06f +
+				awareness * 0.16f + aggression * 0.01f + blocking * 0.01f
+				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+			);
+			break;
+		}
+	}
 
 	///DEFAULT CONSTRUCTOR
 	static PlayerStats createFromRole(PositionRole role) {
@@ -236,4 +417,6 @@ struct PlayerStats
 		}
 		return s;
 	}
+
+
 };

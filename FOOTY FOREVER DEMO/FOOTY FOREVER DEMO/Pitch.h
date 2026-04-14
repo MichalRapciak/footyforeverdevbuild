@@ -288,16 +288,30 @@ struct Goal {
         appendPostShadow(bottomPost.getPosition());
     }
 
-    void draw(sf::RenderWindow& window)
-    {
-        // Draw the static baked shadows FIRST, so they lay perfectly on the grass
-        window.draw(shadowMesh);
+    // ==========================================
+        // --- SPLIT RENDERING LAYERS ---
+        // ==========================================
 
+        // 1. FLOOR: Baked ambient and cast shadows
+    void drawFloor(sf::RenderWindow& window) {
+        window.draw(shadowMesh);
+    }
+
+    // 2. BACK: The net fabric 
+    void drawNet(sf::RenderWindow& window) {
         window.draw(netMesh);
+    }
+
+    // 3. MID: The vertical posts and brackets (Interleaved using X-coordinate)
+    void drawPosts(sf::RenderWindow& window) {
         window.draw(topPost);
         window.draw(bottomPost);
         window.draw(topUpright);
         window.draw(bottomUpright);
+    }
+
+    // 4. ROOF: The crossbar (Simulates Z-height by rendering on top)
+    void drawCrossbar(sf::RenderWindow& window) {
         window.draw(visualCrossbar);
     }
 };

@@ -286,8 +286,8 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             case PositionRole::RightMid:
             case PositionRole::LeftWing:
             case PositionRole::RightWing:
-                availableNames = { "Wide Winger", "False Winger", "Roamer Winger", "Classic Wide Mid", "Defensive Winger", "Inverted Wide Mid" };
-                availableTypes = { PlaystyleType::WideWinger, PlaystyleType::FalseWinger, PlaystyleType::RoamerWinger, PlaystyleType::ClassicWideMid, PlaystyleType::DefensiveWinger, PlaystyleType::InvertedWideMid };
+                availableNames = { "Wide Winger", "False Winger", "Roamer Winger", "Classic Wide Mid", "Defensive Winger", "Inverted Wide Mid" , "Joga Bonito"};
+                availableTypes = { PlaystyleType::WideWinger, PlaystyleType::FalseWinger, PlaystyleType::RoamerWinger, PlaystyleType::ClassicWideMid, PlaystyleType::DefensiveWinger, PlaystyleType::InvertedWideMid, PlaystyleType::JogaBonito };
                 break;
             case PositionRole::CenterForward:
             case PositionRole::Striker:
@@ -323,27 +323,41 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             }
 
             // Stats
-            ImGui::Separator(); ImGui::Text("Physical & Speed");
+            ImGui::Separator();
+
+            // Force an update to the overall rating so the UI reflects immediate slider changes
+            p->stats.calculateOverallRating(p->positionRole);
+
+            // ==========================================
+            // --- LEFT COLUMN: STAT SLIDERS ---
+            // ==========================================
+            // Give the sliders 55% of the available width, and a fixed height to scroll within
+            ImGui::BeginChild("StatsSlidersPane", ImVec2(ImGui::GetContentRegionAvail().x * 0.55f, 520.0f), false);
+
+            ImGui::Text("Player Statistics");
             ImGui::SliderFloat("Natural Fitness", &p->stats.naturalFitness, 1.f, 99.f, "%.0f");
             ImGui::SliderInt("Weak Foot Accuracy", &p->stats.weakFootAccuracy, 1, 5);
+            ImGui::SliderInt("Injury Resistance", &p->stats.injuryResistance, 1, 5);
+            ImGui::Text("Shooting");
+            ImGui::SliderFloat("Finishing", &p->stats.finishing, 1.f, 99.f, "%.0f");
+            ImGui::SliderFloat("Heading", &p->stats.heading, 1.f, 99.f, "%.0f");
+            ImGui::SliderFloat("Kick Power", &p->stats.kickPower, 1.f, 99.f, "%.0f");
+            ImGui::Text("Passing");
+            ImGui::SliderFloat("Short Passing", &p->stats.shortPassing, 1.f, 99.f, "%.0f");
+            ImGui::SliderFloat("Long Passing", &p->stats.longPassing, 1.f, 99.f, "%.0f");
+            ImGui::Text("Technique");
+            ImGui::SliderFloat("Dead Ball", &p->stats.deadBall, 1.f, 99.f, "%.0f");
+            ImGui::SliderFloat("Curl", &p->stats.curl, 1.f, 99.f, "%.0f");
+            ImGui::SliderFloat("Ball Control", &p->stats.ballControl, 1.f, 99.f, "%.0f");
+            ImGui::Text("Speed");
             ImGui::SliderFloat("Top Speed", &p->stats.topSpeed, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Acceleration", &p->stats.acceleration, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Agility", &p->stats.agility, 1.f, 99.f, "%.0f");
+            ImGui::Separator(); ImGui::Text("Physical");
             ImGui::SliderFloat("Body Strength", &p->stats.bodyStrength, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Jumping", &p->stats.jumpingStrength, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Balancing", &p->stats.balancing, 1.f, 99.f, "%.0f");
-
-            ImGui::Separator(); ImGui::Text("Technical");
-            ImGui::SliderFloat("Finishing", &p->stats.finishing, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Heading", &p->stats.heading, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Ball Control", &p->stats.ballControl, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Short Passing", &p->stats.shortPassing, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Long Passing", &p->stats.longPassing, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Kick Power", &p->stats.kickPower, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Curl", &p->stats.curl, 1.f, 99.f, "%.0f");
-            ImGui::SliderFloat("Dead Ball", &p->stats.deadBall, 1.f, 99.f, "%.0f");
-
-            ImGui::Separator(); ImGui::Text("Mental & Defending");
+            ImGui::Separator(); ImGui::Text("Mental");
             ImGui::SliderFloat("Awareness", &p->stats.awareness, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Aggression", &p->stats.aggression, 1.f, 99.f, "%.0f");
             ImGui::SliderFloat("Blocking", &p->stats.blocking, 1.f, 99.f, "%.0f");
@@ -364,6 +378,121 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             ImGui::Separator(); ImGui::Text("Invisible Stats");
             ImGui::SliderInt("Match Sharpness", &p->sharpness, 1, 99);
             ImGui::SliderInt("Loyalty", &p->loyalty, 1, 99);
+
+            ImGui::EndChild(); // End Left Pane
+
+            // ==========================================
+            // --- RIGHT COLUMN: RADAR & OVERALL RATING ---
+            // ==========================================
+            ImGui::SameLine();
+            ImGui::BeginChild("RadarPane", ImVec2(0, 520.0f), false);
+
+            // --- BIG Overall Rating Text ---
+            ImGui::SetWindowFontScale(4.0f); // Scale up standard text size
+            std::string ovrStr = std::to_string(static_cast<int>(p->stats.overallRating));
+            float textWidth = ImGui::CalcTextSize(ovrStr.c_str()).x;
+
+            // Center the numbers
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.25f);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.1f, 1.0f), "%s", ovrStr.c_str());
+            ImGui::SetWindowFontScale(1.0f); // Reset scale for normal text
+
+            const char* ovrLabel = "OVERALL";
+            textWidth = ImGui::CalcTextSize(ovrLabel).x;
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.25f);
+            ImGui::TextDisabled("%s", ovrLabel);
+
+            ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing();
+
+            // --- Hexagon Math & Drawing ---
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
+            float availWidth = ImGui::GetContentRegionAvail().x;
+
+            // REDUCED RADIUS: Changed from 0.35f to 0.22f to leave plenty of room for text
+            float radius = availWidth * 0.22f;
+
+            // Center point of the radar
+            ImVec2 center = ImVec2(cursorScreenPos.x + availWidth * 0.5f, cursorScreenPos.y + radius + 35.0f);
+
+            // --- DYNAMIC DATA: Check if Goalkeeper ---
+            float nodeStats[6];
+            const char* nodeLabels[6];
+
+            if (p->positionRole == PositionRole::Goalkeeper) {
+                // Goalkeeper Specific Hexagon Data
+                nodeStats[0] = p->stats.getGkCoverage();
+                nodeStats[1] = p->stats.getGkReactions();
+                nodeStats[2] = p->stats.getGkCatching();
+                nodeStats[3] = p->stats.getGkThrowing();
+                nodeStats[4] = p->stats.getGkAwareness();
+                nodeStats[5] = p->stats.getGkBlocking();
+
+                nodeLabels[0] = "COV"; // Coverage
+                nodeLabels[1] = "REA"; // Reactions
+                nodeLabels[2] = "CAT"; // Catching
+                nodeLabels[3] = "THR"; // Throwing
+                nodeLabels[4] = "AWA"; // GK Awareness
+                nodeLabels[5] = "BLK"; // GK Blocking
+            }
+            else {
+                // Outfield Player Hexagon Data
+                nodeStats[0] = p->stats.getShootingAverage();
+                nodeStats[1] = p->stats.getPassingAverage();
+                nodeStats[2] = p->stats.getTechniqueAverage();
+                nodeStats[3] = p->stats.getSpeedAverage();
+                nodeStats[4] = p->stats.getPhysicalAverage();
+                nodeStats[5] = p->stats.getMentalAverage();
+
+                nodeLabels[0] = "SHOT";
+                nodeLabels[1] = "PASS";
+                nodeLabels[2] = "TECH";
+                nodeLabels[3] = "PACE";
+                nodeLabels[4] = "PHYS";
+                nodeLabels[5] = "MENT";
+            }
+
+            // 1. Draw Background Web (Concentric circles/hexagons)
+            const int numSegments = 6;
+            for (int ring = 1; ring <= 5; ++ring) {
+                float ringRadius = radius * (ring / 5.0f);
+                ImVec2 points[6];
+                for (int i = 0; i < numSegments; ++i) {
+                    // Start at top (-90 degrees / -PI/2) and go clockwise
+                    float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                    points[i] = ImVec2(center.x + cos(angle) * ringRadius, center.y + sin(angle) * ringRadius);
+                }
+                // Grey semi-transparent lines
+                drawList->AddPolyline(points, 6, IM_COL32(100, 100, 100, 100), ImDrawFlags_Closed, 1.0f);
+            }
+
+            // 2. Draw the Player's Stat Polygon
+            ImVec2 statPoints[6];
+            for (int i = 0; i < numSegments; ++i) {
+                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                float statRadius = radius * (nodeStats[i] / 100.0f); // Scale distance by stat (0-100)
+                statPoints[i] = ImVec2(center.x + cos(angle) * statRadius, center.y + sin(angle) * statRadius);
+            }
+            // Fill with a transparent green, outline with solid green
+            drawList->AddConvexPolyFilled(statPoints, 6, IM_COL32(0, 255, 150, 100));
+            drawList->AddPolyline(statPoints, 6, IM_COL32(0, 255, 150, 255), ImDrawFlags_Closed, 2.0f);
+
+            // 3. Draw Labels and Numbers at the edges
+            for (int i = 0; i < numSegments; ++i) {
+                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                float labelRadius = radius * 1.35f; // Push text outside the outer hexagon boundary
+                ImVec2 labelCenter = ImVec2(center.x + cos(angle) * labelRadius, center.y + sin(angle) * labelRadius);
+
+                char labelBuf[32];
+                snprintf(labelBuf, sizeof(labelBuf), "%s\n%.0f", nodeLabels[i], nodeStats[i]);
+
+                ImVec2 textSize = ImGui::CalcTextSize(labelBuf);
+                ImVec2 textDrawPos = ImVec2(labelCenter.x - textSize.x * 0.5f, labelCenter.y - textSize.y * 0.5f);
+
+                drawList->AddText(textDrawPos, IM_COL32(255, 255, 255, 255), labelBuf);
+            }
+
+            ImGui::EndChild(); // End Right Pane
 
             // Graphics
             ImGui::Separator(); ImGui::Text("Player Graphics");

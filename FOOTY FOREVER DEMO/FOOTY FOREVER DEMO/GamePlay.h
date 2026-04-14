@@ -56,7 +56,7 @@ class GamePlay
 		std::unique_ptr<TeamAI> m_awayTeamAI;
 
 		// --- The Bodies ---
-// We use a vector of unique_ptrs so they are cleaned up automatically
+		// We use a vector of unique_ptrs so they are cleaned up automatically
 		std::vector<std::unique_ptr<NPCPlayer>> m_homeside;
 		std::vector<std::unique_ptr<NPCPlayer>> m_awayside;
 
@@ -95,7 +95,6 @@ class GamePlay
 
 	ReplayEngine m_replayEngine;
 	std::vector<Player*> m_allActivePlayers; // Helper list to feed the recorder
-	void refreshEntities();
 	void spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, TeamData& teamData, bool isHomeSide, const std::string& userPlayerId);
 	void renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity);
 

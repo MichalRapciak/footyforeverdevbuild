@@ -1,5 +1,7 @@
 #pragma once
-
+/// <summary>
+/// dribbleBias, passRiskBias, shootBias, crossBias, runFrequency, tackleAggression
+/// </summary>
 struct PlayerBehavior {
     // --- ON THE BALL (Possession Biases) ---
 

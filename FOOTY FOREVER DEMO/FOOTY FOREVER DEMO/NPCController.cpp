@@ -13,13 +13,25 @@
 NPCController::NPCController() {}
 NPCController::~NPCController() {}
 
-void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
+void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     const std::vector<Player*>& team, const std::vector<Player*>& opposition,
     const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
     const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager)
 {
     npc.updateCooldown(dt);
     PhysicsEngine::updatePlayerAirPhysics(npc, dt);
+
+    // ==========================================
+    // --- THE HARD LOCK: INJURED PLAYERS ---
+    // ==========================================
+    if (npc.getState() == PlayerState::Injured) {
+        // Bleed off any remaining momentum from the tackle
+        PhysicsEngine::applyPlayerIdleFriction(npc, dt);
+
+        // Return immediately! They do not process match states, 
+        // set pieces, or tactical movement ever again.
+        return;
+    }
 
     bool isTaker = (&npc == referee.getSetPieceTaker());
     TacticalContext ctx = referee.getTacticalContext(npc.getTeam(), isTaker);
@@ -42,79 +54,209 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         npc.updateStamina(dt, false);
 
         if (isTaker) {
-            npc.setVelocity({ 0.f, 0.f });
+            if (!referee.isWhistleBlown()) {
+                npc.setVelocity({ 0.f, 0.f });
 
-            if (referee.isWhistleBlown() && npc.getKickCooldown() <= 0.0f) {
+                // Pre-whistle facing
+                if (ctx.state == MatchState::Corner) {
+                    sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
+                    npc.setRotationToward(center);
+                }
+                else if (ctx.state == MatchState::KickOff) {
+                    // THE FIX: Face our OWN goal to pass backwards!
+                    sf::Vector2f myGoal = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
+                    npc.setRotationToward(myGoal);
+                }
+                else {
+                    sf::Vector2f oppGoal = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
+                    npc.setRotationToward(oppGoal);
+                }
+            }
+            else if (npc.getKickCooldown() <= 0.0f) {
 
                 bool isHome = (npc.getTeam() == Team::Home);
                 sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
 
                 if (ctx.state == MatchState::ThrowIn) {
-                    PlayerAI::executeThrowIn(npc, ball, team); // No sound for throw-ins!
+                    PlayerAI::executeThrowIn(npc, ball, team);
+                    return;
+                }
+
+                // ==========================================
+                // --- THE AI SET PIECE RUN-UP ---
+                // ==========================================
+                sf::Vector2f ballPos = ball.getPosition();
+                sf::Vector2f npcPos = npc.getPosition();
+
+                // 1. STABLE DECISION MAKING
+                sf::Vector2f kickDir;
+                sf::Vector2f approachDir;
+                bool isShooting = false;
+                Player* passTarget = nullptr;
+
+                if (ctx.state == MatchState::Penalty) {
+                    kickDir = PlayerAI::normalize(goalPos - ballPos);
+                    approachDir = kickDir;
+                    isShooting = true;
+                }
+                else if (ctx.state == MatchState::FreeKick && PlayerAI::dist(ballPos, goalPos) < 2500.f && npc.getPlaystyle().behavior.shootBias >= 0.4f) {
+                    kickDir = PlayerAI::normalize(goalPos - ballPos);
+                    approachDir = kickDir;
+                    isShooting = true;
                 }
                 else if (ctx.state == MatchState::GoalKick) {
-                    PlayerAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
+                    kickDir = isHome ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f);
+                    approachDir = kickDir;
                 }
-                else if (ctx.state == MatchState::Penalty) {
-                    PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
-                }
-                else if (ctx.state == MatchState::KickOff || ctx.state == MatchState::Corner) {
-                    Player* bestTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
-
-                    if (!bestTarget) {
+                else if (ctx.state == MatchState::KickOff) {
+                    passTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+                    if (!passTarget) {
                         float minDist = 99999.f;
                         std::vector<Player*> receivers;
                         for (auto& t : team) if (t != &npc) receivers.push_back(t);
-                        if (npc.getTeam() == user.getTeam()) receivers.push_back(&user);
+                        if (user && npc.getTeam() == user->getTeam()) receivers.push_back(user);
 
                         for (Player* tm : receivers) {
-                            float d = PlayerAI::dist(npc.getPosition(), tm->getPosition());
-                            if (d < minDist) {
-                                minDist = d;
-                                bestTarget = tm;
-                            }
+                            float d = PlayerAI::dist(npcPos, tm->getPosition());
+                            if (d < minDist) { minDist = d; passTarget = tm; }
                         }
                     }
 
-                    if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition, soundManager);
-                }
-                else if (ctx.state == MatchState::FreeKick) {
-                    float distToGoal = PlayerAI::dist(npc.getPosition(), goalPos);
+                    // THE FIX: If they pass backwards, kickDir points backward. 
+                    // By setting approachDir = kickDir, they will ALWAYS stand in the opponent's 
+                    // half facing their own team!
+                    if (passTarget) kickDir = PlayerAI::normalize(passTarget->getPosition() - ballPos);
+                    else kickDir = isHome ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
 
-                    if (distToGoal < 2500.f && (rand() % 100) < 50) {
-                        PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
+                    approachDir = kickDir;
+                }
+                else {
+                    passTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+                    if (passTarget) kickDir = PlayerAI::normalize(passTarget->getPosition() - ballPos);
+                    else kickDir = PlayerAI::normalize(goalPos - ballPos);
+                    approachDir = kickDir;
+                }
+
+                // 2. DYNAMIC RUN-UP DISTANCES
+                float runUpLength = 250.f;
+                if (ctx.state == MatchState::KickOff) runUpLength = 80.f;
+                else if (ctx.state == MatchState::GoalKick) runUpLength = 150.f;
+
+                sf::Vector2f runUpSpot = ballPos - (approachDir * runUpLength);
+
+                runUpSpot.x = std::clamp(runUpSpot.x, pitch.margin + 30.f, pitch.totalWidth - pitch.margin - 30.f);
+                runUpSpot.y = std::clamp(runUpSpot.y, pitch.margin + 30.f, pitch.totalHeight - pitch.margin - 30.f);
+
+                float distToRunUp = PlayerAI::dist(npcPos, runUpSpot);
+                float distToBall = PlayerAI::dist(npcPos, ballPos);
+
+                // ==========================================
+                // 3. EXECUTE THE MOVEMENT PHASES (THE HYSTERESIS LOCK)
+                // ==========================================
+                bool isWalkingBack = false;
+                float dotVel = (npc.getVelocity().x * approachDir.x) + (npc.getVelocity().y * approachDir.y);
+
+                // 1. Are we extremely close to the run-up spot? Lock into Sprint!
+                if (distToRunUp < 30.f) {
+                    isWalkingBack = false;
+                }
+                // 2. Are we extremely close to the ball? Lock into Walk!
+                else if (distToBall < 30.f) {
+                    isWalkingBack = true;
+                }
+                // 3. We are in the middle of the run-up. Use physical momentum to decide!
+                else {
+                    // If we are actively moving backwards (or hit a boundary wall and stopped), keep walking back.
+                    // If we have forward momentum, keep sprinting!
+                    if (dotVel < -5.f) isWalkingBack = true;
+                    else isWalkingBack = false;
+                }
+
+                if (isWalkingBack) {
+                    // PHASE 1: Walk backward to the Run-Up spot
+                    sf::Vector2f moveDir = PlayerAI::normalize(runUpSpot - npcPos);
+                    float walkSpeed = npc.getTopSpeed() * 5.0f;
+
+                    PhysicsEngine::applyPlayerLocomotion(npc, moveDir, walkSpeed, dt);
+                    npc.setRotationToward(runUpSpot);
+                }
+                else {
+                    // PHASE 2: Sprint at the ball!
+                    sf::Vector2f moveDir = PlayerAI::normalize(ballPos - npcPos);
+                    float sprintSpeed = npc.getTopSpeed() * 10.f;
+
+                    PhysicsEngine::applyPlayerLocomotion(npc, moveDir, sprintSpeed, dt);
+
+                    if (ctx.state == MatchState::KickOff) {
+                        // Keep eyes locked forward on Kickoff
+                        sf::Vector2f myGoal = isHome ? sf::Vector2f(0.f, pitch.totalHeight / 2.f) : sf::Vector2f(pitch.totalWidth, pitch.totalHeight / 2.f);
+                        npc.setRotationToward(myGoal);
                     }
                     else {
-                        Player* bestTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
-                        if (bestTarget) PlayerAI::executePass(npc, ball, bestTarget, opposition, soundManager);
-                        else PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
+                        npc.setRotationToward(ballPos);
+                    }
+
+                    // PHASE 3: The Strike! (Within 1 meter)
+                    if (distToBall < 100.f) {
+
+                        if (ctx.state == MatchState::GoalKick) {
+                            PlayerAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
+                        }
+                        else if (isShooting) {
+                            PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
+                        }
+                        else if (passTarget) {
+                            PlayerAI::executePass(npc, ball, passTarget, opposition, soundManager);
+                        }
+                        else {
+                            PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager); // Fallback
+                        }
+
+                        npc.setVelocity({ 0.f, 0.f });
+                        npc.resetKickCooldown();
                     }
                 }
             }
-
-            if (ctx.state == MatchState::Corner) {
-                sf::Vector2f center(pitch.totalWidth / 2.f, pitch.totalHeight / 2.f);
-                npc.setRotationToward(center);
-            }
-            else {
-                sf::Vector2f oppGoal = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
-                npc.setRotationToward(oppGoal);
-            }
-            return;
+            return; // Taker is finished processing
         }
     }
 
     // ==========================================
     // 3. AERIAL LOGIC (Headers / Volleys)
     // ==========================================
-    if (ball.z > 40.f)
+    if (ball.z > 80.f)
     {
         PlayerAI::handleNPCJumpLogic(npc, ball);
 
         bool isHome = (npc.getTeam() == Team::Home);
         sf::Vector2f oppGoalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
+        float distToGoal = PlayerAI::dist(npc.getPosition(), oppGoalPos);
 
-        if (PlayerAI::tryNPCAerialStrike(npc, ball, PlayerAI::normalize(oppGoalPos - npc.getPosition()), true, soundManager)) {
+        // THE FIX: Decide if this aerial strike should be a SHOT or a PASS
+        bool isShot = false;
+        sf::Vector2f aimDir;
+
+        // If we are within 20 meters of the goal, attack the net!
+        if (distToGoal < 2000.f) {
+            isShot = true;
+            aimDir = PlayerAI::normalize(oppGoalPos - npc.getPosition());
+        }
+        else {
+            // We are outside the box. Look for a teammate to pass to!
+            Player* aerialPassTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+
+            if (aerialPassTarget) {
+                isShot = false; // It's a pass!
+                aimDir = PlayerAI::normalize(aerialPassTarget->getPosition() - npc.getPosition());
+            }
+            else {
+                // No pass target, just head it forward to clear it
+                isShot = false;
+                aimDir = isHome ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f);
+            }
+        }
+
+        if (PlayerAI::tryNPCAerialStrike(npc, ball, aimDir, isShot, soundManager)) {
             npc.deductStaminaAction(1.5f);
             return;
         }
@@ -142,8 +284,24 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         }
         else {
             // --- OFF THE BALL ---
-            // FIX: We now pass the 'team' vector into decideTargetPosition so the Spatial Engine can use it!
-            sf::Vector2f targetPos = PlayerAI::decideTargetPosition(npc, ball, pitch, teamState, team, opposition, firstResponder, mask, teamAI);
+
+            // ==========================================
+            // --- THE TELEPATHIC RECEIVER OVERRIDE ---
+            // ==========================================
+            bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
+            Player* effectiveResponder = firstResponder;
+            bool amITargetReceiver = false;
+
+            if (isTeammatePass) {
+                Player* targetReceiver = PlayerAI::identifyTargetReceiver(ball, team);
+                if (targetReceiver) {
+                    effectiveResponder = targetReceiver; // Override the game's default first responder!
+                    if (targetReceiver == &npc) amITargetReceiver = true;
+                }
+            }
+
+            // Pass the explicitly corrected 'effectiveResponder' into the movement decisions
+            sf::Vector2f targetPos = PlayerAI::decideTargetPosition(npc, ball, pitch, teamState, team, opposition, effectiveResponder, mask, teamAI);
 
             sf::Vector2f toTarget = targetPos - npcPos;
             distToTarget = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y);
@@ -153,11 +311,14 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
             finalDirection = PlayerAI::normalize(normTarget + (separation * 0.8f));
 
             // SPRINT EVALUATION
-            // Dynamically assign urgency based on the current phase of play
             AIUrgency urgency = (teamState == TeamState::Defending) ? AIUrgency::Recovery : AIUrgency::AttackingRun;
-            if (firstResponder == &npc) urgency = AIUrgency::Critical;
+            if (effectiveResponder == &npc) urgency = AIUrgency::Critical;
 
             isSprinting = PlayerAI::evaluateSprintUrgency(npc, urgency, distToTarget, PlayerAI::dist(npcPos, ball.getPosition()));
+
+            // THE LOCK: If I am the target receiver, I MUST sprint to the ball!
+            if (amITargetReceiver) isSprinting = true;
+            if (npc.getBallPossession()) isSprinting = true;
 
             float distToBall = PlayerAI::dist(ball.getPosition(), npc.getPosition());
 
@@ -177,13 +338,15 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
             }
 
             // ==========================================
-                        // --- RESTORED: TACKLE TRIGGER ---
-                        // ==========================================
-            if (ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam() && distToBall < 250.f && ctx.canTackle) {
+            // --- RESTORED & NERFED: TACKLE TRIGGER ---
+            // ==========================================
+            // Reduced scan radius so they don't lock onto tackles too early
+            if (ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam() && distToBall < 200.f && ctx.canTackle) {
                 Player* attacker = ball.getOwner();
 
                 if (attacker->getPositionRole() != PositionRole::Goalkeeper) {
                     float awareness = npc.getAwareness();
+                    float aggression = npc.getAggression();
                     bool safeToTackle = true;
 
                     // 1. CALCULATE ANGLES & POSITION
@@ -194,57 +357,99 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
                     sf::Vector2f attackerDir = (attackerSpeed > 10.f) ? (attackerVel / attackerSpeed) : sf::Vector2f(0.f, 0.f);
                     sf::Vector2f npcDir = PlayerAI::normalize(toAttacker);
 
-                    // Dot product: > 0.4f means we are chasing them from behind.
+                    // Dot product: > 0.4f means we are chasing them from behind. < -0.3f means Head-On!
                     float approachAngle = (npcDir.x * attackerDir.x) + (npcDir.y * attackerDir.y);
                     bool trailingBehind = (approachAngle > 0.4f);
+                    bool headOn = (approachAngle < -0.3f);
 
-                    // 2. ARE WE IN THE PENALTY BOX?
-                    sf::Vector2f myGoalPos = (npc.getTeam() == Team::Home) ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
+                    // 2. DETERMINE PITCH ZONES
+                    bool isHomeSide = (npc.getTeam() == Team::Home);
+                    sf::Vector2f myGoalPos = isHomeSide ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
                     float dxToGoal = std::abs(npcPos.x - myGoalPos.x);
                     float dyToGoal = std::abs(npcPos.y - myGoalPos.y);
+
                     bool inOwnBox = (dxToGoal < 1650.f && dyToGoal < 2050.f);
 
+                    // Are we in the opponent's half?
+                    float pitchHalfX = pitch.totalWidth / 2.f;
+                    bool inOpponentHalf = isHomeSide ? (npcPos.x > pitchHalfX) : (npcPos.x < pitchHalfX);
+
                     bool onYellow = (npc.getYellowCards() > 0);
+                    float ballExposedDist = PlayerAI::dist(attacker->getPosition(), ball.getPosition());
 
                     // ==========================================
-                    // --- SMART FOUL AVOIDANCE ---
+                    // --- SMART FOUL AVOIDANCE & PATIENCE ---
                     // ==========================================
-                    if (inOwnBox) {
-                        // THE "100% CERTAIN" RULE:
-                        // To tackle in the box, ALL of these must be true:
-                        // 1. Not chasing from behind.
-                        // 2. The ball must be VERY exposed (striker took a heavy touch > 70px away from their feet).
-                        // 3. Defender must have high tackling stats (> 70) to ensure a clean win.
-                        float ballExposedDist = PlayerAI::dist(attacker->getPosition(), ball.getPosition());
-
-                        if (trailingBehind || ballExposedDist < 70.f || (npc.getAggression() < 70.f)) {
+                    if (inOpponentHalf) {
+                        // SEVERE NERF: In the opponent's half, they just jockey and hold the team shape.
+                        // To tackle here, the situation must be an absolute gift.
+                        // 1. Must be face-to-face (no side/behind tackles)
+                        // 2. Attacker must have taken a terrible heavy touch (> 80px exposed)
+                        // 3. AI must have high aggression to even care.
+                        if (!headOn || ballExposedDist < 60.f || aggression < 55.f) {
+                            safeToTackle = false;
+                        }
+                        // Even if it's perfect, add a hesitation roll so they don't constantly bite
+                        else if ((rand() % 100) > (aggression * 0.7f)) {
+                            safeToTackle = false;
+                        }
+                    }
+                    else if (inOwnBox) {
+                        // PENALTY BOX: Extreme caution. No tackling from behind, need an exposed ball.
+                        if (trailingBehind || ballExposedDist < 70.f || aggression < 70.f) {
                             safeToTackle = false;
                         }
                     }
                     else {
-                        // OUTSIDE THE BOX: Standard foul avoidance
+                        // OWN HALF (Open Play): Tactical Defending
                         if (trailingBehind) {
-                            // Dumb players might still dive in from behind. Smart players hold off.
+                            // Smart players know trailing tackles are useless fouls
                             if ((rand() % 100) < awareness) safeToTackle = false;
                         }
-
-                        if (onYellow) {
-                            // Players on a yellow are terrified of getting a red.
-                            // They will NEVER tackle from behind, and hesitate 60% of the time head-on.
-                            if (trailingBehind || (rand() % 100) < 60) safeToTackle = false;
+                        else if (ballExposedDist < 45.f) {
+                            // THE PATIENCE FIX: If the ball is glued to the attacker's feet, 
+                            // they wait for a touch before diving in, unless they are extremely aggressive!
+                            if ((rand() % 100) > aggression) {
+                                safeToTackle = false;
+                            }
                         }
+                    }
+
+                    // Yellow card overrides everything with pure terror
+                    if (onYellow) {
+                        if (trailingBehind || (rand() % 100) < 75) safeToTackle = false;
                     }
 
                     // ==========================================
                     // --- EXECUTE TACKLE ---
                     // ==========================================
-                    // Outside the box, they can dive in from 120px away. 
-                    // Inside the box, the safeToTackle logic above already requires the ball to be loose!
-                    if (safeToTackle && distToBall < 120.f) {
+                    // Tightened the physical lunge range from 120px to 90px. 
+                    // This forces them to get closer and jockey rather than lunging from miles away!
+                    if (safeToTackle && distToBall < 140.f) {
                         sf::Vector2f futureBallPos = ball.getPosition() + (ball.getVelocity() * 0.24f);
                         npc.startTackle(PlayerAI::normalize(futureBallPos - npcPos));
                     }
                 }
+            }
+        }
+
+        // ==========================================
+        // --- THE FIX: AI BODY ROTATION SYNC ---
+        // ==========================================
+        // Before applying physics, force the AI to look exactly where they want to run.
+        // This prevents the PhysicsEngine from thinking they are trying to strafe or backpedal!
+        if (finalDirection.x != 0.f || finalDirection.y != 0.f) {
+            if (ball.getOwner() == &npc) {
+                // Dribblers ALWAYS face their movement direction
+                npc.setRotationToward(npcPos + finalDirection);
+            }
+            else if (teamState == TeamState::Defending && distToTarget < 400.f) {
+                // Defenders closing in on a target will jockey (face the ball)
+                npc.setRotationToward(ball.getPosition());
+            }
+            else {
+                // Off-ball runners face their run direction
+                npc.setRotationToward(npcPos + finalDirection);
             }
         }
 
@@ -255,10 +460,12 @@ void NPCController::update(NPCPlayer& npc, UserPlayer& user, Ball& ball,
         }
     }
 
-    // Final rotation facing
-    if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f) 
-    {
-        if (ball.getOwner() != &npc) npc.setRotationToward(ball.getPosition());
+    // Final rotation facing (Standing still only, and ONLY during open play!)
+    if (ctx.state == MatchState::InPlay) {
+        if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f)
+        {
+            if (ball.getOwner() != &npc) npc.setRotationToward(ball.getPosition());
+        }
     }
 }
 
@@ -288,34 +495,49 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     // Context Speed Limit (e.g., walking during half-time)
     maxSpeed = std::min(maxSpeed, ctx.maxSpeedLimit);
 
-    // Dribbling Speed Penalty
-    if (npc.getBallPossession()) {
-        maxSpeed *= 0.7f + ((npc.getBallControl() / 100.f) * 0.25f);
-    }
-
     // ==========================================
     // 2. STEERING & ARRIVAL LOGIC
     // ==========================================
-    float slowingRadius = 300.f;
-    float stopRadius = 30.f; // <--- CRITICAL FIX: Lets them actually arrive at their target!
+    float slowingRadius = 150.f;
+    float stopRadius = 30.f;
 
     float dx = npcPos.x - ball.getPosition().x;
     float dy = npcPos.y - ball.getPosition().y;
     float distToBall = std::sqrt(dx * dx + dy * dy);
 
-    bool isChasingBall = !keeperBall && ctx.ballInfluence > 0.0f &&
+    // --- THE FIX: Isolate the Dribbler! ---
+    bool hasBall = (ball.getOwner() == &npc);
+    bool isChasingBall = !hasBall && !keeperBall && ctx.ballInfluence > 0.0f &&
         (!ball.hasOwner() || ball.getOwner()->getTeam() != npc.getTeam()) &&
         (&npc == firstResponder || (distToTarget < 450.f && distToBall < 300.f && npc.getState() != PlayerState::Tackling));
 
-    if (isChasingBall) {
+    if (hasBall) {
+        // --- ON THE BALL (The Open Highway) ---
         maxSpeed = std::min(sprintSpeed, ctx.maxSpeedLimit);
 
-        // --- THE "HONE IN" LOGIC (Ball Magnetism) ---
-        if (distToBall > 10.f) {
-            sf::Vector2f ballDir = { dx / distToBall, dy / distToBall }; // Direction TO player
-            ballDir = -ballDir; // Direction TO ball
+        // Artificial arcade boost: Make them 15% faster while carrying the ball!
+        maxSpeed *= 1.15f;
 
-            // Ask the Physics Engine to kill orbital drift so they run straight at it!
+        // Drastically reduce braking so they blast through open space
+        slowingRadius = 0.f;
+        stopRadius = 10.f;
+
+        // Arrival Easing (Nerfed for dribblers so they don't stutter)
+        if (distToTarget < slowingRadius && (directionInput.x != 0.f || directionInput.y != 0.f)) {
+            float ramp = (distToTarget - stopRadius) / (slowingRadius - stopRadius);
+            ramp = std::max(0.6f, std::min(ramp, 1.f)); // Never drop below 70% speed while dribbling
+            maxSpeed *= ramp;
+        }
+    }
+    else if (isChasingBall) {
+        // --- CHASING LOOSE BALL / INTERCEPTING ---
+        maxSpeed = std::min(sprintSpeed, ctx.maxSpeedLimit);
+
+        // The "Hone In" Logic (Ball Magnetism)
+        if (distToBall > 10.f) {
+            sf::Vector2f ballDir = { dx / distToBall, dy / distToBall };
+            ballDir = -ballDir;
+
             PhysicsEngine::applyTangentialVelocityDamping(npc, ballDir, 6.0f, dt);
 
             float pullStrength = 0.55f * ctx.ballInfluence;
@@ -328,10 +550,15 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
         }
     }
     else {
-        // --- AGGRESSION: PRESSING / JOCKEYING ---
-        float aggressionFactor = npc.getAggression() / 100.0f;
-        float jockeyClamp = 0.60f + (aggressionFactor * 0.30f);
-        maxSpeed *= jockeyClamp;
+        // --- OFF THE BALL: PRESSING / JOCKEYING / TACTICAL ---
+
+        // THE FIX 1: Don't nerf the speed of players making attacking runs!
+        if (!isSprinting) {
+            float aggressionFactor = npc.getAggression() / 100.0f;
+            // The Jockey Clamp: Only apply this to defenders/off-ball players who are jogging
+            float jockeyClamp = 0.60f + (aggressionFactor * 0.30f);
+            maxSpeed *= jockeyClamp;
+        }
 
         // Tactical slowdown bypass (Ignore braking during live play if we can't possess)
         if (ctx.state == MatchState::InPlay && !ctx.canPossess) {
@@ -339,7 +566,7 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
             stopRadius = 10.f;
         }
 
-        // Arrival Easing: Smoothly hit the brakes as they approach the target!
+        // Standard Arrival Easing
         if (distToTarget < slowingRadius && (directionInput.x != 0.f || directionInput.y != 0.f)) {
             float ramp = (distToTarget - stopRadius) / (slowingRadius - stopRadius);
             ramp = std::max(0.f, std::min(ramp, 1.f));
@@ -353,6 +580,7 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     if (directionInput.x != 0.f || directionInput.y != 0.f) {
         // If chasing the ball, give them a slight artificial speed boost as an AI assist
         if (isChasingBall) maxSpeed *= 1.1f;
+
         PhysicsEngine::applyPlayerLocomotion(npc, directionInput, maxSpeed, dt);
     }
     else {

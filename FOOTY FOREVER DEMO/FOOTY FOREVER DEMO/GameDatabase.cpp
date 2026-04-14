@@ -149,6 +149,7 @@ PlaystyleType stringToPlaystyle(const std::string& str)
     if (str == "Classic Wide Mid" || str == "ClassicWideMid") return PlaystyleType::ClassicWideMid;
     if (str == "Defensive Winger" || str == "DefensiveWinger") return PlaystyleType::DefensiveWinger;
     if (str == "Inverted Wide Mid" || str == "InvertedWideMid") return PlaystyleType::InvertedWideMid;
+    if (str == "Joga Bonito" || str == "JogaBonito") return PlaystyleType::JogaBonito;
     // Strikers
     if (str == "Finisher") return PlaystyleType::Finisher;
     if (str == "The Target" || str == "TheTarget") return PlaystyleType::TheTarget;
@@ -194,6 +195,7 @@ std::string playstyleToString(PlaystyleType type)
     case PlaystyleType::ClassicWideMid: return "Classic Wide Mid";
     case PlaystyleType::DefensiveWinger: return "Defensive Winger";
     case PlaystyleType::InvertedWideMid: return "Inverted Wide Mid";
+    case PlaystyleType::JogaBonito: return "Joga Bonito";
     case PlaystyleType::Finisher: return "Finisher";
     case PlaystyleType::TheTarget: return "The Target";
     case PlaystyleType::False9: return "False 9";
@@ -389,6 +391,7 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                         auto& s = playerData["stats"];
                         p.stats.naturalFitness = s.value("fitness", 50.f);
                         p.stats.weakFootAccuracy = s.value("weak_foot_accuracy", 2);
+                        p.stats.injuryResistance = s.value("injury_resistance", 2);
                         p.stats.finishing = s.value("finishing", 50.0f);
                         p.stats.heading = s.value("heading", 50.0f);
                         p.stats.ballControl = s.value("ball_control", 50.0f);
@@ -478,6 +481,7 @@ void GameDatabase::savePlayer(const std::string& id, const std::string& baseDir)
     auto& s = j[id]["stats"];
     s["fitness"] = p->stats.naturalFitness;
     s["weak_foot_accuracy"] = p->stats.weakFootAccuracy;
+    s["injury_resistance"] = p->stats.injuryResistance;
     s["finishing"] = p->stats.finishing;
     s["heading"] = p->stats.heading;
     s["ball_control"] = p->stats.ballControl;

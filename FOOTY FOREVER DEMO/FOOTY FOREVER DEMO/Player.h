@@ -9,6 +9,7 @@
 #include "Direction.h"
 #include <string>       // <-- NEW for Database strings
 #include <vector>       // <-- NEW for Database traits
+#include "InjuryData.h"
 
 // Forward declare the database struct (Replace/include the actual header where PlayerData is defined)
 struct PlayerData;
@@ -63,11 +64,14 @@ public:
     const std::vector<std::string>& getTraits() const { return m_traits; }
     bool hasTrait(const std::string& traitName) const;
     void triggerFallOver(sf::Vector2f impactVelocity, AnimationServer& animServer);
+    void checkInjury(float impactForce);
+    void applyRandomInjury(float impactNorm);
     void recoverFromFall();
 
     // --- STAT GETTERS ---
     float getFitness() { return m_stats.getFitness(); }
     int getWeakFootAccuracy() { return m_stats.getWeakFootAccuracy(); }
+    int getInjuryResistance() { return m_stats.getInjuryResistance(); }
 
     float getFinishing() { return m_stats.getFinishing() * getGeneralMultiplier(); }
     float getDeadBall() { return m_stats.getDeadBall() * getGeneralMultiplier(); }
@@ -75,18 +79,18 @@ public:
 
     float getCurl() { return m_stats.getCurl() * getGeneralMultiplier(); }
     float getBallControl() { return m_stats.getBallControl() * getGeneralMultiplier(); }
-    float getBalancing() { return m_stats.getBalancing() * getMovementMultiplier(); }
+    float getBalancing() { return m_stats.getBalancing() * getMovementMultiplier() * getInjuryDebuff(); }
 
     float getShortPassing() { return m_stats.getShortPassing() * getGeneralMultiplier(); }
-    float getLongPassing() { return m_stats.getLongPassing() * getGeneralMultiplier(); }
+    float getLongPassing() { return m_stats.getLongPassing() * getGeneralMultiplier() * getInjuryDebuff(); }
 
-    float getAcceleration() { return m_stats.getAccel() * getMovementMultiplier(); }
-    float getTopSpeed() { return m_stats.getTopSpeed() * getMovementMultiplier(); }
-    float getAgility() { return m_stats.getAgility() * getMovementMultiplier(); }
+    float getAcceleration() { return m_stats.getAccel() * getMovementMultiplier() * getInjuryDebuff(); }
+    float getTopSpeed() { return m_stats.getTopSpeed() * getMovementMultiplier() * getInjuryDebuff(); }
+    float getAgility() { return m_stats.getAgility() * getMovementMultiplier() * getInjuryDebuff(); }
 
-    float getBodyStrength() { return m_stats.getBodyStrength(); }
-    float getKickPower() { return m_stats.getKickPower(); }
-    float getJumpingStrength() { return m_stats.getJumpingStrength() * getMovementMultiplier(); }
+    float getBodyStrength() { return m_stats.getBodyStrength() * getInjuryDebuff(); }
+    float getKickPower() { return m_stats.getKickPower() * getInjuryDebuff(); }
+    float getJumpingStrength() { return m_stats.getJumpingStrength() * getMovementMultiplier() * getInjuryDebuff(); }
 
     float getAwareness() { return m_stats.getAwareness() * getGeneralMultiplier(); }
     float getAggression() { return m_stats.getAggression() * getGeneralMultiplier(); }
@@ -119,6 +123,20 @@ public:
         }
     }
 
+    float getInjuryDebuff() const {
+        if (!isInjured) return 1.0f; // 100% healthy
+
+        switch (currentInjurySeverity) {
+        case InjurySeverity::Knock:
+            return 0.85f; // -15% to physical stats. They are limping but trying to play!
+        case InjurySeverity::Mild:
+            return 0.60f; // -40%. They are a massive liability on the pitch now.
+        case InjurySeverity::Severe:
+            return 0.0f;  // 0%. Completely incapacitated.
+        default: return 1.0f;
+        }
+    }
+
     Playstyle getPlaystyle() {  return m_playstyle; }
     Direction get8WayDirection(sf::Vector2f targetVector);
     Direction getDirection() const{ return m_currentDirection; }
@@ -129,7 +147,7 @@ public:
     void startTackleCooldown() { m_tackleCooldownTimer = TACKLE_COOLDOWN_DURATION; }
 
     PlayerState getState() const { return m_currentState; }
-    void setState(PlayerState state) { m_currentState = state; }
+    void setState(PlayerState newState);
     float getCollisionRadius() const { return m_collisionRadius; }
     float getSortDepth() const override {
         float feetOffset = 400.0f * std::abs(m_sprite.getScale().x);
@@ -240,6 +258,12 @@ protected:
     float m_tackleDuration = 0.4f;
     const float TACKLE_COOLDOWN_DURATION = 2.0f;
     float m_tackleCooldownTimer = 0.0f;
+
+    // injury info
+    bool isInjured = false;
+    std::string currentInjury = "";
+    int injuryDaysRemaining = 0;
+    InjurySeverity currentInjurySeverity = InjurySeverity::Knock;
 
 };
 
