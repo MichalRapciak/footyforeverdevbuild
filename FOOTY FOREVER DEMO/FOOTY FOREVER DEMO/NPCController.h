@@ -15,6 +15,8 @@ class TeamAI;
 struct PositioningMask;
 struct TacticalContext;
 enum class TeamState;
+class SpatialGrid;
+class MatchStatistics;
 
 // Defines how an NPC should behave
 enum class AIRole {
@@ -35,7 +37,8 @@ public:
     void update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         const std::vector<Player*>& team, const std::vector<Player*>& opposition,
         const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
-        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager);
+        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager, const SpatialGrid& spatialGrid
+        , MatchStatistics& stats);
 
 private:
     // 3. Update the Physics signature (add TacticalContext at the end)

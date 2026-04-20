@@ -10,7 +10,7 @@
 class NPCPlayer : public Player
 {
 public:
-    NPCPlayer(const sf::Texture& texture);
+    NPCPlayer();
     ~NPCPlayer();
 
     // Standard getters/setters (matching UserPlayer)
@@ -23,7 +23,7 @@ public:
 
 
 
-    void update(float dt, AnimationServer& animServer) override;
+    void update(float dt) override;
 
     // NPC specific: needs to be told where to look since there's no mouse
     void setRotationToward(sf::Vector2f targetPos);

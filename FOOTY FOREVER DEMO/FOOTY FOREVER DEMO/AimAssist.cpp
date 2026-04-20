@@ -34,52 +34,64 @@ void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& 
 
     float travelTime = 0.f;
     float idealPowerWorld = 0.f;
-    sf::Vector2f aimSpot = targetPos;
+    sf::Vector2f aimSpot;
 
     if (isHighPass) {
-        // 1. Predict the Vz loft we will use (matches executePass exactly)
         float maxLoft = std::clamp(500.f + (rawDist * 0.25f), 700.f, 1150.f);
         float vzPower = std::max(maxLoft - ((stat / 100.f) * 80.f), 300.f);
 
-        // 2. Exact Parabolic Time to reach Z = 30 (chest/hip height to control the ball)
-        // Solved via Quadratic Formula: 0.5*g*t^2 - Vz*t + Z = 0
         float g = 980.f;
         float targetZ = 30.f;
         float discriminant = (vzPower * vzPower) - (2.f * g * targetZ);
 
         if (discriminant > 0.f) {
-            // We take the '+' root because we want the time when the ball is falling DOWN to Z=30, not rising past it!
             travelTime = (vzPower + std::sqrt(discriminant)) / g;
         }
         else {
-            travelTime = (2.0f * vzPower) / g; // Fallback to total flight time if Z=30 isn't reached
+            travelTime = (2.0f * vzPower) / g;
         }
 
-        // 3. Predict receiver's position
-        sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
+        // THE FIX 1: CAP RUN PREDICTION
+        // Players don't sprint in a perfectly straight line for 3 seconds. 
+        // We cap the prediction vector to 0.8 seconds max so the ball is played to their feet/immediate path!
+        float predictionTime = std::min(travelTime, 0.8f);
+        sf::Vector2f predictedPos = targetPos + (targetVel * predictionTime);
 
-        // Elite players lead the pass slightly into the space the player is running
         float leadAmount = (passingNorm > 0.8f) ? 120.f : 40.f;
         sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
         aimSpot = predictedPos + (dirToPredicted * leadAmount);
 
         float perfectDist = dist(playerPos, aimSpot);
 
-        // 4. Exact Horizontal Physics + Aerodynamic Drag Tax
+        // THE FIX 2: INTENTIONAL UNDERHIT FOR LONG BALLS
         float requiredVelocity = perfectDist / travelTime;
-        float dragTax = 1.0f + (travelTime * 0.12f); // ~12% power loss per second of flight
-        idealPowerWorld = requiredVelocity * dragTax;
+        float dragTax = 1.0f + (travelTime * 0.05f); // Reduced drag tax
+
+        // If the pass is over 20 meters (2000px), progressively underhit it 
+        // so it drops out of the sky early and allows the receiver to run onto it
+        float longPassUnderhit = 1.0f;
+        if (rawDist > 2000.f) {
+            longPassUnderhit = std::clamp(1.0f - ((rawDist - 2000.f) / 12000.f), 0.70f, 1.0f);
+        }
+
+        idealPowerWorld = requiredVelocity * dragTax * longPassUnderhit;
     }
     else {
-        // GROUND PASS PHYSICS
         float ballFriction = 800.f;
-        float arrivalSpeed = 500.f - (std::clamp(rawDist / 4000.f, 0.f, 1.f) * 300.f);
 
-        // Kinematics: V_initial = sqrt(V_final^2 + 2*a*d)
+        bool isHome = (passer.getTeam() == Team::Home);
+        float forwardProgress = isHome ? (targetPos.x - playerPos.x) : (playerPos.x - targetPos.x);
+        bool isBackpass = (forwardProgress < -150.f);
+
+        float arrivalSpeed = 400.f - (std::clamp(rawDist / 3000.f, 0.f, 1.f) * 350.f);
+        if (isBackpass) arrivalSpeed = 100.f;
+
         float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * rawDist));
         travelTime = (v0_est - arrivalSpeed) / ballFriction;
 
-        sf::Vector2f predictedPos = targetPos + (targetVel * travelTime);
+        // Ground passes use a smaller prediction cap
+        float predictionTime = std::min(travelTime, 0.6f);
+        sf::Vector2f predictedPos = targetPos + (targetVel * predictionTime);
 
         float leadAmount = (passingNorm > 0.8f) ? 200.f : 80.f;
         sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
@@ -98,11 +110,11 @@ void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& 
         aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectPassDir * magnetism));
     }
 
-    // --- 6. APPLY MAGNETISM TO POWER ---
-    float idealPowerAssisted = idealPowerWorld / 52.0f; // 52.0f is the KickPower -> Velocity conversion
+    // --- 6. APPLY PERFECT POWER ---
+    float idealPowerAssisted = idealPowerWorld / 52.0f;
 
     if (isNPC) {
-        float weightErrorFactor = (1.0f - passingNorm) * 0.12f;
+        float weightErrorFactor = (1.0f - passingNorm) * 0.05f; // Very tight error margin for NPCs
         float randomWeight = 1.0f + (((rand() % 200) - 100) / 100.f) * weightErrorFactor;
         kickPower = std::min(idealPowerAssisted * randomWeight, passer.getKickPower());
     }
@@ -151,17 +163,25 @@ void AimAssist::applyShotAssist(Player& shooter, sf::Vector2f& aimDir, float& vz
     float intersectY = playerPos.y + (aimDir.y / std::abs(aimDir.x)) * distToGoalX;
 
     // Standard goal coordinates
-    float topPostY = 3500.f - 366.f;
-    float bottomPostY = 3500.f + 366.f;
+    float goalCenterY = 3500.f;
+    float topPostY = goalCenterY - 366.f;
+    float bottomPostY = goalCenterY + 366.f;
 
-    // If the raw aim is within 200px of the goalposts, trigger the aimbot!
-    if (intersectY > topPostY - 200.f && intersectY < bottomPostY + 200.f) {
-        // Snap to the inside of the nearest post
-        float targetY = (intersectY < 3500.f) ? topPostY + 40.f : bottomPostY - 40.f;
+    // THE FIX 2: THE "PLACE IT" AIMBOT
+    // Only trigger the aimbot if the ball is actually going to be on target!
+    // (We allow a small 40px margin outside the post so elite strikers can curl it back in)
+    if (intersectY > topPostY - 40.f && intersectY < bottomPostY + 40.f) {
+
+        // Decide which post we are trying to place it inside
+        float targetY = (intersectY < goalCenterY) ? topPostY + 60.f : bottomPostY - 60.f;
         sf::Vector2f perfectDir = normalize(sf::Vector2f(goalX, targetY) - playerPos);
 
-        // Finishing stat determines how strongly the aimbot pulls the shot into the corner
-        float magnetism = (shooter.getFinishing() / 100.f) * 0.95f;
+        // THE FIX 3: SCALED MAGNETISM
+        // 99 Finishing = 0.8 Magnetism (Pulls the shot beautifully into the side netting)
+        // 50 Finishing = 0.2 Magnetism (Barely adjusts it, meaning they often shoot too central!)
+        float finishingNorm = shooter.getFinishing() / 100.f;
+        float magnetism = 0.1f + (finishingNorm * 0.7f);
+
         aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectDir * magnetism));
 
         // 3D VZ Dip Calculation (Dipping shots)

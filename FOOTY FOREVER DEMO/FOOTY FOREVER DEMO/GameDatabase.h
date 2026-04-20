@@ -10,6 +10,15 @@
 
 // --- SUB-STRUCTURES ---
 
+// --- GEOGRAPHY ---
+struct Country {
+    std::string code; // The 3-letter ID (e.g., "ENG", "FRA", "BRA")
+    std::string name; // The full name (e.g., "England", "France", "Brazil")
+
+    // Future-proofing: You can easily add confederations later!
+    // std::string confederation; // e.g., "UEFA", "CONMEBOL"
+};
+
 struct KitLayer {
     std::string textureId; // e.g., "Stripes_01"
     sf::Color color;       // Tint for this specific layer
@@ -69,6 +78,7 @@ struct TeamTactics {
 struct PlayerData {
     std::string id;
     std::string name;
+    std::string nationality; // Stores the 3-letter Country Code
     int squadNumber;
     int age;
     int heightCm;
@@ -86,15 +96,19 @@ struct PlayerData {
     InjurySeverity currentInjurySeverity = InjurySeverity::Knock;
 
     std::vector<std::string> traits;
-    PositionRole positionRole; // <-- CHANGED to your Enum!
+    PositionRole positionRole;
+    std::map<PositionRole, int> positionFamiliarity;
     Playstyle playstyle;
-    PlayerStats stats;        // <-- CHANGED to your Struct!
+    PlayerStats stats;
+
+    float tacticalFamiliarity = 100.f;
 
     PlayerGraphicsData graphics;
 };
 
 struct TeamData {
     std::string id;
+    std::string countryCode; // The 3-letter ID of the league they play in (e.g., "ENG")
     std::string fullName;
     std::string shortName; 
     std::string badgeId;
@@ -114,6 +128,10 @@ struct TeamData {
     // --- THE PLAYBOOK ---
     // This is the default setup the team uses when a match starts
     TeamTactics defaultTactics; 
+    std::vector<PlayerData> startingXI; 
+    std::vector<PlayerData> bench;
+
+    float teamChemistry = 100.f;
 };
 
 // --- THE DATABASE MANAGER ---
@@ -122,6 +140,7 @@ class GameDatabase {
 public:
     std::map<std::string, PlayerData> players;
     std::map<std::string, TeamData> teams;
+    std::map<std::string, Country> countries;
 
     // --- NEW: Directory-based Loading & Saving ---
     void loadDatabase(const std::string& baseDir);
@@ -130,10 +149,12 @@ public:
     void savePlayer(const std::string& id, const std::string& baseDir);
     void saveTeam(const std::string& id, const std::string& baseDir);
     void deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId);
+    void initializeDefaultCountries();
 
     // Helper getters
     PlayerData* getPlayer(const std::string& id);
     TeamData* getTeam(const std::string& id);
+    Country* getCountry(const std::string& code); // <-- NEW Helper
 };
 
 std::string roleToString(PositionRole role);

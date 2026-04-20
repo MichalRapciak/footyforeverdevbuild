@@ -4,6 +4,7 @@
 #include "PositionRole.h"
 #include "MatchContext.h"
 #include "Team.h"
+#include "MatchStatistics.h"
 
 class Ball;
 struct Pitch;
@@ -14,7 +15,7 @@ class SoundManager;
 // 2. The Referee Class
 class MatchReferee {
 public:
-    void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager);
+    void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
     void prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
 
     Player* getSetPieceTaker() const { return m_setPieceTaker; }
@@ -29,12 +30,14 @@ public:
 
     MatchState getMatchState() const { return m_matchState; }
     void setMatchState(MatchState newState) { m_matchState = newState; }
-    void checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager);
-    bool checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager);
-    void awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim, SoundManager& soundManager);
+    void checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
+    bool checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
+    void awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim, SoundManager& soundManager, MatchStatistics& stats);
     float getMatchMinute() const { return m_matchMinute; }
     int getHalf() const { return m_half; }
     std::vector<Player*> getFlaggedPlayers() { return m_offsideSnapshot.flaggedPlayers; }
+    float getMatchTimeScale() { return m_timeScale; }
+
 
     void applyForfeitScore(bool homeForfeited);
     // Teleports the players but holds the game state
@@ -44,7 +47,7 @@ public:
     Team getAwardedTo() { return m_awardedTo; }
 
     // Releases the hold and officially starts the Set Piece
-    void resumeFromReplay();
+    void resumeFromReplay(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
     void startMatch(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
     void checkOffsideLogic(Ball& ball, const std::vector<Player*>& players, float homeOffsideLine, float awayOffsideLine, const Pitch& pitch, SoundManager& soundManager);
 
@@ -69,7 +72,7 @@ private:
     Player* m_fouledPlayer;
 
     float m_matchMinute = 0.0f;
-    float m_timeScale = 22.5f; // 1 real second = 20 in-game seconds // 22.5:1 is 90mins = 4 mins
+    float m_timeScale = 10.0f; // 1 real second = 20 in-game seconds // 22.5:1 is 90mins = 4 mins
     int m_half = 1;
 
     float m_whistleTimer = 0.0f;

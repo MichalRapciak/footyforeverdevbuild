@@ -10,7 +10,7 @@ class GamePlay;
 class UserPlayer : public Player
 {
 public:
-	UserPlayer(const sf::Texture& texture);
+	UserPlayer();
 	~UserPlayer();
 
 	sf::Vector2f getPlayerAim() { return m_playerAim; }
@@ -27,7 +27,7 @@ public:
 
 	void setPlayerAim(sf::Vector2f t_mousePos) { m_playerAim = t_mousePos; }
 	void updateAim(sf::Vector2f t_mouseWorldPos);
-	void update(float dt, AnimationServer& animServer) override;
+	void update(float dt) override;
 
 private:
 	sf::Vector2f m_tackleDirection;

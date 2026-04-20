@@ -1,7 +1,7 @@
 #include "NPCPlayer.h"
 #include <cmath>
 
-NPCPlayer::NPCPlayer(const sf::Texture& texture) : Player(texture)
+NPCPlayer::NPCPlayer() : Player()
 {
     m_position = { 5000.f, 1000.f }; // Default start
     m_sprite.setPosition(m_position);
@@ -12,7 +12,7 @@ NPCPlayer::NPCPlayer(const sf::Texture& texture) : Player(texture)
     {
     }
 
-    void NPCPlayer::update(float dt, AnimationServer& animServer)
+    void NPCPlayer::update(float dt)
     {
 
         float speed = std::sqrt((m_velocity.x * m_velocity.x) + (m_velocity.y * m_velocity.y));
@@ -34,19 +34,19 @@ NPCPlayer::NPCPlayer(const sf::Texture& texture) : Player(texture)
                 m_currentDirection = get8WayDirection(visualVector);
 
                 // Play the animation and MAINTAIN the frame sync!
-                const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+                const Animation& runAnim = AnimationServer::getRunningAnimation(m_currentDirection);
                 m_animator.playAnimation(&runAnim, true);
             }
             else
             {
                 // When stopping, we snap back to the standing pose!
-                const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+                const Animation& runAnim = AnimationServer::getRunningAnimation(m_currentDirection);
                 m_animator.playAnimation(&runAnim, false);
                 m_animator.stopAndReset();
             }
         }
         // 1. Tick the base physics and tackle state machine
-        Player::update(dt, animServer);
+        Player::update(dt);
     }
 
     void NPCPlayer::setRotationToward(sf::Vector2f targetPos)

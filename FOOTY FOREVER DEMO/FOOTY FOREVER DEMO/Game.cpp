@@ -2,6 +2,7 @@
 #include "imgui-1.92.6/imgui.h"
 #include "imgui-1.92.6/imgui-sfml.h"
 #include <iostream>
+#include "GlobalSettings.h"
 
 GameState Game::currentState = GameState::License;
 
@@ -11,11 +12,23 @@ GameState Game::currentState = GameState::License;
 /// load and setup the text 
 /// load and setup the image
 /// </summary>
+// 1. Remove m_window from the initializer list!
 Game::Game() :
-	m_window{ sf::VideoMode({ 1920U, 1080U }), "FOOTY FOREVER DEMO", sf::State::Fullscreen }, // , sf::State::Fullscreen
-	m_exitGame{ false } //when true game will exit
-
+	m_exitGame{ false }
 {
+	// 2. Load the settings from disk BEFORE we create the window
+	GlobalSettings::load();
+
+	// 3. Create the window dynamically based on the saved settings (SFML 3 syntax)
+	auto windowState = GlobalSettings::isFullscreen ? sf::State::Fullscreen : sf::State::Windowed;
+
+	m_window.create(
+		sf::VideoMode({ static_cast<unsigned int>(GlobalSettings::windowWidth),
+						static_cast<unsigned int>(GlobalSettings::windowHeight) }),
+		"FOOTY FOREVER DEV BUILD",
+		windowState
+	);
+
 	m_window.setVerticalSyncEnabled(true);
 	initialiseStates();
 }
@@ -40,19 +53,32 @@ void Game::run()
 {
 	sf::Clock gameClock;
 	sf::Time timeSinceLastUpdate = sf::Time::Zero;
-	const float fps{ 75.0f };
-	sf::Time timePerFrame = sf::seconds(1.0f / fps); // 75 fps
+
 	while (m_window.isOpen())
 	{
-		processEvents(); // as many as possible
+		float fps = static_cast<float>(GlobalSettings::targetFPS);
+		sf::Time timePerFrame = sf::seconds(1.0f / fps);
+
+		processEvents(); 
 		timeSinceLastUpdate += gameClock.restart();
+
+		// ==========================================
+		// --- THE FIX: ANTI SPIRAL-OF-DEATH CLAMP ---
+		// ==========================================
+		// If a frame takes longer than 250ms (like baking a giant texture), 
+		// throw away the accumulated time so the engine doesn't panic and 
+		// try to run update() 20 times in a row!
+		if (timeSinceLastUpdate > sf::seconds(0.25f)) {
+			timeSinceLastUpdate = timePerFrame; 
+		}
+
 		while (timeSinceLastUpdate > timePerFrame)
 		{
 			timeSinceLastUpdate -= timePerFrame;
-			processEvents(); // at least 75 fps
-			update(timePerFrame); //75 fps
+			processEvents();
+			update(timePerFrame);
 		}
-		render(); // as many as possible
+		render();
 	}
 }
 /// <summary>
@@ -86,6 +112,7 @@ void Game::processEvents()
 			m_helpScreen.processInput(*event);
 			break;
 		case GameState::GamePlay:
+			ImGui::SFML::ProcessEvent(m_window, *event);
 			m_gamingScreen->processEvents(*event, m_window);
 			break;
 		case GameState::Editor:
@@ -93,6 +120,11 @@ void Game::processEvents()
 			m_editorScreen.processEvents(*event);
 			break;
 		case GameState::MatchDay:
+			ImGui::SFML::ProcessEvent(m_window, *event);
+			break;
+		case GameState::MatchIntro:
+			break;
+		case GameState::Settings:
 			ImGui::SFML::ProcessEvent(m_window, *event);
 			break;
 		default:
@@ -159,6 +191,7 @@ void Game::update(sf::Time t_deltaTime)
 		m_helpScreen.update(t_deltaTime);
 		break;
 	case GameState::GamePlay:
+		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_gamingScreen->update(t_deltaTime, m_window);
 		break;
 	case GameState::Editor:
@@ -169,17 +202,45 @@ void Game::update(sf::Time t_deltaTime)
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_matchDayScreen.update(t_deltaTime, m_window);
 
-		// --- INTERCEPT THE MATCH START ---
-		if (currentState == GameState::GamePlay)
+		if (currentState == GameState::MatchIntro)
 		{
-			// 1. Wipe the old match
 			m_gamingScreen.reset();
 			m_gamingScreen = std::make_unique<GamePlay>();
 			m_gamingScreen->initialise(m_font);
 
-			// 2. Load the specific matchup WITH the chosen player!
-			m_gamingScreen->setupMatch(m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
+			m_gamingScreen->beginMatchSetup(m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
+			m_matchIntroScreen.init(m_font, m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
+
+			// Reset our locks for the new match!
+			m_introProgress = 0.0f;
+			m_introReadyToLoad = true;
 		}
+		break;
+
+	case GameState::MatchIntro:
+	{
+		// 1. Only process a heavy load if the Render loop gave us permission!
+		if (m_introReadyToLoad) {
+			m_introProgress = m_gamingScreen->loadNextPlayer();
+
+			// Lock the door! No more players can be loaded until the screen draws.
+			m_introReadyToLoad = false;
+		}
+
+		// 2. We still update the visual UI bar every tick
+		m_matchIntroScreen.update(t_deltaTime, m_window, m_introProgress);
+
+		// 3. Transition when complete
+		if (m_introProgress >= 1.0f)
+		{
+			m_gamingScreen->finalizeMatchSetup();
+			currentState = GameState::GamePlay;
+		}
+		break;
+	}
+	case GameState::Settings:
+		ImGui::SFML::Update(m_window, t_deltaTime);
+		m_settingsScreen.update(m_window);
 		break;
 	default:
 		break;
@@ -210,6 +271,7 @@ void Game::render()
 		break;
 	case GameState::GamePlay:
 		m_gamingScreen->render(m_window);
+		ImGui::SFML::Render(m_window);
 		break;
 	case GameState::Editor:
 		m_editorScreen.render(m_window);
@@ -217,6 +279,20 @@ void Game::render()
 		break;
 	case GameState::MatchDay:
 		m_matchDayScreen.render(m_window);
+		ImGui::SFML::Render(m_window);
+		break;
+	case GameState::MatchIntro:
+		m_matchIntroScreen.render(m_window);
+
+		// ==========================================
+		// --- THE FIX: UNLOCK THE NEXT PLAYER ---
+		// ==========================================
+		// The frame has officially been painted to the monitor. 
+		// It is now safe to bake the next texture!
+		m_introReadyToLoad = true;
+		break;
+	case GameState::Settings:
+		m_settingsScreen.render(m_window);
 		ImGui::SFML::Render(m_window);
 		break;
 	default:
@@ -246,6 +322,7 @@ void Game::initialiseStates()
 	m_helpScreen.initialise(m_font);
 	m_gamingScreen = std::make_unique<GamePlay>();
 	m_gamingScreen->initialise(m_font);
+	m_settingsScreen.init(m_window);
 }
 
 void Game::ApplyBrazilTheme()

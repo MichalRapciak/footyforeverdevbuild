@@ -9,24 +9,31 @@ class AnimationServer {
 public:
     AnimationServer();
 
-    // Loads the textures and slices all the rects
-    void init(const std::string& texturePath);
+    // --- NEW: Global Texture Loader ---
+    static void loadMasterTextures();
 
-    // Retrieves the correct animations
-    const Animation& getRunningAnimation(Direction dir) const;
-    const Animation& getTackleAnimation(Direction dir, int currentRunFrame) const;
+    // --- NEW: Expose raw textures for the Shader ---
+    static sf::Texture& getSkinTexture() { return s_skinTexture; }
+    static sf::Texture& getShirtTexture() { return s_shirtTexture; }
+    static sf::Texture& getShortsTexture() { return s_shortsTexture; }
+    static sf::Texture& getSocksTexture() { return s_socksTexture; }
+    static sf::Texture& getTackleTexture() { return s_tackleTexture; }
 
-    // Texture getters
-    sf::Texture& getPlayerTexture();
-    sf::Texture& getTackleTexture();
+    static const Animation& getRunningAnimation(Direction dir);
+    static const Animation& getTackleAnimation(Direction dir, int currentRunFrame);
 
 private:
-    sf::Texture m_playerTexture;
-    sf::Texture m_tackleTexture;
+    // Shared VRAM Textures
+    static sf::Texture s_skinTexture;
+    static sf::Texture s_shirtTexture;
+    static sf::Texture s_shortsTexture;
+    static sf::Texture s_socksTexture;
+    static sf::Texture s_tackleTexture;
+    static bool s_texturesLoaded;
 
-    std::map<Direction, Animation> m_runningAnimations;
-    std::map<Direction, std::vector<Animation>> m_tackleAnimations;
+    static std::map<Direction, Animation> s_runningAnimations;
+    static std::map<Direction, std::vector<Animation>> s_tackleAnimations;
 
-    // Helper to slice a row of frames
     Animation sliceRow(int startY, int numFrames, int frameW, int frameH, bool flipX = false, int loopStart = 0);
+    void buildAnimations();
 };

@@ -20,7 +20,7 @@ void MainMenu::initialise(sf::Font& t_font)
 	m_xOffset = (m_mainMenuView.getSize().x / 2) - m_buttonWidth / 2;
 	m_buttonSpacing = 120;
 	int textDropOffset = 15;
-	sf::String m_Texts[] = { "Go To Match Day", "Database Editor", "Exit Game" };
+	sf::String m_Texts[] = { "Go To Match Day", "Database Editor", "Settings", "Exit Game" };
 
 	m_font = t_font;
 
@@ -103,6 +103,15 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		if (mouseLocation.y > m_yOffset + (m_buttonSpacing * 2) && mouseLocation.y < m_yOffset + m_buttonHeight + (m_buttonSpacing * 2))
 		{
 			m_buttonSprite[2].setColor(sf::Color{ 0,50,0,255 });
+			//m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			{
+				Game::currentState = GameState::Settings;
+			}
+		}
+		if (mouseLocation.y > m_yOffset + (m_buttonSpacing * 3) && mouseLocation.y < m_yOffset + m_buttonHeight + (m_buttonSpacing * 3))
+		{
+			m_buttonSprite[3].setColor(sf::Color{ 0,50,0,255 });
 			//m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
 			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
 			{

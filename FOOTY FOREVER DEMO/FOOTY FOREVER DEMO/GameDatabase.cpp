@@ -242,6 +242,132 @@ PlayerData* GameDatabase::getPlayer(const std::string& id) {
     return nullptr;
 }
 
+Country* GameDatabase::getCountry(const std::string& code) {
+    auto it = countries.find(code);
+    if (it != countries.end()) {
+        return &(it->second);
+    }
+    return nullptr;
+}
+
+void GameDatabase::initializeDefaultCountries() {
+    // Clear any existing data just in case
+    countries.clear();
+
+    // Helper lambda to make adding countries clean and fast
+    auto add = [&](const std::string& code, const std::string& name) {
+        countries[code] = { code, name };
+        };
+
+    // ==========================================
+    // --- ALL 55 UEFA MEMBERS (Europe) ---
+    // ==========================================
+    add("ALB", "Albania");
+    add("AND", "Andorra");
+    add("ARM", "Armenia");
+    add("AUT", "Austria");
+    add("AZE", "Azerbaijan");
+    add("BLR", "Belarus");
+    add("BEL", "Belgium");
+    add("BIH", "Bosnia and Herzegovina");
+    add("BUL", "Bulgaria");
+    add("CRO", "Croatia");
+    add("CYP", "Cyprus");
+    add("CZE", "Czech Republic");
+    add("DEN", "Denmark");
+    add("ENG", "England");
+    add("EST", "Estonia");
+    add("FRO", "Faroe Islands");
+    add("FIN", "Finland");
+    add("FRA", "France");
+    add("GEO", "Georgia");
+    add("GER", "Germany");
+    add("GIB", "Gibraltar");
+    add("GRE", "Greece");
+    add("HUN", "Hungary");
+    add("ISL", "Iceland");
+    add("ISR", "Israel");
+    add("ITA", "Italy");
+    add("KAZ", "Kazakhstan");
+    add("KOS", "Kosovo");
+    add("LVA", "Latvia");
+    add("LIE", "Liechtenstein");
+    add("LTU", "Lithuania");
+    add("LUX", "Luxembourg");
+    add("MKD", "North Macedonia");
+    add("MLT", "Malta");
+    add("MDA", "Moldova");
+    add("MNE", "Montenegro");
+    add("NED", "Netherlands");
+    add("NIR", "Northern Ireland");
+    add("NOR", "Norway");
+    add("POL", "Poland");
+    add("POR", "Portugal");
+    add("IRL", "Republic of Ireland");
+    add("ROU", "Romania");
+    add("RUS", "Russia");
+    add("SMR", "San Marino");
+    add("SCO", "Scotland");
+    add("SRB", "Serbia");
+    add("SVK", "Slovakia");
+    add("SVN", "Slovenia");
+    add("ESP", "Spain");
+    add("SWE", "Sweden");
+    add("SUI", "Switzerland");
+    add("TUR", "Turkey");
+    add("UKR", "Ukraine");
+    add("WAL", "Wales");
+
+    // ==========================================
+    // --- CONMEBOL HEAVYWEIGHTS (South America) ---
+    // ==========================================
+    add("ARG", "Argentina");
+    add("BRA", "Brazil");
+    add("URU", "Uruguay");
+    add("COL", "Colombia");
+    add("CHI", "Chile");
+    add("PER", "Peru");
+    add("ECU", "Ecuador");
+    add("VEN", "Venezuela");
+    add("PAR", "Paraguay");
+    add("BOL", "Bolivia");
+
+    // ==========================================
+    // --- CONCACAF GIANTS (North America) ---
+    // ==========================================
+    add("USA", "United States");
+    add("MEX", "Mexico");
+    add("CAN", "Canada");
+    add("CRC", "Costa Rica");
+    add("JAM", "Jamaica");
+    add("PAN", "Panama");
+
+    // ==========================================
+    // --- CAF POWERHOUSES (Africa) ---
+    // ==========================================
+    add("SEN", "Senegal");
+    add("MAR", "Morocco");
+    add("NGA", "Nigeria");
+    add("EGY", "Egypt");
+    add("CIV", "Ivory Coast");
+    add("CMR", "Cameroon");
+    add("ALG", "Algeria");
+    add("GHA", "Ghana");
+    add("MLI", "Mali");
+
+    // ==========================================
+    // --- AFC LEADERS (Asia & Australia) ---
+    // ==========================================
+    add("JPN", "Japan");
+    add("IRN", "Iran");
+    add("KOR", "South Korea");
+    add("AUS", "Australia");
+    add("KSA", "Saudi Arabia");
+    add("QAT", "Qatar");
+
+    std::cout << "Successfully initialized " << countries.size() << " default countries!\n";
+}
+
 // --- HELPER: Parse KitData ---
 KitData parseKitData(const json& kitJson)
 {
@@ -291,7 +417,7 @@ json serializeKitData(const KitData& kit)
 void GameDatabase::loadDatabase(const std::string& baseDir) {
     players.clear();
     teams.clear();
-
+    initializeDefaultCountries();
     if (!fs::exists(baseDir)) {
         std::cerr << "Database directory does not exist: " << baseDir << "\n";
         return;
@@ -313,8 +439,10 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                 for (auto& [id, teamData] : j.items()) {
                     TeamData t;
                     t.id = id;
+                    t.countryCode = teamData.value("country_code", "ENG");
                     t.fullName = teamData.value("full_name", "Unknown Team");
                     t.shortName = teamData.value("short_name", "UNK");
+                    t.teamChemistry = teamData.value("team_chemistry", 100.f);
                     t.badgeId = teamData.value("badge_id", "Badge_Default");
                     t.stadiumName = teamData.value("stadium_name", "Generic Stadium");
                     t.managerName = teamData.value("manager_name", "Unknown Manager");
@@ -369,13 +497,22 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                     PlayerData p;
                     p.id = id;
                     p.name = playerData.value("name", "Unknown Player");
+                    p.nationality = playerData.value("nationality", "ENG");
                     p.teamId = playerData.value("team_id", "");
+                    p.tacticalFamiliarity = playerData.value("tactical_familiarity", 100.f);
                     p.squadNumber = playerData.value("number", 99);
                     p.age = playerData.value("age", 25);
                     p.heightCm = playerData.value("height_cm", 180);
                     p.weightKg = playerData.value("weight_kg", 75);
                     p.preferredFoot = playerData.value("preferred_foot", "Right");
                     p.positionRole = stringToRole(playerData.value("position", "CenterMid"));
+                    p.positionFamiliarity[p.positionRole] = 4;
+                    if (playerData.contains("familiarity")) {
+                        for (auto& [roleStr, level] : playerData["familiarity"].items()) {
+                            int prof = std::clamp(level.get<int>(), 1, 4);
+                            p.positionFamiliarity[stringToRole(roleStr)] = prof;
+                        }
+                    }
                     std::string psString = playerData.value("playstyle", "BoxToBox");
                     p.playstyle = PlaystyleDatabase::getPlaystyle(stringToPlaystyle(psString));
                     p.sharpness = playerData.value("sharpness", 50);
@@ -446,12 +583,32 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
 }
 
 void GameDatabase::deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId) {
-    std::string folder = baseDir + (oldTeamId.empty() ? "/FreeAgents/" : "/Teams/" + oldTeamId + "/Players/");
+    std::string folder;
+    if (oldTeamId.empty()) {
+        folder = baseDir + "/FreeAgents/";
+    }
+    else {
+        // Look up the old team to find out which country folder the player is currently sitting in
+        TeamData* t = getTeam(oldTeamId);
+        std::string cCode = (t && !t->countryCode.empty()) ? t->countryCode : "UNK";
+        folder = baseDir + "/" + cCode + "/Teams/" + oldTeamId + "/Players/";
+    }
+
     std::string path = folder + id + ".json";
     if (fs::exists(path)) fs::remove(path);
 }
 
 void GameDatabase::saveDatabase(const std::string& baseDir) {
+    // ==========================================
+    // --- THE FIX: WIPE AND REBUILD ---
+    // ==========================================
+    // By wiping the directory entirely, we ensure that if a team changes leagues/countries, 
+    // we don't leave orphaned files behind in their old country folder!
+    if (fs::exists(baseDir)) {
+        fs::remove_all(baseDir);
+    }
+    fs::create_directories(baseDir);
+
     for (const auto& [id, t] : teams) saveTeam(id, baseDir);
     for (const auto& [id, p] : players) savePlayer(id, baseDir);
     std::cout << "Successfully saved full database to " << baseDir << "\n";
@@ -461,18 +618,36 @@ void GameDatabase::savePlayer(const std::string& id, const std::string& baseDir)
     PlayerData* p = getPlayer(id);
     if (!p) return;
 
-    std::string folder = baseDir + (p->teamId.empty() ? "/FreeAgents/" : "/Teams/" + p->teamId + "/Players/");
+    std::string folder;
+    if (p->teamId.empty()) {
+        folder = baseDir + "/FreeAgents/";
+    }
+    else {
+        // Grab the team to route the player to the correct country folder
+        TeamData* t = getTeam(p->teamId);
+        std::string cCode = (t && !t->countryCode.empty()) ? t->countryCode : "UNK";
+        folder = baseDir + "/" + cCode + "/Teams/" + p->teamId + "/Players/";
+    }
+
     fs::create_directories(folder);
 
     json j;
     j[id]["name"] = p->name;
+    j[id]["nationality"] = p->nationality;
     j[id]["team_id"] = p->teamId;
+    j[id]["tactical_familiarity"] = p->tacticalFamiliarity;
     j[id]["number"] = p->squadNumber;
     j[id]["age"] = p->age;
     j[id]["height_cm"] = p->heightCm;
     j[id]["weight_kg"] = p->weightKg;
     j[id]["preferred_foot"] = p->preferredFoot;
     j[id]["position"] = roleToString(p->positionRole);
+    j[id]["familiarity"] = json::object();
+    for (const auto& [role, level] : p->positionFamiliarity) {
+        if (role != p->positionRole) {
+            j[id]["familiarity"][roleToString(role)] = level;
+        }
+    }
     j[id]["playstyle"] = playstyleToString(p->playstyle.type);
     j[id]["sharpness"] = p->sharpness;
     j[id]["loyalty"] = p->loyalty;
@@ -525,12 +700,16 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     TeamData* t = getTeam(id);
     if (!t) return;
 
-    std::string folder = baseDir + "/Teams/" + id + "/";
+    // Push the team into its designated country folder
+    std::string cCode = t->countryCode.empty() ? "UNK" : t->countryCode;
+    std::string folder = baseDir + "/" + cCode + "/Teams/" + id + "/";
     fs::create_directories(folder);
 
     json j;
     j[id]["full_name"] = t->fullName;
     j[id]["short_name"] = t->shortName;
+    j[id]["country_code"] = t->countryCode;
+    j[id]["team_chemistry"] = t->teamChemistry;
     j[id]["badge_id"] = t->badgeId;
     j[id]["stadium_name"] = t->stadiumName;
     j[id]["manager_name"] = t->managerName;
@@ -560,7 +739,6 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     tac["starting_xi"] = json::object();
     for (const auto& [slotId, pId] : t->defaultTactics.startingXI) {
         if (!pId.empty()) {
-            // Convert the integer slot ID to a string for the JSON key
             tac["starting_xi"][std::to_string(slotId)] = pId;
         }
     }

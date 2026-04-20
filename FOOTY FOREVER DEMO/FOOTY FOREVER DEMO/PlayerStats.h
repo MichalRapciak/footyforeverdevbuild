@@ -191,7 +191,7 @@ struct PlayerStats
 				gkCoverage * 0.17f + gkReactions * 0.17f + gkCatching * 0.16f +
 				gkThrowing * 0.08f + gkAwareness * 0.18f + gkBlocking * 0.16f +
 				longPassing * 0.08
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.15f, 0.0f))
 			);
 			break;
 
@@ -204,21 +204,21 @@ struct PlayerStats
 				topSpeed * 0.03f + acceleration * 0.02f + agility * 0.02f +
 				jumpingStrength * 0.10f + bodyStrength * 0.14f + balancing * 0.02f +
 				awareness * 0.14f + aggression * 0.08f + blocking * 0.18f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.15f, 0.0f))
 			);
 			break;
 
 		case PositionRole::LeftBack:
 		case PositionRole::RightBack:
 			overallRating = std::ceil(
-				naturalFitness * 0.04f +
-				finishing * 0.01f + heading * 0.04f + kickPower * 0.01f +
+				naturalFitness * 0.05f +
+				finishing * 0.01f + heading * 0.03f + kickPower * 0.02f +
 				shortPassing * 0.08f + longPassing * 0.12f +
 				deadBall * 0.01f + curl * 0.01f + ballControl * 0.07f +
-				topSpeed * 0.12f + acceleration * 0.10f + agility * 0.07f +
-				jumpingStrength * 0.02f + bodyStrength * 0.05f + balancing * 0.05f +
-				awareness * 0.08f + aggression * 0.06f + blocking * 0.10f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				topSpeed * 0.11f + acceleration * 0.09f + agility * 0.07f +
+				jumpingStrength * 0.02f + bodyStrength * 0.05f + balancing * 0.08f +
+				awareness * 0.08f + aggression * 0.06f + blocking * 0.11f
+				- (std::max((70 - naturalFitness) * 0.2f, 0.0f))
 			);
 			break;
 
@@ -232,7 +232,7 @@ struct PlayerStats
 				topSpeed * 0.12f + acceleration * 0.12f + agility * 0.08f +
 				jumpingStrength * 0.01f + bodyStrength * 0.04f + balancing * 0.05f +
 				awareness * 0.06f + aggression * 0.05f + blocking * 0.07f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.25f, 0.0f))
 			);
 			break;
 
@@ -245,7 +245,7 @@ struct PlayerStats
 				topSpeed * 0.03f + acceleration * 0.02f + agility * 0.04f +
 				jumpingStrength * 0.02f + bodyStrength * 0.09f + balancing * 0.06f +
 				awareness * 0.12f + aggression * 0.08f + blocking * 0.12f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.15f, 0.0f))
 			);
 			break;
 
@@ -258,7 +258,7 @@ struct PlayerStats
 				topSpeed * 0.04f + acceleration * 0.04f + agility * 0.06f +
 				jumpingStrength * 0.01f + bodyStrength * 0.05f + balancing * 0.06f +
 				awareness * 0.12f + aggression * 0.04f + blocking * 0.05f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.25f, 0.0f))
 			);
 			break;
 
@@ -272,7 +272,7 @@ struct PlayerStats
 				topSpeed * 0.12f + acceleration * 0.12f + agility * 0.10f +
 				jumpingStrength * 0.01f + bodyStrength * 0.03f + balancing * 0.06f +
 				awareness * 0.08f + aggression * 0.01f + blocking * 0.02f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.2f, 0.0f))
 			);
 			break;
 
@@ -284,20 +284,20 @@ struct PlayerStats
 				topSpeed * 0.05f + acceleration * 0.09f + agility * 0.12f +
 				jumpingStrength * 0.01f + bodyStrength * 0.01f + balancing * 0.08f +
 				awareness * 0.18f + aggression * 0.01f + blocking * 0.01f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.2f, 0.0f))
 			);
 			break;
 
 		case PositionRole::LeftWing:
 		case PositionRole::RightWing:
 			overallRating = std::ceil(
-				finishing * 0.10f + heading * 0.01f + kickPower * 0.02f +
+				finishing * 0.12f + heading * 0.01f + kickPower * 0.02f +
 				shortPassing * 0.06f + longPassing * 0.09f +
-				deadBall * 0.02f + curl * 0.05f + ballControl * 0.12f +
+				deadBall * 0.02f + curl * 0.06f + ballControl * 0.12f +
 				topSpeed * 0.14f + acceleration * 0.12f + agility * 0.10f +
 				jumpingStrength * 0.01f + bodyStrength * 0.01f + balancing * 0.08f +
 				awareness * 0.07f + aggression * 0.01f + blocking * 0.01f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.22f, 0.0f))
 			);
 			break;
 
@@ -309,7 +309,7 @@ struct PlayerStats
 				topSpeed * 0.08f + acceleration * 0.10f + agility * 0.09f +
 				jumpingStrength * 0.02f + bodyStrength * 0.02f + balancing * 0.06f +
 				awareness * 0.14f + aggression * 0.01f + blocking * 0.01f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.2f, 0.0f))
 			);
 			break;
 
@@ -321,7 +321,7 @@ struct PlayerStats
 				topSpeed * 0.06f + acceleration * 0.07f + agility * 0.04f +
 				jumpingStrength * 0.06f + bodyStrength * 0.08f + balancing * 0.06f +
 				awareness * 0.16f + aggression * 0.01f + blocking * 0.01f
-				- (std::max((60 - naturalFitness) * 0.2f, 0.0f))
+				- (std::max((70 - naturalFitness) * 0.2f, 0.0f))
 			);
 			break;
 		}

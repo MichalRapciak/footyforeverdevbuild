@@ -39,10 +39,38 @@ void UserController::inputHandler(const sf::Event t_event)
 		if (keyPressed->scancode == sf::Keyboard::Scancode::A)
 		{
 			m_left = true;
+			// ==========================================
+			// --- NEW: DOUBLE TAP A (LEFT BARGE) ---
+			// ==========================================
+			if (!m_wasAPressed) {
+				if (m_tapTimerA > 0.f) {
+					// Double tap detected!
+					triggerBargeLeft = true;
+					m_tapTimerA = 0.f; // Consume tap
+				}
+				else {
+					m_tapTimerA = 0.25f; // 250ms window for the second tap
+				}
+			}
+			m_wasAPressed = true;
 		}
 		if (keyPressed->scancode == sf::Keyboard::Scancode::D)
 		{
 			m_right = true;
+			// ==========================================
+			// --- NEW: DOUBLE TAP D (RIGHT BARGE) ---
+			// ==========================================
+			if (!m_wasDPressed) {
+				if (m_tapTimerD > 0.f) {
+					// Double tap detected!
+					triggerBargeRight = true;
+					m_tapTimerD = 0.f; // Consume tap
+				}
+				else {
+					m_tapTimerD = 0.25f; // 250ms window
+				}
+			}
+			m_wasDPressed = true;
 		}
 		if (keyPressed->scancode == sf::Keyboard::Scancode::LShift)
 		{
@@ -111,10 +139,12 @@ void UserController::inputHandler(const sf::Event t_event)
 		if (keyReleased->scancode == sf::Keyboard::Scancode::A)
 		{
 			m_left = false;
+			m_wasAPressed = false; // Reset state for next press
 		}
 		if (keyReleased->scancode == sf::Keyboard::Scancode::D)
 		{
 			m_right = false;
+			m_wasDPressed = false; // Reset state for next press
 		}
 		if (keyReleased->scancode == sf::Keyboard::Scancode::LShift)
 		{
@@ -423,6 +453,61 @@ void UserController::mouseAiming(sf::Vector2f t_mouseWorld, sf::RenderWindow& t_
 void UserController::playerMovement(float dt, GamePlay& game)
 {
 	bool canMove = !m_userPlayer.isTackling();
+
+	// 1. Tick down the double-tap windows
+	if (m_tapTimerA > 0.f) m_tapTimerA -= dt;
+	if (m_tapTimerD > 0.f) m_tapTimerD -= dt;
+
+	// ==========================================
+	// --- EXECUTE USER BARGE ---
+	// ==========================================
+	if (triggerBargeLeft || triggerBargeRight && canMove && !m_userPlayer.getBallPossession()) {
+
+		Player* bestTarget = nullptr;
+		float minDist = 150.f; // Max reach of a barge (1.5 meters)
+
+		sf::Vector2f myVel = m_userPlayer.getVelocity();
+		float speed = std::sqrt(myVel.x * myVel.x + myVel.y * myVel.y);
+
+		// Default to facing down the X-axis if standing perfectly still
+		sf::Vector2f myDir = (speed > 10.f) ? (myVel / speed) : sf::Vector2f(1.f, 0.f);
+
+		// Grab the opposing team list
+		auto& oppTeam = (m_userPlayer.getTeam() == Team::Home) ? game.m_awayside : game.m_homeside;
+
+		for (auto& oppPtr : oppTeam) {
+			Player* opp = oppPtr.get();
+			if (opp->getState() == PlayerState::Injured || opp->isSentOff()) continue;
+
+			sf::Vector2f toOpp = opp->getPosition() - m_userPlayer.getPosition();
+			float oppDist = std::sqrt(toOpp.x * toOpp.x + toOpp.y * toOpp.y);
+
+			if (oppDist < minDist) {
+				// The 2D Cross Product tells us if the opponent is to our local left or right!
+				float cross = (myDir.x * toOpp.y) - (myDir.y * toOpp.x);
+
+				// If Left (A) was double-tapped, we only care about opponents where Cross < 0
+				if (triggerBargeLeft && cross < 0.f) {
+					minDist = oppDist;
+					bestTarget = opp;
+				}
+				// If Right (D) was double-tapped, we only care about opponents where Cross > 0
+				else if (triggerBargeRight && cross > 0.f) {
+					minDist = oppDist;
+					bestTarget = opp;
+				}
+			}
+		}
+
+		if (bestTarget) {
+			m_userPlayer.executeShoulderBarge(bestTarget);
+		}
+
+		// Reset triggers so they don't fire every frame
+		triggerBargeLeft = false;
+		triggerBargeRight = false;
+	}
+
 	sf::Vector2f forwardDir(m_userPlayer.getAimDirection());
 	sf::Vector2f rightDir(-forwardDir.y, forwardDir.x);
 	directionInput = { 0.f, 0.f };
@@ -718,6 +803,7 @@ void UserController::executeKickRelease(GamePlay& game)
 		aimDir.x * std::sin(rad) + aimDir.y * std::cos(rad)
 	);
 
+
 	// ==========================================
 	// --- 3. APPLY ASSISTS (The Corrector) ---
 	// ==========================================
@@ -725,9 +811,41 @@ void UserController::executeKickRelease(GamePlay& game)
 	// Poor players have no magnetism, so the shanked aimDir stays wild!
 	if (m_currentTarget != nullptr) {
 		AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false);
+		game.m_matchStats.recordPassAttempt(m_userPlayer.getTeam());
 	}
 	else if (!isHighKick) {
 		AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
+
+		// ==========================================
+		// --- THE FIX: GEOMETRIC SHOT TRACKING ---
+		// ==========================================
+		bool isHomeSide = (m_userPlayer.getTeam() == Team::Home);
+		float targetLineX = isHomeSide ? (game.m_pitch.totalWidth - game.m_pitch.margin) : game.m_pitch.margin;
+
+		bool onTarget = false;
+		sf::Vector2f playerPos = m_userPlayer.getPosition();
+
+		// Prevent divide-by-zero if shooting perfectly vertical
+		if (std::abs(aimDir.x) > 0.001f) {
+			// Calculate the multiplier 't' required to reach the goal line's X coordinate
+			float t = (targetLineX - playerPos.x) / aimDir.x;
+
+			// If t is positive, the ball is actually traveling TOWARD the goal!
+			if (t > 0.f) {
+				// Project the Y coordinate using 't'
+				float intersectY = playerPos.y + (aimDir.y * t);
+
+				float goalCenterY = 3500.f;
+				float halfGoalWidth = 366.f;
+
+				// Did the trajectory cross the line between the two posts?
+				if (intersectY > goalCenterY - halfGoalWidth && intersectY < goalCenterY + halfGoalWidth) {
+					onTarget = true;
+				}
+			}
+		}
+
+		game.m_matchStats.recordShot(m_userPlayer.getTeam(), onTarget);
 	}
 
 	// 4. Calculate Spin (Dampen curl for weak foot)
@@ -822,7 +940,15 @@ void UserController::updateTargetScanning(GamePlay& game)
 {
 	// Build a quick list of raw pointers for the assist engine
 	std::vector<Player*> teammatesRaw;
-	for (auto& tm : game.m_homeside) teammatesRaw.push_back(tm.get());
+
+	// THE FIX: Dynamically grab the correct team list!
+	auto& myTeam = (m_userPlayer.getTeam() == Team::Home) ? game.m_homeside : game.m_awayside;
+	for (auto& tm : myTeam) {
+		// Don't add yourself to the pass target list!
+		{
+			teammatesRaw.push_back(tm.get());
+		}
+	}
 
 	m_currentTarget = AimAssist::getTargetLock(m_userPlayer.getPosition(), m_userPlayer.getAimDirection(), teammatesRaw);
 

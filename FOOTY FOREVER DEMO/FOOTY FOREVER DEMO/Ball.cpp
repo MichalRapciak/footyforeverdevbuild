@@ -1,5 +1,6 @@
 #include "Ball.h"
 #include "Player.h"
+#include "NPCPlayer.h"
 #include "UserPlayer.h"
 #include "PhysicsEngine.h"
 
@@ -53,10 +54,32 @@ void Ball::update(float dt)
     else {
         updateFreePhysics(dt);
     }
+
+    float speed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    if (speed > maxSpeed)
+    {
+        velocity /= speed;
+        speed = maxSpeed;
+        velocity *= speed; 
+    }
+
 }
 
 void Ball::updateDribbling(float dt)
 {
+    if (!owner) return;
+
+    // ==========================================
+    // --- THE FIX 2: THE COOLDOWN LOCK (NPC SAFE) ---
+    // ==========================================
+    // Safely cast the generic Player pointer to an NPCPlayer.
+    // If it's a UserPlayer, npcOwner will be nullptr and it skips the check!
+    if (NPCPlayer* npcOwner = dynamic_cast<NPCPlayer*>(owner)) {
+        if (npcOwner->getKickCooldown() > 0.0f) {
+            return; // Lock the dribble motor while the NPC is kicking
+        }
+    }
+
     // --- 1. PLAYER STATE & DIRECTION ---
     sf::Vector2f playerCenter = owner->getPosition();
 
@@ -152,6 +175,18 @@ void Ball::updateDribbling(float dt)
 
     // The ball matches the player's base speed, plus the pull of the spring
     sf::Vector2f targetVel = playerVel + (toTarget * springStrength);
+
+    // ==========================================
+    // --- THE FIX 3: SPEED LIMITER ---
+    // ==========================================
+    // The ball should never travel significantly faster than the player's top speed 
+    // while it is attached to their feet!
+    float targetSpeed = std::sqrt(targetVel.x * targetVel.x + targetVel.y * targetVel.y);
+    float absoluteMaxSpeed = topSpeed * 1.5f; // Cap dribble snaps at 150% of player sprint speed
+
+    if (targetSpeed > absoluteMaxSpeed) {
+        targetVel = (targetVel / targetSpeed) * absoluteMaxSpeed;
+    }
 
     // 2. THE SMOOTHING DAMPING
     // 0.75f gives us enough "slide" to make the ball roll smoothly between touches,
@@ -309,18 +344,31 @@ void Ball::possess(Player* player)
         owner = player;
         owner->setBallPossession(true);
 
+        if (lastTouch != nullptr && lastTouch->getTeam() == player->getTeam() && lastTouch != player) {
+            passCompletedEvent = true;
+        }
+
+        lastTouch = player;
+
         // --- SET INITIAL FOOT STATE ---
-        // We force the 'using foot' to match their preference. 
-        // Your existing update loop will take it from here!
         bool prefersRight = (owner->getPreferredFoot() == "Right");
-        if (!prefersRight && owner->usingRightFoot())
-        {
+        if (!prefersRight && owner->usingRightFoot()) {
             owner->changeFoot();
         }
-        else if (prefersRight && !owner->usingRightFoot())
-        {
+        else if (prefersRight && !owner->usingRightFoot()) {
             owner->changeFoot();
         }
+
+        // ==========================================
+        // --- THE FIX 1: SNAP TO FEET ---
+        // ==========================================
+        // Prevent the "Rubber-Band" acceleration bug by instantly snapping 
+        // the ball to the player's feet the moment they gain possession.
+        sf::Vector2f playerScale = owner->getSprite().getScale();
+        sf::Vector2f feetPos = owner->getPosition();
+        feetPos.x -= 150.0f * std::abs(playerScale.x); // Shift down to boots
+
+        shape.setPosition(feetPos);
 
         // Reset physics
         footTimer = 0.f;

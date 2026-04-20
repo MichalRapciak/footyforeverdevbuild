@@ -1,0 +1,60 @@
+{
+    "PLY_1032": {
+        "age": 23,
+        "familiarity": {
+            "Center Back": 4
+        },
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#D4B89A"
+        },
+        "height_cm": 186,
+        "loyalty": 93,
+        "name": "G. Martin",
+        "nationality": "ESP",
+        "number": 21,
+        "playstyle": "Defensive FB",
+        "position": "Left Back",
+        "preferred_foot": "Left",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 78.0,
+            "aggression": 66.0,
+            "agility": 80.0,
+            "awareness": 82.0,
+            "balancing": 75.0,
+            "ball_control": 70.0,
+            "blocking": 74.0,
+            "body_strength": 74.0,
+            "curl": 59.0,
+            "dead_ball": 36.0,
+            "finishing": 24.0,
+            "fitness": 82.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 84.0,
+            "injury_resistance": 3,
+            "jumping_strength": 70.0,
+            "kick_power": 79.0,
+            "long_passing": 64.0,
+            "short_passing": 74.0,
+            "top_speed": 83.0,
+            "weak_foot_accuracy": 2
+        },
+        "tactical_familiarity": 92.0,
+        "team_id": "TEAM_104",
+        "traits": [],
+        "weight_kg": 78
+    }
+}

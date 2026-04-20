@@ -5,57 +5,55 @@
 #include "PositionRole.h"
 #include "Playstyle.h"
 #include "Team.h"
-#include "Animator.h"   // <-- NEW
+#include "Animator.h"
 #include "Direction.h"
-#include <string>       // <-- NEW for Database strings
-#include <vector>       // <-- NEW for Database traits
+#include <string>
+#include <vector>
 #include "InjuryData.h"
 
-// Forward declare the database struct (Replace/include the actual header where PlayerData is defined)
+// Forward declare the database struct 
 struct PlayerData;
+struct TeamData;
 
 class Player : public Entity {
     friend class PhysicsEngine;
 public:
-    Player(const sf::Texture& texture);
+    Player();
 
-    // --- NEW: INITIALIZATION ---
-    // Pass the parsed JSON struct in to set up all stats, bio, and scales at once
-    void loadFromData(const PlayerData& data);
-
+    void loadFromData(const PlayerData& data, const TeamData& teamData);
+    int getRoleProficiency(PositionRole role) const;
     void swapIdentityWith(Player* other);
 
-    // Shared Physics Update (Inertia, Counter-steer, etc.)
-    virtual void update(float dt, AnimationServer& animServer);
+    virtual void update(float dt);
     void applyPhysicalScale();
 
-    // Shared Combat/Sports Actions
+    void applySubstitution(const PlayerData& newPlayerData, const TeamData& teamData);
     void startTackle(sf::Vector2f direction);
 
-    // Common Getters/Setters
     sf::Vector2f getPosition() const override { return m_position; }
     void setPosition(sf::Vector2f t_position) { m_position = t_position; m_sprite.setPosition(m_position); }
     sf::Sprite getSprite() { return m_sprite; }
-    void setKitColor(sf::Color color) { m_sprite.setColor(color); }
 
     Animator& getAnimator() { return m_animator; }
     sf::FloatRect getBoundingBox() const override {
-        if (m_positionRole == PositionRole::Goalkeeper && m_currentState == PlayerState::Diving) {
-            return sf::FloatRect({ m_position.x - 40, m_position.y - (60 + (m_stats.getGkCoverage() * 0.8f)) }, { 80 + (m_stats.getGkCoverage()) * 0.8f, (60 + (m_stats.getGkCoverage() * 0.8f)) * 2});
+        if (m_matchRole == PositionRole::Goalkeeper && m_currentState == PlayerState::Diving) {
+            return sf::FloatRect({ m_position.x - 40, m_position.y - (60 + (m_stats.getGkCoverage() * 0.8f)) }, { 80 + (m_stats.getGkCoverage()) * 0.8f, (60 + (m_stats.getGkCoverage() * 0.8f)) * 2 });
         }
         else {
             return sf::FloatRect({ m_position.x - 50, m_position.y - 20 }, { 100,40 });
         }
     }
 
+    void setMatchTimeScale(float timeScale) { m_matchTimeScale = timeScale; }
+
     sf::Vector2f getVelocity() { return m_velocity; }
     void setVelocity(sf::Vector2f t_velocity) { m_velocity = t_velocity; }
     bool getBallPossession() { return hasPossession; }
     void setBallPossession(bool t) { hasPossession = t; }
+    float getMatchTimeScale() { return m_matchTimeScale; }
 
     virtual sf::Vector2f getAimDirection() const = 0;
 
-    // --- IDENTITY & BIO GETTERS (NEW) ---
     std::string getId() const { return m_id; }
     std::string getName() const { return m_name; }
     int getSquadNumber() const { return m_squadNumber; }
@@ -63,15 +61,16 @@ public:
     std::string getPreferredFoot() const { return m_preferredFoot; }
     const std::vector<std::string>& getTraits() const { return m_traits; }
     bool hasTrait(const std::string& traitName) const;
-    void triggerFallOver(sf::Vector2f impactVelocity, AnimationServer& animServer);
+    void triggerFallOver(sf::Vector2f impactVelocity);
     void checkInjury(float impactForce);
     void applyRandomInjury(float impactNorm);
     void recoverFromFall();
 
-    // --- STAT GETTERS ---
     float getFitness() { return m_stats.getFitness(); }
     int getWeakFootAccuracy() { return m_stats.getWeakFootAccuracy(); }
     int getInjuryResistance() { return m_stats.getInjuryResistance(); }
+    float getTacticalFamiliarity() { return m_tacticalFamiliarity; }
+    float getTeamChemistry() { return m_teamChemistry; }
 
     float getFinishing() { return m_stats.getFinishing() * getGeneralMultiplier(); }
     float getDeadBall() { return m_stats.getDeadBall() * getGeneralMultiplier(); }
@@ -81,8 +80,8 @@ public:
     float getBallControl() { return m_stats.getBallControl() * getGeneralMultiplier(); }
     float getBalancing() { return m_stats.getBalancing() * getMovementMultiplier() * getInjuryDebuff(); }
 
-    float getShortPassing() { return m_stats.getShortPassing() * getGeneralMultiplier(); }
-    float getLongPassing() { return m_stats.getLongPassing() * getGeneralMultiplier() * getInjuryDebuff(); }
+    float getShortPassing() { return m_stats.getShortPassing() * getGeneralMultiplier() * getMentalMultiplier(); }
+    float getLongPassing() { return m_stats.getLongPassing() * getGeneralMultiplier() * getInjuryDebuff() * getMentalMultiplier(); }
 
     float getAcceleration() { return m_stats.getAccel() * getMovementMultiplier() * getInjuryDebuff(); }
     float getTopSpeed() { return m_stats.getTopSpeed() * getMovementMultiplier() * getInjuryDebuff(); }
@@ -92,15 +91,15 @@ public:
     float getKickPower() { return m_stats.getKickPower() * getInjuryDebuff(); }
     float getJumpingStrength() { return m_stats.getJumpingStrength() * getMovementMultiplier() * getInjuryDebuff(); }
 
-    float getAwareness() { return m_stats.getAwareness() * getGeneralMultiplier(); }
-    float getAggression() { return m_stats.getAggression() * getGeneralMultiplier(); }
-    float getBlocking() { return m_stats.getBlocking() * getGeneralMultiplier(); }
+    float getAwareness() const;
+    float getAggression() { return m_stats.getAggression() * getGeneralMultiplier() * getMentalMultiplier(); }
+    float getBlocking() { return m_stats.getBlocking() * getGeneralMultiplier() * getMentalMultiplier(); }
 
-    float getGkThrowing() { return m_stats.getGkThrowing() * getGeneralMultiplier(); }
+    float getGkThrowing() { return m_stats.getGkThrowing() * getGeneralMultiplier() * getMentalMultiplier(); }
     float getGkCoverage() { return m_stats.getGkCoverage() * getGeneralMultiplier(); }
     float getGkReactions() { return m_stats.getGkReactions() * getGeneralMultiplier(); }
     float getGkCatching() { return m_stats.getGkCatching() * getGeneralMultiplier(); }
-    float getGkAwareness() { return m_stats.getGkAwareness() * getGeneralMultiplier(); }
+    float getGkAwareness() { return m_stats.getGkAwareness() * getGeneralMultiplier() * getMentalMultiplier(); }
     float getGkBlocking() { return m_stats.getGkBlocking() * getGeneralMultiplier(); }
 
     PlayerStats getStats() { return m_stats; }
@@ -128,18 +127,18 @@ public:
 
         switch (currentInjurySeverity) {
         case InjurySeverity::Knock:
-            return 0.85f; // -15% to physical stats. They are limping but trying to play!
+            return 0.85f;
         case InjurySeverity::Mild:
-            return 0.60f; // -40%. They are a massive liability on the pitch now.
+            return 0.60f;
         case InjurySeverity::Severe:
-            return 0.0f;  // 0%. Completely incapacitated.
+            return 0.0f;
         default: return 1.0f;
         }
     }
 
-    Playstyle getPlaystyle() {  return m_playstyle; }
+    Playstyle getPlaystyle() { return m_playstyle; }
     Direction get8WayDirection(sf::Vector2f targetVector);
-    Direction getDirection() const{ return m_currentDirection; }
+    Direction getDirection() const { return m_currentDirection; }
     bool canTackle() const { return m_tackleCooldownTimer <= 0.0f; }
     void updateCooldown(float dt) {
         if (m_tackleCooldownTimer > 0.0f) m_tackleCooldownTimer -= dt;
@@ -161,21 +160,18 @@ public:
     sf::FloatRect getTackleHitbox();
     Team getTeam() const { return m_team; }
 
-    void setPositionRole(PositionRole role) { m_positionRole = role; }
-    PositionRole getPositionRole() const { return m_positionRole; }
+    void setPositionRole(PositionRole role) { m_matchRole = role; }
+    PositionRole getPositionRole() const { return m_matchRole; }
     sf::Vector2f getBaseTacticalCoordinate(bool isHomeTeam, int slotId, const std::vector<std::vector<std::pair<int, PositionRole>>>& layout) const;
     void setBaseHomePosition(sf::Vector2f pos) { m_baseHomePosition = pos; }
 
-    // Update the getter signature (Remove the arguments!)
     sf::Vector2f getHomePosition() const;
 
     float getWeight() { return weight; }
 
-    // Dynamic dribble tracking (Alternates left/right on touches)
     bool usingRightFoot() { return rightFoot; }
     void changeFoot() { rightFoot = !rightFoot; }
 
-    // Physical footprint variables (Mapped from database in loadFromData)
     float height = 175.0f;
     float weight = 75.0f;
     float m_possessionTimer = 0.0f;
@@ -186,29 +182,34 @@ public:
     void giveYellowCard() {
         m_yellowCards++;
         if (m_yellowCards >= 2) {
-            m_isSentOff = true; // Second yellow equals a Red!
+            m_isSentOff = true;
         }
     }
     void giveRedCard() {
         m_isSentOff = true;
     }
 
-    // STAMINA FUNCTIONS
-// Setup
+    float getBargeCooldown() const { return m_bargeCooldown; }
+    bool executeShoulderBarge(Player* target);
+
     void initializeStamina(float naturalFitness, float matchSharpness);
-
-    // Core Updates
+    void setTeamChemistry(float chem) { m_teamChemistry = chem; }
     void updateStamina(float dt, bool isSprinting);
-    void deductStaminaAction(float baseAmount); // For tackles, jumps, getting hit
-
-    // Getters for Controllers/UI
+    void deductStaminaAction(float baseAmount);
+    float getMentalMultiplier() const;
     float getCurrentStamina() const { return m_currentStamina; }
     float getMaxStamina() const { return m_maxStamina; }
 
-    // --- DEBUFF CALCULATORS ---
-    // Returns a multiplier (e.g., 0.75 to 1.00) to multiply against base stats
     float getMovementMultiplier() const;
     float getGeneralMultiplier() const;
+
+    // ==========================================
+    // --- NEW: SHADER COLOR GETTERS ---
+    // ==========================================
+    sf::Color getSkinColor() const { return m_skinColor; }
+    sf::Color getShirtColor() const { return m_shirtColor; }
+    sf::Color getShortsColor() const { return m_shortsColor; }
+    sf::Color getSocksColor() const { return m_socksColor; }
 
 protected:
     sf::Vector2f m_baseHomePosition;
@@ -216,13 +217,17 @@ protected:
     sf::Vector2f m_position;
     sf::Vector2f m_velocity;
 
+    float m_tacticalFamiliarity = 100.f;
+    float m_teamChemistry = 100.f;
     int loyalty = 0;
 
-    float m_naturalFitness = 100.f;  // Base capacity (0-100)
-    float m_matchSharpness = 100.f;  // Depletion rate modifier (0-100)
+    float m_naturalFitness = 100.f;
+    float m_matchSharpness = 100.f;
 
-    float m_maxStamina = 100.f;      // Scaled directly from NaturalFitness
-    float m_currentStamina = 100.f;  // The live gauge
+    float m_maxStamina = 100.f;
+    float m_currentStamina = 100.f;
+
+    float m_matchTimeScale = 22.5f;
 
     int m_yellowCards = 0;
     bool m_isSentOff = false;
@@ -232,7 +237,15 @@ protected:
     Animator m_animator;
     Direction m_currentDirection = Direction::Down;
 
-    // --- IDENTITY & BIO DATA (NEW) ---
+    // ==========================================
+    // --- NEW: SHADER COLOR VARIABLES ---
+    // ==========================================
+    sf::Color m_skinColor;
+    sf::Color m_shirtColor;
+    sf::Color m_shortsColor;
+    sf::Color m_socksColor;
+
+    // --- IDENTITY & BIO DATA ---
     std::string m_id;
     std::string m_name;
     int m_squadNumber = 0;
@@ -241,7 +254,8 @@ protected:
     std::vector<std::string> m_traits;
 
     // --- TACTICAL & STATS ---
-    PositionRole m_positionRole = PositionRole::CenterBack;
+    PositionRole m_matchRole = PositionRole::CenterBack;
+    std::map<PositionRole, int> m_familiarity;
     Playstyle m_playstyle;
     PlayerStats m_stats;
     PlayerState m_currentState = PlayerState::Normal;
@@ -250,10 +264,10 @@ protected:
     float m_collisionRadius = 25.f;
     float m_stumbleTimer = 0.0f;
 
-    // Dynamic physics state variables
-    bool rightFoot = false; // Alternates during dribbling "Step & Tap"
+    bool rightFoot = false;
     bool hasPossession = false;
 
+    float m_bargeCooldown = 0.0f;
     float m_tackleTimer = 0.0f;
     float m_tackleDuration = 0.4f;
     const float TACKLE_COOLDOWN_DURATION = 2.0f;
@@ -269,16 +283,10 @@ protected:
 
 // Logic for scaling 0-5 accuracy
 inline float getWeakFootPenalty(int wfStars, float& powerMod, float& errorMod) {
-    // Power Penalty: 0 stars = 70% power, 5 stars = 100% power
     powerMod = 0.7f + (wfStars / 5.0f) * 0.3f;
-
-    // Accuracy Penalty: 0 stars = 5x error, 5 stars = 1x error
     errorMod = 1.0f + (5.0f - wfStars) * 0.8f;
-
-    // The "Mess Up" Chance (The shank factor)
-    float shankChance = (5.0f - wfStars) * 10.0f; // 0 stars = 50%, 5 stars = 0%
+    float shankChance = (5.0f - wfStars) * 10.0f;
     if ((rand() % 100) < shankChance) {
-        // WF 0-1 gets a massive extra error, WF 3 gets a medium one
         return 15.0f + (5.0f - wfStars) * 5.0f;
     }
     return 0.0f;

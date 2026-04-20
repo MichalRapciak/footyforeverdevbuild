@@ -1,6 +1,7 @@
 #include "GamePlay.h"
 #include "Game.h"
 #include "imgui-1.92.6/imgui.h"
+#include "GlobalSettings.h"
 
 GamePlay::GamePlay() : m_pauseText(m_font), m_gameOverText(m_font), m_gameWonText(m_font)
 {
@@ -45,9 +46,11 @@ void GamePlay::initialise(sf::Font& t_font)
 	xpos = (1920 / 2) - (textSize.size.x / 2);
 	m_gameWonText.setPosition({ xpos, 1080 * 0.5f });
 
+	initPauseMenuButtons();
 
-	m_animServer.init("ASSETS/PLAYER/player_run_ing.png");
-
+	if (!m_kitShader.loadFromFile("ASSETS/SHADERS/kit_mixer.frag", sf::Shader::Type::Fragment)) {
+		std::cerr << "Failed to load kit shader!\n";
+	}
 }
 
 /// <summary>
@@ -136,6 +139,15 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 {
 	float dt = t_deltaTime.asSeconds();
 
+	if (m_pause)
+	{
+		updatePauseMenu(t_window); // This checks for clicks and sets m_showGamePlan = true
+
+		// THE FIX: Construct the ImGui window during the UPDATE tick!
+		if (m_showGamePlan) {
+			drawGamePlan(t_window);
+		}
+	}
 
 	// ==========================================
 	// 1. THE SMOKE AND MIRRORS REPLAY MEDIATOR
@@ -166,9 +178,15 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 	// --- NEW: REPLAY JUST FINISHED ---
 	else if (m_referee.getMatchState() == MatchState::ReplayPlaying)
 	{
+		// THE FIX 3: Gather the players to repair the pitch layout
+		std::vector<Player*> allPlayers;
+		if (m_userPlayer) allPlayers.push_back(m_userPlayer.get());
+		for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+		for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
+
 		// The isReplaying() check just became false this exact frame.
-		// Release the hold and blow the whistle!
-		m_referee.resumeFromReplay();
+		// Repair the physics objects, arrange the set piece, and resume!
+		m_referee.resumeFromReplay(*m_ball, m_pitch, allPlayers, m_soundManager);
 	}
 
     // 1. Gather all players
@@ -190,8 +208,21 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 
 	if (!m_pause && !m_gameOver)
 	{
+		// ==========================================
+		// --- GLOBAL MATCH STATS TRACKER ---
+		// ==========================================
+		if (m_ball->getOwner()) {
+			m_matchStats.updatePossession(m_ball->getOwner()->getTeam(), dt);
+		}
+
+		// THE FIX 1: Consume the Pass Event triggered by the Ball physics!
+		if (m_ball->passCompletedEvent && m_ball->getOwner()) {
+			m_matchStats.recordPassComplete(m_ball->getOwner()->getTeam());
+			m_ball->passCompletedEvent = false; // Reset the flag until the next pass!
+		}
 		// 2. THE REFEREE UPDATES THE CONTEXTS FIRST
-		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal, m_soundManager);
+		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal, m_soundManager, m_matchStats);
+		handleAISubstitutions();
 		m_referee.checkOffsideLogic(*m_ball, allPlayers, m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), m_pitch, m_soundManager);
 		// 3. RUN THE SIMULATION
         // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
@@ -250,6 +281,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 
 	// 2. Draw Background 
 	m_stadium1.draw(t_window);
+
+	//m_spatialGrid.drawDebug(t_window, m_pitch);
 
 	if (m_userController && !m_replayEngine.isReplaying()) {
 		m_userController->draw(t_window);
@@ -328,22 +361,33 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		// 5. DRAW UI (SCREEN SPACE)
 		// ==========================================
 		drawUI(t_window);
-		powerBarDraw(t_window);
+		if (m_userPlayer)
+		{
+			powerBarDraw(t_window);
+		}
 	}
 
 	t_window.setView(t_window.getDefaultView());
 
-	if (m_pause || m_gameOver)
+	if (m_pause || m_referee.getMatchState() == MatchState::FullTime || m_referee.getMatchState() == MatchState::HalfTime)
 	{
+		// 1. Draw the Dark Overlay
 		sf::RectangleShape overlay(sf::Vector2f(t_window.getSize()));
 		overlay.setFillColor(sf::Color(20, 20, 20, 200));
 		t_window.draw(overlay);
 
-		if (m_pause && !m_gameOver) {
-			t_window.draw(m_pauseText);
+		t_window.setView(t_window.getDefaultView());
+
+		if (m_showGamePlan) {
 		}
-		else if (m_gameOver) {
-			t_window.draw(m_gameOverText);
+		else {
+			// 3. Draw Stats Board and SFML Buttons
+			drawMatchStats(t_window);
+
+			for (int i = 0; i < 2; i++) {
+				t_window.draw(m_pauseButtons[i]);
+				t_window.draw(m_pauseTexts[i]);
+			}
 		}
 	}
 }
@@ -459,15 +503,40 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 	float scaleMultiplier = 1.0f + (z / 750.f);
 	visualSprite.setScale({ visualSprite.getScale().x * scaleMultiplier, visualSprite.getScale().y * scaleMultiplier });
 
-	t_window.draw(visualSprite);
-}
+	Player* p = dynamic_cast<Player*>(entity);
+	if (p) {
+		// 1. Convert SFML colors (0-255) to GLSL vectors (0.0 - 1.0)
+		auto toGlslColor = [](sf::Color c) {
+			return sf::Glsl::Vec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
+			};
 
-void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId)
+		// 2. Feed the GPU the specific colors for this player
+		m_kitShader.setUniform("skinColor", toGlslColor(p->getSkinColor()));
+		m_kitShader.setUniform("shirtColor", toGlslColor(p->getShirtColor()));
+		m_kitShader.setUniform("shortsColor", toGlslColor(p->getShortsColor()));
+		m_kitShader.setUniform("socksColor", toGlslColor(p->getSocksColor()));
+
+		// 3. Feed the GPU the raw textures
+		// We bind the active sprite's texture to the skin, then pass the rest manually
+		m_kitShader.setUniform("skinTex", sf::Shader::CurrentTexture);
+		m_kitShader.setUniform("shirtTex", AnimationServer::getShirtTexture());
+		m_kitShader.setUniform("shortsTex", AnimationServer::getShortsTexture());
+		m_kitShader.setUniform("socksTex", AnimationServer::getSocksTexture());
+
+		// 4. Draw the sprite USING the shader!
+		t_window.draw(visualSprite, &m_kitShader);
+	}
+	else {
+		// Non-players (like the ball) draw normally
+		t_window.draw(visualSprite);
+	}
+}
+	
+void GamePlay::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId)
 {
 	m_db = &db;
 	TeamData* homeTeam = db.getTeam(homeTeamId);
 	TeamData* awayTeam = db.getTeam(awayTeamId);
-
 	if (!homeTeam || !awayTeam) return;
 
 	m_homeTeamData = *homeTeam;
@@ -479,12 +548,14 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_entities.clear();
 	m_homeside.clear();
 	m_awayside.clear();
+	m_homeTeam.clear();
+	m_awayTeam.clear();
 
-	// ==========================================
-	// --- SPECTATOR BYPASS ---
-	// ==========================================
+	m_setupUserPlayerId = userPlayerId;
+	m_userAssigned = false;
+
 	if (userPlayerId != "SPECTATOR") {
-		m_userPlayer = std::make_unique<UserPlayer>((m_animServer.getPlayerTexture()));
+		m_userPlayer = std::make_unique<UserPlayer>();
 		m_userController = std::make_unique<UserController>(*m_userPlayer);
 		m_entities.push_back(m_userPlayer.get());
 	}
@@ -495,12 +566,152 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 
 	m_ball = std::make_unique<Ball>();
 	m_entities.push_back(m_ball.get());
-
 	m_npcController = std::make_unique<NPCController>();
 
-	spawnTeamDynamic(m_homeside, m_entities, m_homeTeamData, true, userPlayerId);
-	spawnTeamDynamic(m_awayside, m_entities, m_awayTeamData, false, "");
+	auto loadMatchdayMemory = [&](TeamData& team) {
+		team.startingXI.clear();
+		team.bench.clear();
+		std::vector<std::string> activeStarters;
 
+		for (const auto& [slotId, pId] : team.defaultTactics.startingXI) {
+			PlayerData* pData = m_db->getPlayer(pId);
+			if (pData) {
+				team.startingXI.push_back(*pData);
+				activeStarters.push_back(pId);
+			}
+		}
+
+		if (!team.defaultTactics.benchIds.empty()) {
+			for (const std::string& benchId : team.defaultTactics.benchIds) {
+				PlayerData* bData = m_db->getPlayer(benchId);
+				if (bData) team.bench.push_back(*bData);
+			}
+		}
+		else {
+			for (const std::string& rosterId : team.rosterPlayerIds) {
+				bool isStarting = std::find(activeStarters.begin(), activeStarters.end(), rosterId) != activeStarters.end();
+				if (!isStarting) {
+					PlayerData* bData = m_db->getPlayer(rosterId);
+					if (bData) team.bench.push_back(*bData);
+				}
+			}
+		}
+		};
+
+	loadMatchdayMemory(m_homeTeamData);
+	loadMatchdayMemory(m_awayTeamData);
+
+	// Set the state machine to start baking the Home Team
+	m_loadingPhase = 1;
+	m_loadingIndex = 0;
+}
+
+float GamePlay::loadNextPlayer()
+{
+	if (m_loadingPhase == 0 || m_loadingPhase > 2) return 1.0f; // Finished
+
+	TeamData& teamData = (m_loadingPhase == 1) ? m_homeTeamData : m_awayTeamData;
+	auto& teamUnique = (m_loadingPhase == 1) ? m_homeside : m_awayside;
+	auto& teamPointers = (m_loadingPhase == 1) ? m_homeTeam : m_awayTeam;
+	bool isHomeSide = (m_loadingPhase == 1);
+
+	// If we finished this team, move to the next phase!
+	if (m_loadingIndex >= teamData.defaultTactics.startingXI.size()) {
+		m_loadingPhase++;
+		m_loadingIndex = 0;
+		return loadNextPlayer(); // Recursively call to start the away team or finish
+	}
+
+	// Grab the exact map iterator for this slot
+	auto it = teamData.defaultTactics.startingXI.begin();
+	std::advance(it, m_loadingIndex);
+	int slotId = it->first;
+	std::string playerId = it->second;
+
+	PlayerData& pData = teamData.startingXI[m_loadingIndex];
+
+	auto layout = getFormationLayout(teamData.defaultTactics.formationName);
+	PositionRole matchRole = PositionRole::CenterMid;
+	for (const auto& line : layout) {
+		for (const auto& slot : line) {
+			if (slot.first == slotId) {
+				matchRole = slot.second;
+				break;
+			}
+		}
+	}
+
+	// --- Check User Assignment ---
+	bool hasPlayer8 = false;
+	if (m_setupUserPlayerId == "AUTO_HOME" || m_setupUserPlayerId == "AUTO_AWAY" || m_setupUserPlayerId.empty()) {
+		for (const auto& [sId, pId] : teamData.defaultTactics.startingXI) {
+			if (pId == "8") { hasPlayer8 = true; break; }
+		}
+	}
+
+	bool isTargetUser = false;
+	if (m_setupUserPlayerId != "SPECTATOR" && !m_userAssigned) {
+		if (m_setupUserPlayerId == "AUTO_HOME" || m_setupUserPlayerId.empty()) {
+			if (isHomeSide) {
+				if (hasPlayer8) isTargetUser = (playerId == "8");
+				else if (matchRole != PositionRole::Goalkeeper) isTargetUser = true;
+			}
+		}
+		else if (m_setupUserPlayerId == "AUTO_AWAY") {
+			if (!isHomeSide) {
+				if (hasPlayer8) isTargetUser = (playerId == "8");
+				else if (matchRole != PositionRole::Goalkeeper) isTargetUser = true;
+			}
+		}
+		else {
+			isTargetUser = (playerId == m_setupUserPlayerId);
+		}
+	}
+
+	// ==========================================
+	// --- THIS IS WHERE THE HEAVY BAKING HAPPENS ---
+	// ==========================================
+	if (isTargetUser && m_userPlayer)
+	{
+		m_userPlayer->loadFromData(pData, teamData); // <-- BAKES TEXTURE IN RAM
+		m_userPlayer->setTeam(isHomeSide ? Team::Home : Team::Away);
+		m_userPlayer->setPositionRole(matchRole);
+		m_userPlayer->setMatchTimeScale(90.0f / static_cast<float>(GlobalSettings::matchLengthMinutes));
+		sf::Vector2f basePos = m_userPlayer->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
+		m_userPlayer->setBaseHomePosition(basePos);
+		m_userPlayer->setPosition(basePos);
+		m_userPlayer->setTeamChemistry(teamData.teamChemistry);
+
+		teamPointers.push_back(m_userPlayer.get());
+		m_userAssigned = true;
+	}
+	else
+	{
+		auto player = std::make_unique<NPCPlayer>();
+		player->loadFromData(pData, teamData); // <-- BAKES TEXTURE IN RAM
+		player->setTeam(isHomeSide ? Team::Home : Team::Away);
+		player->setPositionRole(matchRole);
+		player->setMatchTimeScale(90.0f / static_cast<float>(GlobalSettings::matchLengthMinutes));
+		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
+		player->setBaseHomePosition(basePos);
+		player->setPosition(player->getHomePosition());
+		player->setTeamChemistry(teamData.teamChemistry);
+
+		m_entities.push_back(player.get());
+		teamPointers.push_back(player.get());
+		teamUnique.push_back(std::move(player));
+	}
+
+	m_loadingIndex++;
+
+	// Calculate overall progress
+	float totalPlayers = m_homeTeamData.defaultTactics.startingXI.size() + m_awayTeamData.defaultTactics.startingXI.size();
+	float currentLoaded = (m_loadingPhase == 1 ? 0 : m_homeTeamData.defaultTactics.startingXI.size()) + m_loadingIndex;
+	return currentLoaded / totalPlayers;
+}
+
+void GamePlay::finalizeMatchSetup()
+{
 	m_ball->setPosition(m_pitch.centerSpot);
 
 	barBackground.setSize(barSize);
@@ -514,13 +725,12 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_homeGoal.initialize(sf::Vector2f{ m_pitch.margin, 3500.f }, true);
 	m_awayGoal.initialize(sf::Vector2f{ m_pitch.totalWidth - m_pitch.margin, 3500.f }, false);
 
-	// Safely center the camera on the ball if there is no user
 	m_playerCam.setCenter(m_userPlayer ? m_userPlayer->getPosition() : m_pitch.centerSpot);
-	m_playerCam.setSize({ 1920, 1080 });
-	m_playerCam.zoom(0.50f);
+	m_playerCam.setSize({ 1920.f * 2.4f, 1080.f * 2.4f });
+	m_playerCam.zoom(1.0f / GlobalSettings::cameraZoom);
 
 	std::vector<Player*> allPlayers;
-	if (m_userPlayer) allPlayers.push_back(m_userPlayer.get()); // Only push if exists!
+	if (m_userPlayer) allPlayers.push_back(m_userPlayer.get());
 	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
 	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
@@ -530,97 +740,11 @@ void GamePlay::setupMatch(GameDatabase& db, const std::string& homeTeamId, const
 	m_referee.startMatch(*m_ball, m_pitch, allPlayers, m_soundManager);
 }
 
-void GamePlay::spawnTeamDynamic(std::vector<std::unique_ptr<NPCPlayer>>& team, std::vector<Entity*>& entities, TeamData& teamData, bool isHomeSide, const std::string& userPlayerId)
-{
-	bool userAssigned = false;
-	auto layout = getFormationLayout(teamData.defaultTactics.formationName);
-
-	// --- THE FIX: Check if Player 8 is actually in the starting XI ---
-	bool hasPlayer8 = false;
-	if (userPlayerId.empty() && userPlayerId != "SPECTATOR") {
-		for (const auto& [slotId, pId] : teamData.defaultTactics.startingXI) {
-			if (pId == "8") {
-				hasPlayer8 = true;
-				break;
-			}
-		}
-	}
-
-	for (const auto& [slotId, playerId] : teamData.defaultTactics.startingXI)
-	{
-		PlayerData* pData = m_db->getPlayer(playerId);
-		if (!pData) continue;
-
-		PositionRole matchRole = PositionRole::CenterMid;
-		for (const auto& line : layout) {
-			for (const auto& slot : line) {
-				if (slot.first == slotId) {
-					matchRole = slot.second;
-					break;
-				}
-			}
-		}
-
-		bool isTargetUser = false;
-
-		// ONLY attempt to hijack if we are NOT in spectator mode
-		if (userPlayerId != "SPECTATOR" && isHomeSide && !userAssigned) {
-			if (!userPlayerId.empty()) {
-				isTargetUser = (playerId == userPlayerId);
-			}
-			else {
-				// Auto-pick Player 8! 
-				if (hasPlayer8) {
-					isTargetUser = (playerId == "8");
-				}
-				// THE FIX: If Player 8 isn't there, grab the first player who is NOT a Goalkeeper!
-				else if (matchRole != PositionRole::Goalkeeper) {
-					isTargetUser = true;
-				}
-			}
-		}
-
-		if (isTargetUser && m_userPlayer)
-		{
-			m_userPlayer->loadFromData(*pData);
-			m_userPlayer->setTeam(Team::Home);
-			m_userPlayer->setPositionRole(matchRole);
-
-			sf::Vector2f basePos = m_userPlayer->getBaseTacticalCoordinate(true, slotId, layout);
-			m_userPlayer->setBaseHomePosition(basePos);
-			m_userPlayer->setPosition(basePos);
-			m_userPlayer->setKitColor(teamData.shirt.primaryColor);
-
-			userAssigned = true;
-			continue;
-		}
-
-		auto player = std::make_unique<NPCPlayer>((m_animServer.getPlayerTexture()));
-		player->loadFromData(*pData);
-		player->setTeam(isHomeSide ? Team::Home : Team::Away);
-		player->setPositionRole(matchRole);
-
-		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
-		player->setBaseHomePosition(basePos);
-		player->setPosition(player->getHomePosition());
-
-		if (matchRole == PositionRole::Goalkeeper) {
-			player->setKitColor(sf::Color(50, 200, 50));
-		}
-		else {
-			player->setKitColor(teamData.shirt.primaryColor);
-		}
-
-		entities.push_back(player.get());
-		team.push_back(std::move(player));
-	}
-}
-
 void GamePlay::updateCamera(sf::RenderWindow& t_window)
 {
 	sf::Vector2f ballPos = m_ball->getPosition();
 	sf::Vector2f targetCenter;
-	float zoomFactor = 1.0f;
+	float dynamicZoom = 1.0f;
 
 	if (m_userPlayer) {
 		// --- PLAYER CAMERA ---
@@ -633,31 +757,49 @@ void GamePlay::updateCamera(sf::RenderWindow& t_window)
 		float aimDist = std::sqrt(aimVec.x * aimVec.x + aimVec.y * aimVec.y);
 		float ballDist = std::sqrt(ballVec.x * ballVec.x + ballVec.y * ballVec.y);
 
-		float maxAimPull = 1200.f;
+		float maxAimPull = 2000.f;
 		if (aimDist > maxAimPull) {
 			aimVec = (aimVec / aimDist) * maxAimPull;
 			aimDist = maxAimPull;
 		}
 
-		targetCenter = playerPos + (aimVec * 0.35f) + (ballVec * 0.15f);
-		zoomFactor = 1.0f + (aimDist * 0.00015f) + (ballDist * 0.0001f);
-		zoomFactor = std::clamp(zoomFactor, 1.0f, 1.35f);
+		// ==========================================
+		// --- THE FIX 1: BALL TRACKING BLEND ---
+		// ==========================================
+		// t = 0.0 (Lock to player), t = 1.0 (Lock to ball)
+		float t = GlobalSettings::cameraBallFollow;
+
+		// The more we track the ball, the less the mouse aim influences the screen!
+		// Swap 0.35f with GlobalSettings::cameraAimPull
+		sf::Vector2f blendedAim = aimVec * (GlobalSettings::cameraAimPull * (1.0f - t));
+
+		// Interpolate between the player and the ball, then add the aiming offset
+		targetCenter = playerPos + ((ballPos - playerPos) * t) + blendedAim;
+
+		dynamicZoom = 1.0f + (aimDist * 0.00015f) + (ballDist * 0.0001f);
+		dynamicZoom = std::clamp(dynamicZoom, 1.0f, 1.35f);
 	}
 	else {
 		// --- TV BROADCAST CAMERA (Spectator) ---
-		// Lead the camera slightly ahead of the ball's momentum
 		sf::Vector2f ballVel = m_ball->getVelocity();
 		targetCenter = ballPos + (ballVel * 0.3f);
 
-		// Zoom out slightly more depending on how fast the ball is moving
 		float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
-		zoomFactor = 1.15f + (ballSpeed * 0.0001f);
-		zoomFactor = std::clamp(zoomFactor, 1.15f, 1.4f);
+		dynamicZoom = 1.15f + (ballSpeed * 0.0001f);
+		dynamicZoom = std::clamp(dynamicZoom, 1.15f, 1.4f);
 	}
 
-	float baseSizeX = 1920.f * 2.5f;
-	float baseSizeY = 1080.f * 2.5f;
-	sf::Vector2f targetSize(baseSizeX * zoomFactor, baseSizeY * zoomFactor);
+	float baseSizeX = 1920.f * 2.4f;
+	float baseSizeY = 1080.f * 2.4f;
+
+	// ==========================================
+	// --- THE FIX 2: GLOBAL ZOOM APPLICATION ---
+	// ==========================================
+	// A higher GlobalSettings::cameraZoom value (e.g., 2.5) results in a smaller view size.
+	// This naturally zooms the camera in on the action!
+	float finalZoomMultiplier = dynamicZoom / GlobalSettings::cameraZoom;
+
+	sf::Vector2f targetSize(baseSizeX * finalZoomMultiplier, baseSizeY * finalZoomMultiplier);
 
 	sf::Vector2f currentCenter = m_playerCam.getCenter();
 	sf::Vector2f currentSize = m_playerCam.getSize();
@@ -739,93 +881,105 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	}
 
 	// --- 2. UPDATE HUMAN USER ---
-	// (These are already perfectly guarded!)
 	if (m_userController) {
 		m_userController->update(dt, *this);
 		m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
 	}
 	if (m_userPlayer)
 	{
-		m_userPlayer->update(dt, m_animServer);
+		m_userPlayer->update(dt);
 	}
 
-	// --- 3. GATHER ACTIVE LISTS & FIND FIRST RESPONDERS ---
-	std::vector<Player*> homeFriends;
-
-	// THE FIX: Explicitly check if m_userPlayer exists before asking if they are sent off!
-	if (m_userPlayer && !m_userPlayer->isSentOff()) {
-		homeFriends.push_back(m_userPlayer.get());
-	}
+	// ==========================================
+	// --- 3. GATHER TEAM-AGNOSTIC ACTIVE LISTS ---
+	// ==========================================
+	std::vector<Player*> homeTeamActive;
+	std::vector<Player*> awayTeamActive;
 
 	for (auto& npc : m_homeside) {
-		if (!npc->isSentOff()) homeFriends.push_back(npc.get());
+		if (!npc->isSentOff()) homeTeamActive.push_back(npc.get());
 	}
 
-	std::vector<Player*> homeEnemies;
 	for (auto& opp : m_awayside) {
-		if (!opp->isSentOff()) homeEnemies.push_back(opp.get());
+		if (!opp->isSentOff()) awayTeamActive.push_back(opp.get());
 	}
 
-	// --- NEW: ABANDONMENT CHECK (LESS THAN 7 PLAYERS) ---
+	// THE FIX: Dynamically sort the User Player into the correct active array!
+	if (m_userPlayer && !m_userPlayer->isSentOff()) {
+		if (m_userPlayer->getTeam() == Team::Home) {
+			homeTeamActive.push_back(m_userPlayer.get());
+		}
+		else {
+			awayTeamActive.push_back(m_userPlayer.get());
+		}
+	}
+
+	// --- ABANDONMENT CHECK (LESS THAN 7 PLAYERS) ---
 	if (!m_gameOver) {
-		if (homeFriends.size() < 7) {
+		if (homeTeamActive.size() < 7) {
 			triggerForfeit(true);  // Home forfeits
 			return; // Stop processing physics for this frame!
 		}
-		else if (homeEnemies.size() < 7) {
+		else if (awayTeamActive.size() < 7) {
 			triggerForfeit(false); // Away forfeits
 			return;
 		}
 	}
 
-	Player* homeFirstResponder = findFirstResponder(homeFriends);
-	Player* awayFirstResponder = findFirstResponder(homeEnemies);
+	Player* homeFirstResponder = findFirstResponder(homeTeamActive);
+	Player* awayFirstResponder = findFirstResponder(awayTeamActive);
 
-	// --- 4. UPDATE AI BRAINS ---
+	// ==========================================
+	// --- 4. UPDATE SPATIAL GRID (PITCH CONTROL) ---
+	// ==========================================
+	m_spatialGrid.update(homeTeamActive, awayTeamActive, *m_ball, m_pitch);
+
+	// ==========================================
+	// --- 5. UPDATE AI BRAINS ---
+	// ==========================================
 	for (auto& npc : m_homeside) {
-		// FIX: Lock them in the dressing room! Don't let the AI brain move them back to the pitch.
 		if (npc->isSentOff()) continue;
 
-		// THE FIX: Pass m_userPlayer as a pointer (m_userPlayer.get()) so it safely passes nullptr in Spectator Mode!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeFriends, homeEnemies, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager);
-		npc->update(dt, m_animServer); // Internal motor physics
+		// THE FIX: Pass m_spatialGrid as the final parameter so the AI can read the map!
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeTeamActive, awayTeamActive, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		npc->update(dt);
 	}
 
 	for (auto& npc : m_awayside) {
-		// FIX: Lock them in the dressing room!
 		if (npc->isSentOff()) continue;
 
-		// THE FIX: Pass m_userPlayer as a pointer here as well!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeEnemies, homeFriends, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager);
-		npc->update(dt, m_animServer);
+		// THE FIX: Note that awayTeamActive is passed first here so it acts as "teammates"!
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, awayTeamActive, homeTeamActive, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		npc->update(dt);
 	}
 
-	// --- 5. WORLD PHYSICS & COLLISIONS ---
+	// ==========================================
+	// --- 6. WORLD PHYSICS & COLLISIONS ---
+	// ==========================================
 	m_ball->update(dt);
 
 	// Collect everyone for collisions
-	std::vector<Player*> allPlayers = homeFriends;
-	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
+	std::vector<Player*> allPlayers = homeTeamActive;
+	allPlayers.insert(allPlayers.end(), awayTeamActive.begin(), awayTeamActive.end());
 
-	// Let the physics engine resolve overlapping bodies!
-	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_animServer, m_pitch, m_soundManager);
+	// 1. Resolve Player-Player
+	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_pitch, m_soundManager, m_matchStats);
+
+	// 2. Resolve Player-World
 	for (Player* p : allPlayers) {
 		PhysicsEngine::resolvePlayerPitchBoundaries(*p, m_pitch);
-	}
-	for (Player* p : allPlayers) {
 		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_homeGoal);
 		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_awayGoal);
 	}
 
-	// 3. Resolve Ball interacting with the world
+	// 3. Resolve Ball-World
 	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch, m_soundManager);
 	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_homeGoal, m_soundManager);
 	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_awayGoal, m_soundManager);
 
-	// 4. Resolve Ball interacting with Players
+	// 4. Resolve Ball-Player
 	PhysicsEngine::resolveGoalkeeperBallCollisions(*m_ball, allPlayers);
 	PhysicsEngine::resolveBallPlayerCollisions(*m_ball, allPlayers);
-
 }
 
 Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
@@ -1286,6 +1440,78 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	// Update the tracking state at the end of the frame
 	s_lastBannerState = m_referee.getMatchState();
 
+	// ==========================================
+		// --- G. SUBSTITUTION POPUP (Top Left) ---
+		// ==========================================
+	float startY = 100.f; // Base position under the scoreboard
+	float subHeight = 110.f;
+	float subSpacing = 15.f; // Gap between multiple popups
+
+	// We use an iterator so we can safely delete expired events from the vector mid-loop
+	for (auto it = m_activeSubEvents.begin(); it != m_activeSubEvents.end(); ) {
+		it->timer -= 1.0f / 60.0f; // Approximate dt
+
+		if (it->timer <= 0.f) {
+			// Timer is dead, erase it from the list and move to the next one!
+			it = m_activeSubEvents.erase(it);
+		}
+		else {
+			float subWidth = 350.f;
+
+			// Figure out which number in line this popup is (0, 1, 2, etc.)
+			int index = std::distance(m_activeSubEvents.begin(), it);
+
+			// Dynamically push the Y position down based on how many are above it!
+			sf::Vector2f subPos(20.f, startY + (index * (subHeight + subSpacing)));
+
+			// Background
+			sf::RectangleShape subBg(sf::Vector2f(subWidth, subHeight));
+			subBg.setPosition(subPos);
+			subBg.setFillColor(sf::Color(20, 20, 30, 220));
+			subBg.setOutlineThickness(2.f);
+			subBg.setOutlineColor(sf::Color(255, 255, 255, 150));
+			t_window.draw(subBg);
+
+			// Accent Color
+			sf::Color accent = it->teamColor; accent.a = 255;
+			sf::RectangleShape subAccent(sf::Vector2f(12.f, subHeight));
+			subAccent.setPosition(subPos);
+			subAccent.setFillColor(accent);
+			t_window.draw(subAccent);
+
+			// Title
+			sf::Text titleText(m_font, "SUBSTITUTION - " + it->teamName, 16);
+			titleText.setFillColor(sf::Color(200, 200, 200));
+			titleText.setPosition({ subPos.x + 25.f, subPos.y + 10.f });
+			t_window.draw(titleText);
+
+			// Red Down Arrow
+			sf::RectangleShape redArrow(sf::Vector2f(10.f, 15.f));
+			redArrow.setFillColor(sf::Color(220, 40, 40));
+			redArrow.setPosition({ subPos.x + 25.f, subPos.y + 40.f });
+			t_window.draw(redArrow);
+
+			// Player Off
+			sf::Text offText(m_font, std::to_string(it->numOff) + "  " + it->playerOff, 20);
+			offText.setFillColor(sf::Color::White);
+			offText.setPosition({ subPos.x + 45.f, subPos.y + 35.f });
+			t_window.draw(offText);
+
+			// Green Up Arrow
+			sf::RectangleShape greenArrow(sf::Vector2f(10.f, 15.f));
+			greenArrow.setFillColor(sf::Color(40, 220, 40));
+			greenArrow.setPosition({ subPos.x + 25.f, subPos.y + 75.f });
+			t_window.draw(greenArrow);
+
+			// Player On
+			sf::Text onText(m_font, std::to_string(it->numOn) + "  " + it->playerOn, 20);
+			onText.setFillColor(sf::Color::White);
+			onText.setPosition({ subPos.x + 45.f, subPos.y + 70.f });
+			t_window.draw(onText);
+
+			++it; // Move to the next popup
+		}
+	}
 
 	// ==========================================
 	// 3. RESTORE WORLD VIEW
@@ -1461,4 +1687,587 @@ void GamePlay::drawDebugHitboxes(sf::RenderWindow& window) {
 			window.draw(tackleBoxShape);
 		}
 	}
+}
+
+void GamePlay::drawMatchStats(sf::RenderWindow& t_window)
+{
+	// 1. Setup the semi-transparent background panel
+	sf::Vector2u winSize = t_window.getSize();
+	float panelWidth = 800.f;
+	float panelHeight = 600.f;
+
+	sf::RectangleShape panel(sf::Vector2f(panelWidth, panelHeight));
+	panel.setFillColor(sf::Color(15, 15, 20, 230)); // Dark, slightly transparent
+	panel.setOutlineThickness(2.f);
+	panel.setOutlineColor(sf::Color(100, 100, 100, 200));
+
+	// Center it on the screen
+	sf::Vector2f panelPos((winSize.x - panelWidth) / 2.f, (winSize.y - panelHeight) / 4.f);
+	panel.setPosition(panelPos);
+	t_window.draw(panel);
+
+	// 2. Setup Typography
+	sf::Text text(m_font);
+	text.setFont(m_font); // Ensure m_font is loaded!
+	text.setFillColor(sf::Color::White);
+
+	// --- DRAW TITLE ---
+	text.setCharacterSize(40);
+	text.setString(m_referee.getMatchState() == MatchState::FullTime ? "FULL TIME" :
+		(m_referee.getMatchState() == MatchState::HalfTime ? "HALF TIME" : "MATCH PAUSED"));
+
+	// Center the title
+	sf::FloatRect textBounds = text.getLocalBounds();
+	text.setPosition({ panelPos.x + (panelWidth - textBounds.size.x) / 2.f, panelPos.y + 20.f });
+	t_window.draw(text);
+
+	// --- DRAW TEAM NAMES & SCORE ---
+	text.setCharacterSize(50);
+	std::string scoreStr = std::to_string(m_matchStats.home.goals) + " - " + std::to_string(m_matchStats.away.goals);
+
+	// Home Team Name (Left)
+	text.setString(m_homeTeamData.shortName);
+	text.setPosition({ panelPos.x + 100.f, panelPos.y + 80.f });
+	t_window.draw(text);
+
+	// Score (Center)
+	text.setString(scoreStr);
+	textBounds = text.getLocalBounds();
+	text.setPosition({panelPos.x + (panelWidth - textBounds.size.x) / 2.f, panelPos.y + 80.f});
+	t_window.draw(text);
+
+	// Away Team Name (Right)
+	text.setString(m_awayTeamData.shortName);
+	textBounds = text.getLocalBounds();
+	text.setPosition({ panelPos.x + panelWidth - 100.f - textBounds.size.x, panelPos.y + 80.f });
+	t_window.draw(text);
+
+	// --- DRAW GOALSCORERS ---
+	text.setCharacterSize(18);
+	text.setFillColor(sf::Color(200, 200, 200));
+
+	float homeScorerY = panelPos.y + 150.f;
+	for (const auto& event : m_matchStats.home.goalEvents) {
+		text.setString(event);
+		text.setPosition({ panelPos.x + 100.f, homeScorerY });
+		t_window.draw(text);
+		homeScorerY += 25.f;
+	}
+
+	float awayScorerY = panelPos.y + 150.f;
+	for (const auto& event : m_matchStats.away.goalEvents) {
+		text.setString(event);
+		textBounds = text.getLocalBounds();
+		text.setPosition({ panelPos.x + panelWidth - 100.f - textBounds.size.x, awayScorerY });
+		t_window.draw(text);
+		awayScorerY += 25.f;
+	}
+
+	// --- HELPER LAMBDA TO DRAW STAT ROWS ---
+	float currentY = panelPos.y + 250.f;
+	auto drawStatRow = [&](const std::string& statName, const std::string& homeVal, const std::string& awayVal) {
+		text.setCharacterSize(24);
+		text.setFillColor(sf::Color::White);
+
+		// Center Label
+		text.setString(statName);
+		sf::FloatRect bounds = text.getLocalBounds();
+		text.setPosition({ panelPos.x + (panelWidth - bounds.size.x) / 2.f, currentY });
+		t_window.draw(text);
+
+		// Home Value (Left)
+		text.setString(homeVal);
+		text.setPosition({ panelPos.x + 150.f, currentY });
+		t_window.draw(text);
+
+		// Away Value (Right)
+		text.setString(awayVal);
+		bounds = text.getLocalBounds();
+		text.setPosition({ panelPos.x + panelWidth - 150.f - bounds.size.x, currentY });
+		t_window.draw(text);
+
+		currentY += 45.f; // Spacing for next row
+		};
+
+	// --- DRAW STAT ROWS ---
+	// 1. Possession
+	float totalTime = m_matchStats.getTotalPossessionTime();
+	char homePoss[16], awayPoss[16];
+	snprintf(homePoss, sizeof(homePoss), "%.0f%%", m_matchStats.home.getPossessionPercent(totalTime));
+	snprintf(awayPoss, sizeof(awayPoss), "%.0f%%", m_matchStats.away.getPossessionPercent(totalTime));
+	drawStatRow("Possession", homePoss, awayPoss);
+
+	// 2. Shots
+	std::string homeShots = std::to_string(m_matchStats.home.shotsOnTarget + m_matchStats.home.shotsOffTarget)
+		+ " (" + std::to_string(m_matchStats.home.shotsOnTarget) + ")";
+	std::string awayShots = std::to_string(m_matchStats.away.shotsOnTarget + m_matchStats.away.shotsOffTarget)
+		+ " (" + std::to_string(m_matchStats.away.shotsOnTarget) + ")";
+	drawStatRow("Shots (On Target)", homeShots, awayShots);
+
+	// 3. Passes
+	char homePass[32], awayPass[32];
+	snprintf(homePass, sizeof(homePass), "%d (%.0f%%)", m_matchStats.home.passesAttempted, m_matchStats.home.getPassCompletion());
+	snprintf(awayPass, sizeof(awayPass), "%d (%.0f%%)", m_matchStats.away.passesAttempted, m_matchStats.away.getPassCompletion());
+	drawStatRow("Passes (Completed %)", homePass, awayPass);
+
+	// 4. Fouls
+	drawStatRow("Fouls", std::to_string(m_matchStats.home.fouls), std::to_string(m_matchStats.away.fouls));
+}
+
+void GamePlay::initPauseMenuButtons()
+{
+	if (!m_buttonTxt.loadFromFile("ASSETS/IMAGES/button.png")) {
+		std::cout << "Can't load button texture in GamePlay\n";
+	}
+
+	sf::String btnStrings[] = { "Game Plan", "Main Menu" };
+	sf::IntRect txtRect({ 0, 0 }, { static_cast<int>(m_buttonTxt.getSize().x), static_cast<int>(m_buttonTxt.getSize().y) });
+
+	for (int i = 0; i < 2; i++) {
+		auto& sprite = m_pauseButtons.emplace_back(m_buttonTxt);
+		sprite.setTextureRect(txtRect);
+		sprite.setScale({ m_btnWidth / m_buttonTxt.getSize().x, m_btnHeight / m_buttonTxt.getSize().y });
+		sprite.setColor(sf::Color{ 0, 100, 0, 255 }); // Dark green base
+
+		auto& text = m_pauseTexts.emplace_back(m_font);
+		text.setString(btnStrings[i]);
+		text.setFillColor(sf::Color::White);
+		text.setCharacterSize(40);
+	}
+}
+
+void GamePlay::updatePauseMenu(sf::RenderWindow& t_window)
+{
+	// Don't update SFML buttons if the ImGui menu is open!
+	if (m_showGamePlan) return;
+
+	sf::Vector2i mousePixel = sf::Mouse::getPosition(t_window);
+	sf::Vector2f mouseLocation = t_window.mapPixelToCoords(mousePixel, t_window.getDefaultView());
+
+	// Calculate dynamic positioning based on the current window size
+	sf::Vector2u winSize = t_window.getSize();
+	float xOffset = (winSize.x / 2.f) - (m_btnWidth / 2.f);
+
+	// Position them below the 600px tall stats board
+	float statsBoardBottom = ((winSize.y) / 4.f) + 450.f;
+	float yOffset = statsBoardBottom + 20.f;
+
+	// Update Button Logic
+	for (int i = 0; i < 2; i++)
+	{
+		// 1. Position the elements
+		m_pauseButtons[i].setPosition({ xOffset, yOffset + (m_btnSpacing * i) });
+
+		sf::FloatRect textSize = m_pauseTexts[i].getGlobalBounds();
+		float textXOffset = (m_btnWidth - textSize.size.x) / 2.f;
+		m_pauseTexts[i].setPosition({ xOffset + textXOffset, yOffset + (m_btnSpacing * i) + 15.f }); // 15f drop offset
+
+		// 2. Default state
+		m_pauseButtons[i].setColor(sf::Color{ 0, 100, 0, 255 });
+		m_pauseTexts[i].setFillColor(sf::Color::White);
+
+		// 3. Hover & Click Logic
+		if (mouseLocation.x > xOffset && mouseLocation.x < xOffset + m_btnWidth)
+		{
+			float btnTop = yOffset + (m_btnSpacing * i);
+			if (mouseLocation.y > btnTop && mouseLocation.y < btnTop + m_btnHeight)
+			{
+				m_pauseButtons[i].setColor(sf::Color{ 0, 50, 0, 255 }); // Hover tint
+
+				if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+				{
+					if (i == 0) {
+						if (m_referee.getMatchState() != MatchState::FullTime && m_userPlayer)
+						m_showGamePlan = true; // Open Game Plan
+					}
+					else if (i == 1) {
+						// Exit to Main Menu
+						Game::currentState = GameState::MainMenu;
+					}
+				}
+			}
+		}
+	}
+}
+
+void GamePlay::drawGamePlan(sf::RenderWindow& t_window)
+{
+	if (!m_showGamePlan || !m_userPlayer) return;
+
+	ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2((t_window.getSize().x - 800) / 2.f, (t_window.getSize().y - 600) / 2.f), ImGuiCond_FirstUseEver);
+
+	if (ImGui::Begin("Game Plan", &m_showGamePlan))
+	{
+		TeamData* myTeam = (m_userPlayer->getTeam() == Team::Home) ? &m_homeTeamData : &m_awayTeamData;
+		std::vector<Player*>& liveTeam = (m_userPlayer->getTeam() == Team::Home) ? m_homeTeam : m_awayTeam;
+		int subsUsed = (m_userPlayer->getTeam() == Team::Home) ? m_homeSubsUsed : m_awaySubsUsed;
+
+		if (myTeam && ImGui::BeginTabBar("GamePlanTabs"))
+		{
+			// ==========================================
+			// TAB 1: TACTICS
+			// ==========================================
+			if (ImGui::BeginTabItem("Tactics"))
+			{
+				ImGui::Text("Team Tactics: %s", myTeam->fullName.c_str());
+				ImGui::Separator();
+
+				TeamTactics& tactics = myTeam->defaultTactics;
+
+				const char* formations[] = { "4-4-2", "4-3-3", "4-2-4", "5-3-2", "5-2-3", "5-4-1" };
+				int currentFmtIdx = 0;
+				for (int i = 0; i < IM_ARRAYSIZE(formations); i++) {
+					if (tactics.formationName == formations[i]) currentFmtIdx = i;
+				}
+				if (ImGui::Combo("Formation", &currentFmtIdx, formations, IM_ARRAYSIZE(formations))) {
+					tactics.formationName = formations[currentFmtIdx];
+				}
+
+				ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+				ImGui::TextDisabled("0 = Safe/Deep | 100 = Aggressive/High");
+				ImGui::SliderInt("Defensive Depth", &tactics.defensiveDepth, 0, 100);
+				ImGui::SliderInt("Pressing Intensity", &tactics.pressingIntensity, 0, 100);
+
+				ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+				ImGui::TextDisabled("0 = Short/Slow | 100 = Long/Fast");
+				ImGui::SliderInt("Passing Length", &tactics.passingLength, 0, 100);
+				ImGui::SliderInt("Passing Speed", &tactics.passingSpeed, 0, 100);
+
+				ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+				ImGui::SliderInt("Attacking Width", &tactics.attackingWidth, 0, 100);
+				ImGui::SliderInt("Positional Freedom", &tactics.positionalFreedom, 0, 100);
+
+				ImGui::EndTabItem();
+			}
+
+			// ==========================================
+			// TAB 2: TEAM MANAGEMENT (SUBS)
+			// ==========================================
+			if (ImGui::BeginTabItem("Team Management"))
+			{
+				static int selectedStarter = -1;
+				static int selectedSub = -1;
+
+				ImGui::Text("Substitutions Used: %d / %d", subsUsed, MAX_SUBS);
+				ImGui::Separator();
+
+				// Pitch Players Column
+				ImGui::BeginChild("Pitch", ImVec2(360, 450), true);
+				ImGui::Text("On Pitch");
+				ImGui::Separator();
+
+				// Helper to group players by their physical line
+				auto getCat = [](PositionRole r) {
+					if (r == PositionRole::Goalkeeper) return 0;
+					if (r == PositionRole::CenterBack || r == PositionRole::LeftBack || r == PositionRole::RightBack || r == PositionRole::LeftWingBack || r == PositionRole::RightWingBack) return 1;
+					if (r == PositionRole::Striker || r == PositionRole::CenterForward || r == PositionRole::LeftWing || r == PositionRole::RightWing) return 3;
+					return 2; // Midfielders
+					};
+
+				const char* catNames[] = { "GOALKEEPERS", "DEFENDERS", "MIDFIELDERS", "ATTACKERS" };
+
+				// Loop through the 4 tactical lines
+				for (int cat = 0; cat < 4; ++cat) {
+					bool hasPrintedHeader = false;
+
+					for (int i = 0; i < 11; ++i) {
+						Player* p = liveTeam[i];
+						if (!p || getCat(p->getPositionRole()) != cat) continue;
+
+						// Print the category header once
+						if (!hasPrintedHeader) {
+							ImGui::Spacing();
+							ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", catNames[cat]);
+							hasPrintedHeader = true;
+						}
+
+						bool isQueued = false;
+						for (const auto& sub : m_pendingSubsQueue) {
+							if (sub.team == m_userPlayer->getTeam() && sub.pitchIndex == i) {
+								isQueued = true; break;
+							}
+						}
+
+						std::string label = roleToString(p->getPositionRole()) + "  |  " + p->getName();
+						if (p->getState() == PlayerState::Injured) label += " [INJURED]";
+						if (p->getYellowCards() > 0) label += " [YELLOW]";
+						if (p->isSentOff()) label += " [RED CARD]";
+						if (isQueued) label += " [QUEUED]";
+
+						// Disable if sent off or already queued
+						if (p->isSentOff() || isQueued) {
+							ImGui::TextDisabled("%s", label.c_str());
+						}
+						else {
+							// Notice we still use 'i' as the selectedStarter so the array index is perfectly preserved!
+							if (ImGui::Selectable(label.c_str(), selectedStarter == i)) {
+								selectedStarter = i;
+							}
+						}
+
+						float stamPercent = p->getCurrentStamina() / p->getMaxStamina();
+						ImVec4 barColor = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);
+						if (stamPercent < 0.5f) barColor = ImVec4(0.8f, 0.8f, 0.2f, 1.0f);
+						if (stamPercent < 0.25f) barColor = ImVec4(0.8f, 0.2f, 0.2f, 1.0f);
+
+						ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
+						ImGui::ProgressBar(stamPercent, ImVec2(150.f, 6.f), "");
+						ImGui::PopStyleColor();
+						ImGui::Spacing();
+					}
+				}
+				ImGui::EndChild();
+
+				ImGui::SameLine();
+
+				// Bench Players Column
+				ImGui::BeginChild("Bench", ImVec2(360, 450), true);
+				ImGui::Text("Bench");
+				ImGui::Separator();
+
+				// Grab the correct burn list for the user's team
+				std::vector<std::string>& subbedOutList = (m_userPlayer->getTeam() == Team::Home) ? m_homeSubbedOutIds : m_awaySubbedOutIds;
+
+				for (int i = 0; i < myTeam->bench.size(); ++i) {
+
+					bool isQueued = false;
+					for (const auto& sub : m_pendingSubsQueue) {
+						if (sub.team == m_userPlayer->getTeam() && sub.benchIndex == i) {
+							isQueued = true; break;
+						}
+					}
+
+					// ==========================================
+					// --- THE FIX: CHECK THE BURN LIST ---
+					// ==========================================
+					bool isSubbedOut = std::find(subbedOutList.begin(), subbedOutList.end(), myTeam->bench[i].id) != subbedOutList.end();
+
+					std::string label = roleToString(myTeam->bench[i].positionRole) + "  |  " + myTeam->bench[i].name;
+					if (isQueued) label += " [QUEUED]";
+					if (isSubbedOut) label += " [SUBBED OUT]";
+
+					// Disable the bench player if they are queued OR if they have already been subbed out!
+					if (isQueued || isSubbedOut) {
+						ImGui::TextDisabled("%s", label.c_str());
+					}
+					else {
+						if (ImGui::Selectable(label.c_str(), selectedSub == i)) {
+							selectedSub = i;
+						}
+					}
+				}
+				ImGui::EndChild();
+
+				ImGui::Spacing();
+
+				// Execution Button
+				if (selectedStarter != -1 && selectedSub != -1) {
+					// Check if we have enough subs left considering the ones already in the queue!
+					if (subsUsed + m_pendingSubsQueue.size() < MAX_SUBS) {
+						if (ImGui::Button("Queue Substitution", ImVec2(730, 40))) {
+							// THE FIX: Call queueSubstitution instead!
+							queueSubstitution(m_userPlayer->getTeam(), selectedStarter, selectedSub);
+							selectedStarter = -1;
+							selectedSub = -1;
+						}
+					}
+					else {
+						ImGui::TextColored(ImVec4(1, 0, 0, 1), "Out of substitutions!");
+					}
+				}
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
+		}
+		else if (!myTeam) {
+			ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: Could not load Team Data.");
+		}
+	}
+	ImGui::End();
+}
+
+void GamePlay::performSubstitution(Team team, int pitchIndex, int benchIndex)
+{
+	std::vector<Player*>& liveTeam = (team == Team::Home) ? m_homeTeam : m_awayTeam;
+	TeamData& teamData = (team == Team::Home) ? m_homeTeamData : m_awayTeamData;
+	int& subsUsed = (team == Team::Home) ? m_homeSubsUsed : m_awaySubsUsed;
+
+	// Safety check: Don't exceed the sub limit
+	if (subsUsed >= MAX_SUBS) return;
+
+	Player* pitchPlayer = liveTeam[pitchIndex];
+	PlayerData subData = teamData.bench[benchIndex];
+
+	// ==========================================
+	// --- THE FIX: THE ANTI-CLONING VAULT ---
+	// ==========================================
+	// DO NOT rely on secondary arrays that might be out of sync.
+	// Ask the physical player object who they are, and pull their exact 
+	// original file from the Database to drop onto the bench!
+	PlayerData* outgoingData = m_db->getPlayer(pitchPlayer->getId());
+	if (!outgoingData) return; // Safety abort if the player somehow doesn't exist
+
+	// ==========================================
+	// --- THE FIX: BURN THE PLAYER ID ---
+	// ==========================================
+	// Record the outgoing player so they can take no further part in the match!
+	if (team == Team::Home) m_homeSubbedOutIds.push_back(outgoingData->id);
+	else m_awaySubbedOutIds.push_back(outgoingData->id);
+
+	PositionRole preservedRole = pitchPlayer->getPositionRole();
+
+	// 1. Send the accurate outgoing player data to the bench
+	teamData.bench[benchIndex] = *outgoingData;
+
+	// 2. Re-skin the physics object with the incoming bench player
+	pitchPlayer->applySubstitution(subData, teamData);
+
+	// 3. Force the new player to inherit the tactical responsibilities
+	pitchPlayer->setPositionRole(preservedRole);
+
+	// ==========================================
+	// --- EVENT UI QUEUE ---
+	// ==========================================
+	SubEvent newEvent;
+	newEvent.team = team;
+	newEvent.timer = 6.5f; // Show for 4 seconds
+	newEvent.teamName = teamData.fullName;
+	newEvent.teamColor = teamData.uiColor;
+	newEvent.playerOff = outgoingData->name; // Real outgoing name!
+	newEvent.numOff = outgoingData->squadNumber;
+	newEvent.playerOn = subData.name;
+	newEvent.numOn = subData.squadNumber;
+
+	m_activeSubEvents.push_back(newEvent);
+
+	// Ensure Home team subs display on top if simultaneous
+	std::stable_sort(m_activeSubEvents.begin(), m_activeSubEvents.end(),
+		[](const SubEvent& a, const SubEvent& b) {
+			return a.team == Team::Home && b.team == Team::Away;
+		});
+
+	subsUsed++;
+}
+
+void GamePlay::handleAISubstitutions()
+{
+	// ==========================================
+	// --- 1. WAIT FOR DEAD BALL ---
+	// ==========================================
+	// Do absolutely nothing if the ball is rolling! 
+	if (m_referee.getMatchState() == MatchState::InPlay) return;
+
+	// ==========================================
+	// --- 2. EXECUTE USER SUBS ---
+	// ==========================================
+	// The referee blew the whistle. Execute any subs the user queued up!
+	for (auto& sub : m_pendingSubsQueue) {
+		performSubstitution(sub.team, sub.pitchIndex, sub.benchIndex);
+	}
+	m_pendingSubsQueue.clear();
+
+	// ==========================================
+	// --- 3. EXECUTE AI SUBS ---
+	// ==========================================
+	Team aiTeam = (m_userPlayer && m_userPlayer->getTeam() == Team::Home) ? Team::Away : Team::Home;
+	int& subsUsed = (aiTeam == Team::Home) ? m_homeSubsUsed : m_awaySubsUsed;
+
+	if (subsUsed >= MAX_SUBS) return;
+
+	std::vector<Player*>& liveTeam = (aiTeam == Team::Home) ? m_homeTeam : m_awayTeam;
+	TeamData& aiTeamData = (aiTeam == Team::Home) ? m_homeTeamData : m_awayTeamData;
+
+	// Helper lambda to categorize roles
+	auto getCategory = [](PositionRole r) {
+		if (r == PositionRole::Goalkeeper) return 0;
+		if (r == PositionRole::CenterBack || r == PositionRole::LeftBack || r == PositionRole::RightBack || r == PositionRole::LeftWingBack || r == PositionRole::RightWingBack) return 1;
+		if (r == PositionRole::Striker || r == PositionRole::CenterForward || r == PositionRole::LeftWing || r == PositionRole::RightWing) return 3;
+		return 2; // Midfielders
+		};
+
+	for (int i = 0; i < 11; i++) {
+		Player* p = liveTeam[i];
+		if (p->isSentOff()) continue;
+
+		bool needsSub = false;
+
+		// ==========================================
+		// --- THE FIX 1 & 2: FATIGUE & 2ND HALF ---
+		// ==========================================
+		float matchMinute = m_referee.getMatchMinute();
+
+		// Condition 1: INJURY (Immediate)
+		if (p->getState() == PlayerState::Injured) {
+			needsSub = true;
+		}
+		// Condition 2: TACTICAL PROTECTION (Defender on a yellow late in the game)
+		else if (matchMinute > 60.0f && p->getYellowCards() > 0) {
+			if (getCategory(p->getPositionRole()) == 1) { // Is Defender
+				needsSub = true;
+			}
+		}
+		// Condition 3: EXTREME FATIGUE (2nd Half Only)
+		else if (matchMinute > 45.0f) {
+			// Calculate the percentage of stamina remaining
+			float stamPercent = (p->getCurrentStamina() / p->getMaxStamina()) * 100.0f;
+
+			// If they are completely dead on their feet (under 25%), sub them!
+			// If they are getting tired (under 40%) but it's very late in the game (80+ min), sub them!
+			if (stamPercent < 25.0f || (matchMinute > 80.0f && stamPercent < 40.0f)) {
+				// Don't waste a sub on a tired Goalkeeper unless it's an injury
+				if (p->getPositionRole() != PositionRole::Goalkeeper) {
+					needsSub = true;
+				}
+			}
+		}
+
+		if (needsSub) {
+			int targetCategory = getCategory(p->getPositionRole());
+			int bestBenchIndex = -1;
+
+			// Grab the correct burn list for the AI
+			std::vector<std::string>& aiSubbedOutList = (aiTeam == Team::Home) ? m_homeSubbedOutIds : m_awaySubbedOutIds;
+
+			// Find a bench player that matches the category
+			for (size_t b = 0; b < aiTeamData.bench.size(); ++b) {
+				// THE FIX: Skip players who have already played!
+				if (std::find(aiSubbedOutList.begin(), aiSubbedOutList.end(), aiTeamData.bench[b].id) != aiSubbedOutList.end()) continue;
+
+				if (getCategory(aiTeamData.bench[b].positionRole) == targetCategory) {
+					bestBenchIndex = b;
+					break;
+				}
+			}
+
+			// Fallback: If no exact match, just throw on the first available outfielder
+			if (bestBenchIndex == -1 && targetCategory != 0) {
+				for (size_t b = 0; b < aiTeamData.bench.size(); ++b) {
+					// THE FIX: Skip players who have already played!
+					if (std::find(aiSubbedOutList.begin(), aiSubbedOutList.end(), aiTeamData.bench[b].id) != aiSubbedOutList.end()) continue;
+
+					if (aiTeamData.bench[b].positionRole != PositionRole::Goalkeeper) {
+						bestBenchIndex = b; break;
+					}
+				}
+			}
+
+			if (bestBenchIndex != -1) {
+				performSubstitution(aiTeam, i, bestBenchIndex);
+				return;
+			}
+		}
+	}
+}
+
+void GamePlay::queueSubstitution(Team team, int pitchIndex, int benchIndex) {
+	// Prevent duplicates! If the user changes their mind and queues a different sub 
+	// for the same spot, we remove the old request so the arrays don't get corrupted.
+	m_pendingSubsQueue.erase(std::remove_if(m_pendingSubsQueue.begin(), m_pendingSubsQueue.end(),
+		[&](const PendingSub& s) {
+			return s.team == team && (s.pitchIndex == pitchIndex || s.benchIndex == benchIndex);
+		}),
+		m_pendingSubsQueue.end());
+
+	m_pendingSubsQueue.push_back({ team, pitchIndex, benchIndex });
 }

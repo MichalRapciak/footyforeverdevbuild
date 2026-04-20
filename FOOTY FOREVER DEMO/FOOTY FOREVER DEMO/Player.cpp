@@ -3,23 +3,24 @@
 #include <cmath>
 #include "GameDatabase.h" 
 #include "PlaystyleDatabase.h"
+#include "AnimationServer.h"
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-Player::Player(const sf::Texture& texture)
+Player::Player()
     : m_position(0.f, 0.f),
     m_velocity(0.f, 0.f),
     m_currentState(PlayerState::Normal),
     m_animator(m_sprite),
-    m_sprite(texture)
+    m_sprite(AnimationServer::getSkinTexture())
 {
     m_sprite.setScale({ 0.26f, 0.26f });
     m_sprite.setOrigin({ 250.f, 250.f });
     m_sprite.setRotation(sf::degrees(90.f));
 }
 
-void Player::loadFromData(const PlayerData& data)
+void Player::loadFromData(const PlayerData& data, const TeamData& teamData)
 {
     m_id = data.id;
     m_name = data.name;
@@ -36,8 +37,26 @@ void Player::loadFromData(const PlayerData& data)
     height = static_cast<float>(data.heightCm);
     weight = static_cast<float>(data.weightKg);
 
-    m_positionRole = data.positionRole;
+    m_matchRole = data.positionRole;
+    m_familiarity = data.positionFamiliarity;
+    m_tacticalFamiliarity = data.tacticalFamiliarity;
     m_stats = data.stats;
+
+    // ==========================================
+    // --- THE FIX: STORE SHADER UNIFORMS ---
+    // ==========================================
+    m_skinColor = data.graphics.skinColor;
+    m_shirtColor = (m_matchRole == PositionRole::Goalkeeper) ? sf::Color(50, 200, 50) : teamData.shirt.primaryColor;
+    m_shortsColor = teamData.shorts.primaryColor;
+    m_socksColor = teamData.socks.primaryColor;
+
+    // Bind the shared static skin texture just to establish bounds! The shader handles the rest.
+    m_sprite.setTexture(AnimationServer::getSkinTexture());
+
+    m_currentDirection = Direction::Down;
+    const Animation& startAnim = AnimationServer::getRunningAnimation(m_currentDirection);
+    m_animator.playAnimation(&startAnim, false, true);
+    m_sprite.setTextureRect(startAnim.frames[0]);
 
     initializeStamina(data.stats.naturalFitness, data.sharpness);
     applyPhysicalScale();
@@ -66,10 +85,10 @@ void Player::swapIdentityWith(Player* other) {
 
     std::swap(this->m_tackleAnimTriggered, other->m_tackleAnimTriggered);
     if (this->m_currentState == PlayerState::Tackling) {
-        this->m_tackleAnimTriggered = false; // Forces the tackle animation to bind and play
+        this->m_tackleAnimTriggered = false;
     }
     else {
-        this->m_tackleAnimTriggered = true;  // Forces the texture to instantly revert to the normal running state
+        this->m_tackleAnimTriggered = true;
     }
     if (other->m_currentState == PlayerState::Tackling) {
         other->m_tackleAnimTriggered = false;
@@ -89,10 +108,11 @@ void Player::swapIdentityWith(Player* other) {
     std::swap(this->weight, other->weight);
 
     // 4. Tactical & Stats
-    std::swap(this->m_positionRole, other->m_positionRole);
+    std::swap(this->m_matchRole, other->m_matchRole);
     std::swap(this->m_playstyle, other->m_playstyle);
     std::swap(this->m_stats, other->m_stats);
     std::swap(this->m_team, other->m_team);
+    std::swap(this->m_tacticalFamiliarity, other->m_tacticalFamiliarity);
 
     // 5. Stamina & Match Condition
     std::swap(this->m_naturalFitness, other->m_naturalFitness);
@@ -108,15 +128,31 @@ void Player::swapIdentityWith(Player* other) {
     std::swap(this->injuryDaysRemaining, other->injuryDaysRemaining);
     std::swap(this->currentInjurySeverity, other->currentInjurySeverity);
 
+    // ==========================================
+    // --- THE FIX: SWAP SHADER COLORS ---
+    // ==========================================
+    std::swap(this->m_skinColor, other->m_skinColor);
+    std::swap(this->m_shirtColor, other->m_shirtColor);
+    std::swap(this->m_shortsColor, other->m_shortsColor);
+    std::swap(this->m_socksColor, other->m_socksColor);
+
     // 6. Graphics Sync (Apply the new heights and visually snap the sprites)
+    this->m_sprite.setTexture(AnimationServer::getSkinTexture());
+    other->m_sprite.setTexture(AnimationServer::getSkinTexture());
+
     this->applyPhysicalScale();
     other->applyPhysicalScale();
+
     this->m_sprite.setPosition(this->m_position);
     other->m_sprite.setPosition(other->m_position);
-    sf::Color tempColor = this->m_sprite.getColor();
-    this->m_sprite.setColor(other->m_sprite.getColor());
-    other->m_sprite.setColor(tempColor);
 
+    // 7. Rebind the Animators!
+    if (this->m_currentState != PlayerState::Tackling) {
+        this->m_animator.playAnimation(&AnimationServer::getRunningAnimation(this->m_currentDirection), true, true);
+    }
+    if (other->m_currentState != PlayerState::Tackling) {
+        other->m_animator.playAnimation(&AnimationServer::getRunningAnimation(other->m_currentDirection), true, true);
+    }
 }
 
 bool Player::hasTrait(const std::string& traitName) const
@@ -142,7 +178,7 @@ void Player::applyPhysicalScale()
 // ==========================================
 // --- NEW: THE FALL OVER SYSTEM ---
 // ==========================================
-void Player::triggerFallOver(sf::Vector2f impactVelocity, AnimationServer& animServer)
+void Player::triggerFallOver(sf::Vector2f impactVelocity)
 {
     m_currentState = PlayerState::FallOver;
     m_velocity = impactVelocity * 0.8f; // Transfer impact momentum
@@ -219,7 +255,7 @@ void Player::triggerFallOver(sf::Vector2f impactVelocity, AnimationServer& animS
     }
 
     // Lock to Frame 1 of the running cycle so they look like they are sprawled out
-    const Animation* runAnim = &animServer.getRunningAnimation(m_currentDirection);
+    const Animation* runAnim = &AnimationServer::getRunningAnimation(m_currentDirection);
     if (runAnim) {
         m_animator.playAnimation(runAnim, false, false, 1);
     }
@@ -238,9 +274,13 @@ void Player::recoverFromFall()
 }
 
 
-void Player::update(float dt, AnimationServer& animServer)
+void Player::update(float dt)
 {
     updateCooldown(dt);
+
+    if (m_bargeCooldown > 0.0f) {
+        m_bargeCooldown -= dt;
+    }
 
     // ==========================================
     // --- FALL OVER INTERCEPT ---
@@ -308,6 +348,10 @@ void Player::update(float dt, AnimationServer& animServer)
 
         // Force the animator to reset to the standing frame (Frame 0)
         m_animator.setFrame(0);
+
+        // Force the sprite to draw the idle frame!
+        const Animation& idleAnim = AnimationServer::getRunningAnimation(m_currentDirection);
+        m_sprite.setTextureRect(idleAnim.frames[0]);
     }
     else {
         // Player is moving. Scale the animation speed dynamically!
@@ -324,10 +368,10 @@ void Player::update(float dt, AnimationServer& animServer)
         m_velocity *= 0.985f;
 
         if (!m_tackleAnimTriggered) {
-            m_sprite.setTexture(animServer.getTackleTexture());
+            m_sprite.setTexture(AnimationServer::getTackleTexture());
 
             int runFrame = m_animator.getCurrentFrameIndex();
-            const Animation& tackleAnim = animServer.getTackleAnimation(m_currentDirection, runFrame);
+            const Animation& tackleAnim = AnimationServer::getTackleAnimation(m_currentDirection, runFrame);
 
             m_animator.playAnimation(&tackleAnim, false, false, 1);
             m_tackleAnimTriggered = true;
@@ -339,7 +383,7 @@ void Player::update(float dt, AnimationServer& animServer)
 
         if (m_animator.isFinished()) {
             m_currentState = PlayerState::Normal;
-            m_sprite.setTexture(animServer.getPlayerTexture());
+            m_sprite.setTexture(AnimationServer::getSkinTexture());
             m_tackleTimer = 0.f;
         }
 
@@ -348,7 +392,7 @@ void Player::update(float dt, AnimationServer& animServer)
     else
     {
         if (m_tackleAnimTriggered) {
-            m_sprite.setTexture(animServer.getPlayerTexture());
+            m_sprite.setTexture(AnimationServer::getSkinTexture());
             m_tackleAnimTriggered = false;
             m_tackleTimer = 0.f;
         }
@@ -371,7 +415,7 @@ void Player::startTackle(sf::Vector2f direction)
     if (len > 0.f) direction /= len;
 
     float currentSpeed = std::sqrt(m_velocity.x * m_velocity.x + m_velocity.y * m_velocity.y);
-    float lungeForce = std::max(currentSpeed * 2.0f, m_stats.getTopSpeed() * 1.75f);
+    float lungeForce = std::max(currentSpeed * 1.5f, m_stats.getTopSpeed() * 1.50f);
 
     m_velocity = direction * lungeForce;
     deductStaminaAction(1.5f);
@@ -490,6 +534,38 @@ sf::FloatRect Player::getTackleHitbox()
     return sf::FloatRect({ left, top }, { boxWidth, boxHeight });
 }
 
+bool Player::executeShoulderBarge(Player* target) {
+    if (m_bargeCooldown > 0.0f || !target) return false;
+
+    sf::Vector2f toTarget = target->getPosition() - getPosition();
+    float distSq = toTarget.x * toTarget.x + toTarget.y * toTarget.y;
+
+    // Must be within close physical proximity (e.g., 150 pixels / 1.5m)
+    if (distSq > 22500.f) return false;
+
+    float dist = std::sqrt(distSq);
+    sf::Vector2f bargeDir = toTarget / dist;
+
+    // ==========================================
+    // --- STAT-DRIVEN PHYSICS ---
+    // ==========================================
+    // Base power + (Body Strength * 3) + (Aggression * 1.5)
+    // A strong, aggressive CB will literally launch a weak winger.
+    float power = 250.f + (m_stats.bodyStrength * 3.0f) + (m_stats.aggression * 1.5f);
+
+    // Apply the sudden impulse to OUR velocity. 
+    // The existing collision engine will transfer this momentum to the target!
+    m_velocity += bargeDir * power;
+
+    // Lock out the ability so they can't spam it and fly off the pitch
+    m_bargeCooldown = 1.5f;
+
+    // Optional: Barging is exhausting! Tax their stamina slightly.
+    m_currentStamina = std::max(0.0f, m_currentStamina - 2.0f);
+
+    return true;
+}
+
 void Player::checkInjury(float impactForce) {
     // If they are already seriously injured, don't overwrite it with a minor knock
     if (isInjured && currentInjurySeverity == InjurySeverity::Severe) return;
@@ -577,7 +653,7 @@ sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, cons
     // ==========================================
     // 1. SET X-AXIS (DEPTH)
     // ==========================================
-    switch (m_positionRole) {
+    switch (m_matchRole) {
     case PositionRole::Goalkeeper:    pos.x = 700.f;  break;
 
     case PositionRole::CenterBack:    pos.x = 2000.f; break;
@@ -604,15 +680,15 @@ sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, cons
     // 2. SET Y-AXIS (WIDTH)
     // ==========================================
     // A. Explicitly Wide Roles
-    if (m_positionRole == PositionRole::RightBack)          pos.y = pitchCenterY + fullbackOffset;
-    else if (m_positionRole == PositionRole::LeftBack)      pos.y = pitchCenterY - fullbackOffset;
-    else if (m_positionRole == PositionRole::RightWingBack) pos.y = pitchCenterY + wingbackOffset;
-    else if (m_positionRole == PositionRole::LeftWingBack)  pos.y = pitchCenterY - wingbackOffset;
-    else if (m_positionRole == PositionRole::RightMid)      pos.y = pitchCenterY + wideMidOffset;
-    else if (m_positionRole == PositionRole::LeftMid)       pos.y = pitchCenterY - wideMidOffset;
-    else if (m_positionRole == PositionRole::RightWing)     pos.y = pitchCenterY + wingOffset;
-    else if (m_positionRole == PositionRole::LeftWing)      pos.y = pitchCenterY - wingOffset;
-    else if (m_positionRole == PositionRole::Goalkeeper)    pos.y = pitchCenterY;
+    if (m_matchRole == PositionRole::RightBack)          pos.y = pitchCenterY + fullbackOffset;
+    else if (m_matchRole == PositionRole::LeftBack)      pos.y = pitchCenterY - fullbackOffset;
+    else if (m_matchRole == PositionRole::RightWingBack) pos.y = pitchCenterY + wingbackOffset;
+    else if (m_matchRole == PositionRole::LeftWingBack)  pos.y = pitchCenterY - wingbackOffset;
+    else if (m_matchRole == PositionRole::RightMid)      pos.y = pitchCenterY + wideMidOffset;
+    else if (m_matchRole == PositionRole::LeftMid)       pos.y = pitchCenterY - wideMidOffset;
+    else if (m_matchRole == PositionRole::RightWing)     pos.y = pitchCenterY + wingOffset;
+    else if (m_matchRole == PositionRole::LeftWing)      pos.y = pitchCenterY - wingOffset;
+    else if (m_matchRole == PositionRole::Goalkeeper)    pos.y = pitchCenterY;
 
     // B. Central Roles (Dynamically spaced based on Formation Layout)
     else {
@@ -622,7 +698,7 @@ sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, cons
         // Count how many players share this exact role, and find our index among them
         for (const auto& line : layout) {
             for (const auto& slot : line) {
-                if (slot.second == m_positionRole) {
+                if (slot.second == m_matchRole) {
                     if (slot.first == slotId) myIndex = roleCount;
                     roleCount++;
                 }
@@ -637,8 +713,8 @@ sf::Vector2f Player::getBaseTacticalCoordinate(bool isHomeTeam, int slotId, cons
             // If there are multiple, spread them out symmetrically!
             float spreadSpacing = 1400.f; // Default gap
 
-            if (m_positionRole == PositionRole::CenterBack) spreadSpacing = cbOffset * 2.f; // 1600 gap
-            else if (m_positionRole == PositionRole::Striker) spreadSpacing = 1200.f; // Strikers stay closer together
+            if (m_matchRole == PositionRole::CenterBack) spreadSpacing = cbOffset * 2.f; // 1600 gap
+            else if (m_matchRole == PositionRole::Striker) spreadSpacing = 1200.f; // Strikers stay closer together
 
             float totalWidth = (roleCount - 1) * spreadSpacing;
             float startY = pitchCenterY + (totalWidth / 2.f); // Start on the Right side (Positive Y)
@@ -710,14 +786,17 @@ void Player::updateStamina(float dt, bool isSprinting) {
     // 100 Sharpness = 1.0x penalty. 0 Sharpness = 2.5x penalty.
     float sharpnessPenalty = 1.0f + ((100.f - m_matchSharpness) / 100.f) * 1.5f;
 
+    // Use the cached time scale!
+    float timeScaleMod = m_matchTimeScale / 22.5f;
+
     if (isSprinting) {
         // Continuous drain while sprinting
-        float sprintCostPerSec = 1.0f; // Tune this: 4.0 means ~25 secs of pure sprinting for 100 fitness
+        float sprintCostPerSec = 1.0f * timeScaleMod;
         m_currentStamina -= (sprintCostPerSec * sharpnessPenalty) * dt;
     }
     else if (getState() != PlayerState::Diving && getState() != PlayerState::FallOver) {
-        // Passive recovery while jogging/idle (Ignores sharpness, so recovery is steady)
-        float regenPerSec = 1.0f * (m_matchSharpness / 100.f);
+        // Passive recovery while jogging/idle
+        float regenPerSec = 1.0f * timeScaleMod * (m_matchSharpness / 100.f);
         m_currentStamina += regenPerSec * dt;
     }
 
@@ -726,7 +805,11 @@ void Player::updateStamina(float dt, bool isSprinting) {
 
 void Player::deductStaminaAction(float baseAmount) {
     float sharpnessPenalty = 1.0f + ((100.f - m_matchSharpness) / 100.f) * 1.5f;
-    m_currentStamina -= (baseAmount * sharpnessPenalty);
+
+    // Use the cached time scale!
+    float timeScaleMod = m_matchTimeScale / 22.5f;
+
+    m_currentStamina -= (baseAmount * timeScaleMod * sharpnessPenalty);
     m_currentStamina = std::max(0.f, m_currentStamina);
 }
 
@@ -775,3 +858,68 @@ void Player::setState(PlayerState newState)
     m_currentState = newState;
 }
 
+int Player::getRoleProficiency(PositionRole role) const {
+    auto it = m_familiarity.find(role);
+    if (it != m_familiarity.end()) {
+        return it->second;
+    }
+    // If the position isn't in their map at all, they have no idea what they are doing!
+    return 1;
+}
+
+float Player::getAwareness() const {
+    float finalAwareness = m_stats.getAwareness();
+    int proficiency = getRoleProficiency(m_matchRole);
+
+    switch (proficiency) {
+    case 4: break; // Mastered: 0% Penalty
+    case 3: finalAwareness *= 0.80f; break; // Mostly Knows: 20% Penalty
+    case 2: finalAwareness *= 0.60f; break; // Rough Idea: 40% Penalty
+    case 1: finalAwareness *= 0.40f; break; // Completely Unable: 60% Penalty
+    }
+
+    return finalAwareness * getGeneralMultiplier() * getMentalMultiplier();
+}
+
+// ==========================================
+// --- MID-MATCH SUBSTITUTION (RE-SKINNING) ---
+// ==========================================
+void Player::applySubstitution(const PlayerData& newPlayerData, const TeamData& teamData)
+{
+    // 1. Re-use your existing data loader to completely overwrite their DNA!
+    // This updates name, stats, traits, injury status, height, weight, and resets max stamina.
+    loadFromData(newPlayerData, teamData);
+
+    // 2. Scrub the Physics Engine States
+    m_currentState = PlayerState::Normal;
+    m_velocity = { 0.f, 0.f };
+    z = 0.f;
+    vz = 0.f;
+    hasPossession = false;
+
+    // 3. Scrub the Timers
+    m_stumbleTimer = 0.f;
+    m_tackleTimer = 0.f;
+    m_tackleCooldownTimer = 0.f;
+    m_possessionTimer = 0.f;
+
+    // 4. Scrub the Match Discipline
+    m_yellowCards = 0;
+    m_isSentOff = false;
+
+    // 5. Visual Safety Resets
+    // If the outgoing player was writhing on the floor injured, or mid-slide tackle,
+    // we need to make sure the incoming sub is standing upright and rendering normally!
+    m_sprite.setRotation(sf::degrees(90.f));
+    m_tackleAnimTriggered = false;
+}
+
+float Player::getMentalMultiplier() const {
+    // Base is 1.0. 
+    // Low familiarity penalizes stats by up to 10%.
+    // High chemistry boosts stats by up to 5%.
+    float familiarityPenalty = (100.f - m_tacticalFamiliarity) / 100.f * 0.10f;
+    float chemistryBonus = (m_teamChemistry / 100.f) * 0.10f;
+
+    return 1.0f - familiarityPenalty + chemistryBonus;
+}

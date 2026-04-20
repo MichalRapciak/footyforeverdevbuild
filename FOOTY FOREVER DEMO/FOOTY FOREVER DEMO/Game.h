@@ -9,6 +9,8 @@
 #include "EditorScreen.h" // <-- NEW
 #include "GameDatabase.h"
 #include "MatchDayScreen.h"
+#include "SettingsScreen.h"
+#include "MatchIntroState.h"
 
 enum class
 	GameState
@@ -20,7 +22,9 @@ enum class
 	Help,
 	GamePlay,
 	Editor,
-	MatchDay
+	MatchDay,
+	Settings,
+	MatchIntro
 };
 
 class Game
@@ -37,6 +41,12 @@ public:
 
 private:
 	GameDatabase m_database;
+
+	// ==========================================
+	// --- NEW: ASYNC LOADING LOCKS ---
+	// ==========================================
+	float m_introProgress = 0.0f;
+	bool m_introReadyToLoad = true;
 
 	void processEvents();
 	void processKeys(sf::Event t_event);
@@ -55,6 +65,8 @@ private:
 	Help m_helpScreen;
 	EditorScreen m_editorScreen;
 	MatchDayScreen m_matchDayScreen;
+	SettingsState m_settingsScreen;
+	MatchIntroState m_matchIntroScreen;
 	std::unique_ptr<GamePlay> m_gamingScreen;
 
 	bool m_exitGame; // control exiting game

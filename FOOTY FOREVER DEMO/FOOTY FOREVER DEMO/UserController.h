@@ -63,6 +63,13 @@ private:
 	bool isShooting = false;
 	bool isPressuring = false;
 	bool switchPressed = false;
+	float m_tapTimerA = 0.0f;
+	float m_tapTimerD = 0.0f;
+	bool m_wasAPressed = false;
+	bool m_wasDPressed = false;
+	bool triggerBargeLeft = false;
+	bool triggerBargeRight = false;
+
 
 	float sprintRatio = 0;
 	float accelMultiplier = 0;

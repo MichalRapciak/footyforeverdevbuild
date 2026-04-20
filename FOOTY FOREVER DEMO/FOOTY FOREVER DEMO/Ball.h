@@ -37,13 +37,14 @@ public:
     bool isSetPiece() const { return m_isSetPiece; }
     void setSetPiece(bool state) { m_isSetPiece = state; }
 
-
+    Player* lastTouch = nullptr;
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
     float friction = 800.f;
     float gravity = 980.f;   // pixels per second
     sf::Vector2f velocity;
     sf::CircleShape shape;
+    bool passCompletedEvent = false;
 private:
     sf::Sprite sprite;
     sf::Texture texture;
@@ -53,7 +54,7 @@ private:
     bool m_isSetPiece = false;
 
 
-    float maxSpeed = 5200.f;
+    float maxSpeed = 3400.f;
     float footTimer = 0.f;
     const float footSwitchTime = 0.15f;
 

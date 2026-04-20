@@ -1,0 +1,60 @@
+{
+    "PLY_1059": {
+        "age": 33,
+        "familiarity": {
+            "Center Mid": 4
+        },
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#000000",
+            "boot_type": "Boots_Basic",
+            "face_type": "Face_01",
+            "hair_color": "#282828",
+            "hair_type": "Hair_Short",
+            "skin_color": "#CAB295"
+        },
+        "height_cm": 200,
+        "loyalty": 92,
+        "name": "T. Courtois",
+        "nationality": "BEL",
+        "number": 1,
+        "playstyle": "Sweeper Keeper",
+        "position": "Goalkeeper",
+        "preferred_foot": "Left",
+        "sharpness": 99,
+        "stats": {
+            "acceleration": 77.0,
+            "aggression": 43.0,
+            "agility": 67.0,
+            "awareness": 72.0,
+            "balancing": 80.0,
+            "ball_control": 64.0,
+            "blocking": 31.0,
+            "body_strength": 74.0,
+            "curl": 65.0,
+            "dead_ball": 45.0,
+            "finishing": 22.0,
+            "fitness": 87.0,
+            "gk_awareness": 93.0,
+            "gk_blocking": 86.0,
+            "gk_catching": 87.0,
+            "gk_coverage": 93.0,
+            "gk_reactions": 90.0,
+            "gk_throwing": 89.0,
+            "heading": 32.0,
+            "injury_resistance": 2,
+            "jumping_strength": 82.0,
+            "kick_power": 74.0,
+            "long_passing": 76.0,
+            "short_passing": 67.0,
+            "top_speed": 63.0,
+            "weak_foot_accuracy": 3
+        },
+        "tactical_familiarity": 97.0,
+        "team_id": "TEAM_106",
+        "traits": [],
+        "weight_kg": 96
+    }
+}

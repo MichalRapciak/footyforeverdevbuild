@@ -3,7 +3,7 @@
 /// <summary>
 /// Setting up player sprite when the player function is created.
 /// </summary>
-UserPlayer::UserPlayer(const sf::Texture& texture) : Player(texture)
+UserPlayer::UserPlayer() : Player()
 {
     m_position = { 5000.f, 1000.f }; // Default start
     m_sprite.setPosition(m_position);
@@ -18,7 +18,7 @@ UserPlayer::~UserPlayer()
 /// Function used to update player position
 /// </summary>
 /// <param name="dt"></param>
-void UserPlayer::update(float dt, AnimationServer& animServer)
+void UserPlayer::update(float dt)
 {
   
     float speed = std::sqrt((m_velocity.x * m_velocity.x) + (m_velocity.y * m_velocity.y));
@@ -32,19 +32,19 @@ void UserPlayer::update(float dt, AnimationServer& animServer)
             // m_currentDirection is already perfectly set by your mouse in updateAim().
             
             // Play the animation and MAINTAIN the frame sync!
-            const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+            const Animation& runAnim = AnimationServer::getRunningAnimation(m_currentDirection);
             m_animator.playAnimation(&runAnim, true); 
         }
         else 
         {
             // When stopping, we snap back to the standing pose!
-            const Animation& runAnim = animServer.getRunningAnimation(m_currentDirection);
+            const Animation& runAnim = AnimationServer::getRunningAnimation(m_currentDirection);
             m_animator.playAnimation(&runAnim, false); 
             m_animator.stopAndReset(); 
         }
     }
     // 1. Tick the base physics and tackle state machine
-    Player::update(dt, animServer);
+    Player::update(dt);
 }
 
 /// <summary>

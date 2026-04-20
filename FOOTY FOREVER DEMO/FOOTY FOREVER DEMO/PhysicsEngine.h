@@ -10,6 +10,7 @@ struct Goal; // Forward declaration
 class MatchReferee;
 class AnimationServer;
 class SoundManager;
+class MatchStatistics;
 
 class PhysicsEngine {
 public:
@@ -65,8 +66,7 @@ public:
         std::vector<Player*>& players,
         Ball& ball,
         MatchReferee& referee,
-        AnimationServer& animServer,
-        const Pitch& pitch, SoundManager& soundManager
+        const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats
     );
 
     // Checks if the ball hits the invisible walls around the pitch/net

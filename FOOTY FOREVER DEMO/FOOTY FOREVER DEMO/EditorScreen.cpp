@@ -78,16 +78,37 @@ void EditorScreen::drawPlayerTab(float availableHeight)
     // ==========================================
     ImGui::BeginChild("PlayerList", ImVec2(0, availableHeight - 40.0f), true);
 
-    // 1. Teams
-    for (auto& [teamId, team] : m_db->teams) {
-        if (ImGui::TreeNode(team.fullName.c_str())) {
-            for (auto& [pId, player] : m_db->players) {
-                if (player.teamId == teamId) {
-                    bool isSelected = (m_selectedPlayerId == pId);
-                    if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
+    // 1. Group by Country -> Team -> Player
+    for (auto& [code, country] : m_db->countries) {
+        // First, check if this country even has any teams to avoid rendering empty folders
+        bool hasTeams = false;
+        for (auto& [tId, team] : m_db->teams) {
+            if (team.countryCode == code) { hasTeams = true; break; }
+        }
+
+        if (hasTeams) {
+            // Tier 1: The Country Folder
+            if (ImGui::TreeNode(country.name.c_str())) {
+
+                for (auto& [tId, team] : m_db->teams) {
+                    if (team.countryCode == code) {
+
+                        // Tier 2: The Team Folder
+                        if (ImGui::TreeNode(team.fullName.c_str())) {
+
+                            // Tier 3: The Players
+                            for (auto& [pId, player] : m_db->players) {
+                                if (player.teamId == tId) {
+                                    bool isSelected = (m_selectedPlayerId == pId);
+                                    if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
+                                }
+                            }
+                            ImGui::TreePop(); // Pop Team
+                        }
+                    }
                 }
+                ImGui::TreePop(); // Pop Country
             }
-            ImGui::TreePop();
         }
     }
 
@@ -115,14 +136,17 @@ void EditorScreen::drawPlayerTab(float availableHeight)
 
         PlayerData newPlayer;
         newPlayer.id = newId;
+        newPlayer.nationality = "ENG";
         newPlayer.name = "New Player";
         newPlayer.teamId = ""; // Free Agent
+        newPlayer.tacticalFamiliarity = 100.f;
         newPlayer.squadNumber = 99;
         newPlayer.age = 18;
         newPlayer.heightCm = 180;
         newPlayer.weightKg = 75;
         newPlayer.preferredFoot = "Right";
         newPlayer.positionRole = PositionRole::CenterMid;
+        newPlayer.positionFamiliarity[PositionRole::CenterMid] = 4;
         newPlayer.graphics.skinColor = sf::Color(255, 224, 189);
         newPlayer.graphics.hairColor = sf::Color(40, 40, 40);
         newPlayer.graphics.beardColor = sf::Color(40, 40, 40);
@@ -228,6 +252,22 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             strcpy_s(nameBuffer, p->name.c_str());
             if (ImGui::InputText("Name", nameBuffer, IM_ARRAYSIZE(nameBuffer))) p->name = nameBuffer;
 
+            // ==========================================
+            // --- NEW: NATIONALITY DROPDOWN ---
+            // ==========================================
+            std::string currentNatName = "Unknown";
+            Country* c = m_db->getCountry(p->nationality);
+            if (c) currentNatName = c->name;
+
+            if (ImGui::BeginCombo("Nationality", currentNatName.c_str())) {
+                for (auto& [code, country] : m_db->countries) {
+                    if (ImGui::Selectable(country.name.c_str(), p->nationality == code)) {
+                        p->nationality = code;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
             ImGui::SliderInt("Squad Number", &p->squadNumber, 1, 99);
             ImGui::SliderInt("Age", &p->age, 15, 45);
             ImGui::SliderInt("Height (cm)", &p->heightCm, 150, 220);
@@ -245,8 +285,57 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 "Center Forward", "Striker"
             };
             int roleIdx = static_cast<int>(p->positionRole);
-            if (ImGui::Combo("Position Role", &roleIdx, roles, IM_ARRAYSIZE(roles))) {
+            if (ImGui::Combo("Main Position", &roleIdx, roles, IM_ARRAYSIZE(roles))) {
                 p->positionRole = static_cast<PositionRole>(roleIdx);
+                // When you change the main position, ensure the new one is mastered!
+                p->positionFamiliarity[p->positionRole] = 4;
+            }
+
+            // ==========================================
+            // --- NEW: MULTI-POSITION FAMILIARITY UI ---
+            // ==========================================
+            if (ImGui::TreeNode("Secondary Positions & Familiarity")) {
+                ImGui::TextDisabled("1: Unable | 2: Rough | 3: Competent | 4: Mastered");
+                ImGui::Spacing();
+
+                for (int i = 0; i < IM_ARRAYSIZE(roles); ++i) {
+                    PositionRole currentRoleLoop = static_cast<PositionRole>(i);
+
+                    // Initialize if it doesn't exist in the map yet
+                    if (p->positionFamiliarity.find(currentRoleLoop) == p->positionFamiliarity.end()) {
+                        p->positionFamiliarity[currentRoleLoop] = 1; // Default to Unable
+                    }
+
+                    // Enforce the Main Position rule
+                    if (currentRoleLoop == p->positionRole) {
+                        p->positionFamiliarity[currentRoleLoop] = 4;
+                    }
+
+                    int profLevel = p->positionFamiliarity[currentRoleLoop];
+
+                    // Draw the UI Row
+                    ImGui::PushID(i); // Unique ID so sliders don't conflict
+
+                    // Left align the text, right align the slider
+                    ImGui::Text("%-20s", roles[i]);
+                    ImGui::SameLine(ImGui::GetWindowWidth() * 0.4f);
+
+                    if (currentRoleLoop == p->positionRole) {
+                        // Main position is locked!
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
+                        ImGui::Text("Main Position (Mastered)");
+                        ImGui::PopStyleColor();
+                    }
+                    else {
+                        // Editable Slider for secondary positions
+                        ImGui::SetNextItemWidth(100.f);
+                        if (ImGui::SliderInt("##prof", &profLevel, 1, 4)) {
+                            p->positionFamiliarity[currentRoleLoop] = profLevel;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
             }
 
             // --- NEW: FILTERED PLAYSTYLE SELECTOR ---
@@ -378,6 +467,7 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             ImGui::Separator(); ImGui::Text("Invisible Stats");
             ImGui::SliderInt("Match Sharpness", &p->sharpness, 1, 99);
             ImGui::SliderInt("Loyalty", &p->loyalty, 1, 99);
+            ImGui::SliderFloat("Tactical Familiarity", &p->tacticalFamiliarity, 1.f, 100.f, "%.0f");
 
             ImGui::EndChild(); // End Left Pane
 
@@ -526,10 +616,30 @@ void EditorScreen::drawTeamTab(float availableHeight)
 
     // --- LEFT COLUMN: Team List ---
     ImGui::BeginChild("TeamList", ImVec2(0, availableHeight - 40.0f), true);
-    for (auto& [id, team] : m_db->teams) {
-        bool isSelected = (m_selectedTeamId == id);
-        if (ImGui::Selectable(team.fullName.c_str(), isSelected)) m_selectedTeamId = id;
+
+    // Group by Country -> Team
+    for (auto& [code, country] : m_db->countries) {
+        bool hasTeams = false;
+        for (auto& [tId, team] : m_db->teams) {
+            if (team.countryCode == code) { hasTeams = true; break; }
+        }
+
+        if (hasTeams) {
+            // Tier 1: The Country Folder
+            if (ImGui::TreeNode(country.name.c_str())) {
+
+                // Tier 2: The Teams
+                for (auto& [tId, team] : m_db->teams) {
+                    if (team.countryCode == code) {
+                        bool isSelected = (m_selectedTeamId == tId);
+                        if (ImGui::Selectable(team.fullName.c_str(), isSelected)) m_selectedTeamId = tId;
+                    }
+                }
+                ImGui::TreePop(); // Pop Country
+            }
+        }
     }
+
     ImGui::EndChild();
 
     if (ImGui::Button("+ Create New Team", ImVec2(-FLT_MIN, 30.0f))) {
@@ -541,9 +651,11 @@ void EditorScreen::drawTeamTab(float availableHeight)
 
         TeamData newTeam;
         newTeam.id = newId;
+        newTeam.countryCode = "ENG";
         newTeam.fullName = "New FC";
         newTeam.shortName = "NEW";
         newTeam.badgeId = "Badge_Default";
+        newTeam.teamChemistry = 100.f;
         newTeam.stadiumName = "Local Park";
         newTeam.managerName = "Coach";
         newTeam.uiColor = sf::Color(100, 100, 100);
@@ -608,6 +720,19 @@ void EditorScreen::drawTeamGeneralTab(TeamData* t)
     strcpy_s(shortNameBuffer, t->shortName.c_str());
     if (ImGui::InputText("Short Name", shortNameBuffer, IM_ARRAYSIZE(shortNameBuffer))) t->shortName = shortNameBuffer;
 
+    std::string currentCountryName = "Unknown";
+    Country* clubCountry = m_db->getCountry(t->countryCode);
+    if (clubCountry) currentCountryName = clubCountry->name;
+
+    if (ImGui::BeginCombo("Country / League", currentCountryName.c_str())) {
+        for (auto& [code, country] : m_db->countries) {
+            if (ImGui::Selectable(country.name.c_str(), t->countryCode == code)) {
+                t->countryCode = code;
+            }
+        }
+        ImGui::EndCombo();
+    }
+
     strcpy_s(stadiumBuffer, t->stadiumName.c_str());
     if (ImGui::InputText("Stadium", stadiumBuffer, IM_ARRAYSIZE(stadiumBuffer))) t->stadiumName = stadiumBuffer;
 
@@ -619,6 +744,9 @@ void EditorScreen::drawTeamGeneralTab(TeamData* t)
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Text("Team Branding");
     ColorEdit4SFML("UI Main Color", t->uiColor);
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Text("Team Attributes");
+    ImGui::SliderFloat("Team Chemistry", &t->teamChemistry, 1.f, 100.f, "%.0f");
 }
 
 void EditorScreen::drawTeamKitsTab(TeamData* t)

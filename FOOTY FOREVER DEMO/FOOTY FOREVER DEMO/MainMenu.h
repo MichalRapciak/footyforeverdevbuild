@@ -13,7 +13,7 @@ public:
 
 protected:
 	sf::View m_mainMenuView;
-	static const int m_buttonCount = 3;
+	static const int m_buttonCount = 4;
 	sf::Texture m_buttonTxt;
 	std::vector<sf::Sprite> m_buttonSprite;
 	std::vector<sf::Text> m_text;

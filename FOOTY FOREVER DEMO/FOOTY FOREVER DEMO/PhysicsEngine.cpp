@@ -8,6 +8,7 @@
 #include "MatchReferee.h"
 #include "AnimationServer.h"
 #include "SoundManager.h"
+#include "MatchStatistics.h"
 
 // ==========================================
 // 1. BALL PHYSICS
@@ -499,6 +500,7 @@ void PhysicsEngine::resolveGoalkeeperBallCollisions(Ball& ball, std::vector<Play
 
             // Check if the 2D ball position is inside the dynamic rectangle AND hits the Z-wall
             if (gkBox.contains(ball.getPosition()) && zOverlap) {
+                ball.lastTouch = p;
                 resolveGoalkeeperSave(*p, ball);
                 return; // Only one person can save it, break the loop!
             }
@@ -524,7 +526,9 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
     else {
         // --- OUTCOME: PARRY / REBOUND ---
         // BUFF 2: Stronger wrists. Parries dampen the ball much more to prevent crazy rebounds.
-        float dampenFactor = 0.35f - ((catchingStat / 100.0f) * 0.25f);
+        // Reduced base dampen factor from 0.35 to 0.22. 
+        // A 100 Catching GK retains only 10% of the shot speed. A 0 Catching GK retains 22%.
+        float dampenFactor = 0.22f - ((catchingStat / 100.0f) * 0.12f);
         sf::Vector2f parryVel(-incomingVel.x * dampenFactor, -incomingVel.y * dampenFactor);
 
         float randomDeviation = ((rand() % 100) - 50) / 100.0f;
@@ -537,8 +541,9 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
         ball.velocity.x = parryVel.x * cosA - parryVel.y * sinA;
         ball.velocity.y = parryVel.x * sinA + parryVel.y * cosA;
 
-        // BUFF 3: Keep the parry low to the ground so it's harder to head in on the rebound.
-        ball.vz = 150.0f + (std::abs(randomDeviation) * 100.0f);
+        // BUFF 3: Keep the parry even lower to the ground so it doesn't float.
+        // Reduced base VZ from 150 to 80, and variance from 100 to 50.
+        ball.vz = 80.0f + (std::abs(randomDeviation) * 50.0f);
 
         keeper.setVelocity({ 0.f, 0.f });
         keeper.setState(PlayerState::Normal);
@@ -548,7 +553,7 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball) {
 // 3. COLLISION PHYSICS
 // ==========================================
 
-void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players, Ball& ball, MatchReferee& referee, AnimationServer& animServer, const Pitch& pitch, SoundManager& soundManager)
+void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players, Ball& ball, MatchReferee& referee, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats)
 {
     // Quick helper lambda for normalization
     auto normalize = [](sf::Vector2f v) {
@@ -586,7 +591,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                 sf::Vector2f impactDir = victim->getPosition() - tackler->getPosition();
                                 if (impactDir.x == 0 && impactDir.y == 0) impactDir.x = 1.f;
                                 float impactForce = isSameTeam ? 600.f : 800.f;
-                                victim->triggerFallOver(normalize(impactDir) * (impactForce), animServer);
+                                victim->triggerFallOver(normalize(impactDir) * (impactForce));
                                 victim->checkInjury(impactForce);
                                 tackler->resetTackleCooldown();
                                 tackler->setState(PlayerState::Normal);
@@ -597,10 +602,10 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                     foul.location = victim->getPosition();
                                     foul.offender = tackler;
                                     foul.type = (rand() % 100 < 15) ? FoulType::Violent : FoulType::Sliding;
-                                    referee.awardFoul(foul, pitch, ball, players, victim, soundManager);
+                                    referee.awardFoul(foul, pitch, ball, players, victim, soundManager, stats);
                                 }
                                 else {
-                                    tackler->triggerFallOver(normalize(-impactDir) * 400.f, animServer);
+                                    tackler->triggerFallOver(normalize(-impactDir) * 400.f);
                                 }
                             }
                             else {
@@ -613,7 +618,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                 // 2. Knock the ball away based on the tackler's momentum
                                 sf::Vector2f tackleImpulse = tackler->getVelocity() * 1.2f;
                                 ball.applyImpulse(tackleImpulse);
-
+                                ball.lastTouch = tackler;
                                 // 3. Slow the tackler down so they don't slide forever
                                 tackler->setVelocity(tackler->getVelocity() * 0.5f);
 
@@ -686,11 +691,11 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                     float thresh2 = 450.f * (1.0f + p2->getBalancing() / 100.f);
 
                     if (deltaV2 > thresh2 * 8.0f) {
-                        p2->triggerFallOver(normalize(p2->getPosition() - p1->getPosition()) * 600.f, animServer);
+                        p2->triggerFallOver(normalize(p2->getPosition() - p1->getPosition()) * 600.f);
                         p2->checkInjury(deltaV2); // THE FIX: Big collision impact!
                     }
                     if (deltaV1 > thresh1 * 8.0f) {
-                        p1->triggerFallOver(normalize(p1->getPosition() - p2->getPosition()) * 600.f, animServer);
+                        p1->triggerFallOver(normalize(p1->getPosition() - p2->getPosition()) * 600.f);
                         p1->checkInjury(deltaV1); // THE FIX: Big collision impact!
                     }
                 }
@@ -745,6 +750,19 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
             float combineRadius = 12.f + p->getCollisionRadius();
 
             if (distSq < combineRadius * combineRadius && distSq > 0.0001f) {
+
+                // ==========================================
+                // --- THE FIX 3: KICKER IMMUNITY ---
+                // ==========================================
+                // Safely cast to NPCPlayer to check the kick cooldown!
+                if (p == ball.lastTouch) {
+                    if (NPCPlayer* npc = dynamic_cast<NPCPlayer*>(p)) {
+                        if (npc->getKickCooldown() > 0.0f) {
+                            continue; // Phase cleanly through their body!
+                        }
+                    }
+                }
+
                 float distance = std::sqrt(distSq);
                 sf::Vector2f normal = delta / distance;
 
@@ -760,19 +778,30 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
                 float dot = relVel.x * normal.x + relVel.y * normal.y;
 
                 if (dot < 0) {
-                    float relSpeed = std::sqrt(relVel.x * relVel.x + relVel.y * relVel.y);
-                    float restitution = (relSpeed > 800.f) ? 0.25f : 0.05f;
+                    ball.lastTouch = p;
+
+                    // ==========================================
+                    // --- THE FIX: HUMAN "SANDBAG" PHYSICS ---
+                    // ==========================================
+                    // Humans are squishy and do not bounce.
+                    float restitution = 0.05f; // Extremely low bounciness
 
                     sf::Vector2f reflection = relVel - (1.0f + restitution) * dot * normal;
-                    sf::Vector2f finalVel = playerVel + reflection;
+
+                    // Absorb 65% of the kinetic energy into the player's body!
+                    sf::Vector2f finalVel = playerVel + (reflection * 0.35f);
 
                     float finalSpeed = std::sqrt(finalVel.x * finalVel.x + finalVel.y * finalVel.y);
-                    if (finalSpeed > 1000.f) {
-                        finalVel = (finalVel / finalSpeed) * 1000.f;
+
+                    // Hard cap the absolute maximum bounce speed to a jog pace (350px/s), 
+                    // preventing the 1000px/s "Pinball Rocket" effect!
+                    if (finalSpeed > 350.f) {
+                        finalVel = (finalVel / finalSpeed) * 350.f;
                     }
 
                     ball.velocity = finalVel;
 
+                    // We still stun the player if they took a 2000px/s missile to the chest
                     float originalSpeed = std::sqrt(currentBallVel.x * currentBallVel.x + currentBallVel.y * currentBallVel.y);
                     if (originalSpeed > 2000.f) {
                         p->setState(PlayerState::Stunned);

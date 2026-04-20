@@ -8,6 +8,11 @@
 #include "AimAssist.h"
 #include "PlayerAI.h"
 #include "TeamAI.h"
+#include "PossessionAI.h"
+#include "PositioningAI.h"
+#include "GoalkeeperAI.h"
+#include "SpatialGrid.h"
+#include "MatchStatistics.h"
 #include <cmath>
 
 NPCController::NPCController() {}
@@ -16,7 +21,7 @@ NPCController::~NPCController() {}
 void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     const std::vector<Player*>& team, const std::vector<Player*>& opposition,
     const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
-    const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager)
+    const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager, const SpatialGrid& spatialGrid, MatchStatistics& stats)
 {
     npc.updateCooldown(dt);
     PhysicsEngine::updatePlayerAirPhysics(npc, dt);
@@ -78,7 +83,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                 sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
 
                 if (ctx.state == MatchState::ThrowIn) {
-                    PlayerAI::executeThrowIn(npc, ball, team);
+                    PossessionAI::executeThrowIn(npc, ball, team);
                     return;
                 }
 
@@ -109,7 +114,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                     approachDir = kickDir;
                 }
                 else if (ctx.state == MatchState::KickOff) {
-                    passTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+                    passTarget = PossessionAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
                     if (!passTarget) {
                         float minDist = 99999.f;
                         std::vector<Player*> receivers;
@@ -131,7 +136,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                     approachDir = kickDir;
                 }
                 else {
-                    passTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+                    passTarget = PossessionAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
                     if (passTarget) kickDir = PlayerAI::normalize(passTarget->getPosition() - ballPos);
                     else kickDir = PlayerAI::normalize(goalPos - ballPos);
                     approachDir = kickDir;
@@ -155,20 +160,27 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                 // ==========================================
                 bool isWalkingBack = false;
                 float dotVel = (npc.getVelocity().x * approachDir.x) + (npc.getVelocity().y * approachDir.y);
+                float speed = std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y);
 
-                // 1. Are we extremely close to the run-up spot? Lock into Sprint!
-                if (distToRunUp < 30.f) {
+                // 1. Are we essentially at the run-up spot? Lock into SPRINT!
+                if (distToRunUp < 35.f) {
                     isWalkingBack = false;
                 }
-                // 2. Are we extremely close to the ball? Lock into Walk!
-                else if (distToBall < 30.f) {
+                // 2. Are we too close to the ball (just tackled/fumbled it)? Lock into WALK BACK!
+                else if (distToBall < 35.f) {
                     isWalkingBack = true;
                 }
-                // 3. We are in the middle of the run-up. Use physical momentum to decide!
+                // 3. Are we actively moving? TRUST OUR MOMENTUM!
+                else if (speed > 20.f) {
+                    // If our velocity against the approach direction is heavily negative, we are retreating.
+                    // If it is positive, we are already sprinting to strike it!
+                    if (dotVel < -10.f) isWalkingBack = true;
+                    else isWalkingBack = false;
+                }
+                // 4. We are standing completely still (Just spawned in by the Referee)
                 else {
-                    // If we are actively moving backwards (or hit a boundary wall and stopped), keep walking back.
-                    // If we have forward momentum, keep sprinting!
-                    if (dotVel < -5.f) isWalkingBack = true;
+                    // Look at where we are. If we haven't reached the run-up spot yet, go to it!
+                    if (distToRunUp > 40.f) isWalkingBack = true;
                     else isWalkingBack = false;
                 }
 
@@ -200,16 +212,16 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                     if (distToBall < 100.f) {
 
                         if (ctx.state == MatchState::GoalKick) {
-                            PlayerAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
+                            GoalkeeperAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
                         }
                         else if (isShooting) {
-                            PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager);
+                            PossessionAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager, stats);
                         }
                         else if (passTarget) {
-                            PlayerAI::executePass(npc, ball, passTarget, opposition, soundManager);
+                            PossessionAI::executePass(npc, ball, passTarget, opposition, soundManager, stats);
                         }
                         else {
-                            PlayerAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager); // Fallback
+                            PossessionAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager, stats); // Fallback
                         }
 
                         npc.setVelocity({ 0.f, 0.f });
@@ -226,7 +238,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     // ==========================================
     if (ball.z > 80.f)
     {
-        PlayerAI::handleNPCJumpLogic(npc, ball);
+        PossessionAI::handleNPCJumpLogic(npc, ball);
 
         bool isHome = (npc.getTeam() == Team::Home);
         sf::Vector2f oppGoalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
@@ -243,7 +255,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         }
         else {
             // We are outside the box. Look for a teammate to pass to!
-            Player* aerialPassTarget = PlayerAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+            Player* aerialPassTarget = PossessionAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
 
             if (aerialPassTarget) {
                 isShot = false; // It's a pass!
@@ -256,7 +268,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
             }
         }
 
-        if (PlayerAI::tryNPCAerialStrike(npc, ball, aimDir, isShot, soundManager)) {
+        if (PossessionAI::tryNPCAerialStrike(npc, ball, aimDir, isShot, soundManager)) {
             npc.deductStaminaAction(1.5f);
             return;
         }
@@ -267,7 +279,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     // ==========================================
     if (npc.getPositionRole() == PositionRole::Goalkeeper)
     {
-        PlayerAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI, soundManager);
+        GoalkeeperAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI, soundManager);
     }
     else
     {
@@ -278,7 +290,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 
         if (ball.getOwner() == &npc) {
             // DECISION: Handle Possession logic and return dribble direction
-            finalDirection = PlayerAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI, soundManager);
+            finalDirection = PossessionAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI, soundManager, stats);
             distToTarget = 500.f;
             isSprinting = true; // AI usually sprints on ball unless specified otherwise
         }
@@ -293,7 +305,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
             bool amITargetReceiver = false;
 
             if (isTeammatePass) {
-                Player* targetReceiver = PlayerAI::identifyTargetReceiver(ball, team);
+                Player* targetReceiver = PositioningAI::identifyTargetReceiver(ball, team);
                 if (targetReceiver) {
                     effectiveResponder = targetReceiver; // Override the game's default first responder!
                     if (targetReceiver == &npc) amITargetReceiver = true;
@@ -301,11 +313,11 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
             }
 
             // Pass the explicitly corrected 'effectiveResponder' into the movement decisions
-            sf::Vector2f targetPos = PlayerAI::decideTargetPosition(npc, ball, pitch, teamState, team, opposition, effectiveResponder, mask, teamAI);
+            sf::Vector2f targetPos = PositioningAI::decideTargetPosition(npc, ball, pitch, teamState, team, opposition, effectiveResponder, mask, teamAI, spatialGrid);
 
             sf::Vector2f toTarget = targetPos - npcPos;
             distToTarget = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y);
-            sf::Vector2f separation = PlayerAI::calculateSeparation(npc, team, opposition, ball.getPosition(), teamAI);
+            sf::Vector2f separation = PositioningAI::calculateSeparation(npc, team, opposition, ball.getPosition(), teamAI);
 
             sf::Vector2f normTarget = (distToTarget > 0.1f) ? (toTarget / distToTarget) : sf::Vector2f(0.f, 0.f);
             finalDirection = PlayerAI::normalize(normTarget + (separation * 0.8f));
@@ -314,7 +326,7 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
             AIUrgency urgency = (teamState == TeamState::Defending) ? AIUrgency::Recovery : AIUrgency::AttackingRun;
             if (effectiveResponder == &npc) urgency = AIUrgency::Critical;
 
-            isSprinting = PlayerAI::evaluateSprintUrgency(npc, urgency, distToTarget, PlayerAI::dist(npcPos, ball.getPosition()));
+            isSprinting = PositioningAI::evaluateSprintUrgency(npc, urgency, distToTarget, PlayerAI::dist(npcPos, ball.getPosition()));
 
             // THE LOCK: If I am the target receiver, I MUST sprint to the ball!
             if (amITargetReceiver) isSprinting = true;
@@ -346,8 +358,18 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 
                 if (attacker->getPositionRole() != PositionRole::Goalkeeper) {
                     float awareness = npc.getAwareness();
-                    float aggression = npc.getAggression();
+                    float baseAggression = npc.getAggression();
                     bool safeToTackle = true;
+
+                    // ==========================================
+                    // --- NEW: TIME-SCALED AGGRESSION ---
+                    // ==========================================
+                    // Shorter matches = Higher scale = More frantic tackling
+                    // Longer matches = Lower scale = Patient, tactical jockeying
+                    float timeScaleNorm = std::clamp(npc.getMatchTimeScale() / 22.5f, 0.4f, 2.5f);
+
+                    // Boost or nerf the player's core aggression stat based on the match length
+                    float effectiveAggression = std::clamp(baseAggression * timeScaleNorm, 1.0f, 99.0f);
 
                     // 1. CALCULATE ANGLES & POSITION
                     sf::Vector2f toAttacker = attacker->getPosition() - npcPos;
@@ -378,38 +400,42 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                     float ballExposedDist = PlayerAI::dist(attacker->getPosition(), ball.getPosition());
 
                     // ==========================================
+                    // --- DYNAMIC EXPOSURE REQUIREMENTS ---
+                    // ==========================================
+                    // Fast games: They will dive in if the ball is barely off the foot.
+                    // Slow games: They demand a massive, clumsy touch to risk a tackle.
+                    float requiredExposureOppHalf = std::clamp(60.f / timeScaleNorm, 20.f, 100.f);
+                    float requiredExposureOwnBox = std::clamp(70.f / timeScaleNorm, 30.f, 110.f);
+                    float requiredExposureOpen = std::clamp(45.f / timeScaleNorm, 15.f, 80.f);
+
+                    // ==========================================
                     // --- SMART FOUL AVOIDANCE & PATIENCE ---
                     // ==========================================
                     if (inOpponentHalf) {
-                        // SEVERE NERF: In the opponent's half, they just jockey and hold the team shape.
-                        // To tackle here, the situation must be an absolute gift.
-                        // 1. Must be face-to-face (no side/behind tackles)
-                        // 2. Attacker must have taken a terrible heavy touch (> 80px exposed)
-                        // 3. AI must have high aggression to even care.
-                        if (!headOn || ballExposedDist < 60.f || aggression < 55.f) {
+                        if (!headOn || ballExposedDist < requiredExposureOppHalf || effectiveAggression < 55.f) {
                             safeToTackle = false;
                         }
-                        // Even if it's perfect, add a hesitation roll so they don't constantly bite
-                        else if ((rand() % 100) > (aggression * 0.7f)) {
+                        else if ((rand() % 100) > (effectiveAggression * 0.7f)) {
                             safeToTackle = false;
                         }
                     }
                     else if (inOwnBox) {
                         // PENALTY BOX: Extreme caution. No tackling from behind, need an exposed ball.
-                        if (trailingBehind || ballExposedDist < 70.f || aggression < 70.f) {
+                        if (trailingBehind || ballExposedDist < requiredExposureOwnBox || effectiveAggression < 70.f) {
                             safeToTackle = false;
                         }
                     }
                     else {
                         // OWN HALF (Open Play): Tactical Defending
                         if (trailingBehind) {
-                            // Smart players know trailing tackles are useless fouls
-                            if ((rand() % 100) < awareness) safeToTackle = false;
+                            // Smart players know trailing tackles are useless fouls.
+                            // In fast games, we lower their effective awareness so they risk it more often!
+                            float effectiveAwareness = std::clamp(awareness / timeScaleNorm, 1.0f, 99.0f);
+                            if ((rand() % 100) < effectiveAwareness) safeToTackle = false;
                         }
-                        else if (ballExposedDist < 45.f) {
-                            // THE PATIENCE FIX: If the ball is glued to the attacker's feet, 
-                            // they wait for a touch before diving in, unless they are extremely aggressive!
-                            if ((rand() % 100) > aggression) {
+                        else if (ballExposedDist < requiredExposureOpen) {
+                            // THE PATIENCE FIX: Glued to feet.
+                            if ((rand() % 100) > effectiveAggression) {
                                 safeToTackle = false;
                             }
                         }
@@ -417,14 +443,46 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 
                     // Yellow card overrides everything with pure terror
                     if (onYellow) {
-                        if (trailingBehind || (rand() % 100) < 75) safeToTackle = false;
+                        // Even in frantic games, they don't want a red card, but fear is reduced
+                        float yellowFear = std::clamp(75.f / timeScaleNorm, 30.f, 95.f);
+                        if (trailingBehind || (rand() % 100) < yellowFear) safeToTackle = false;
+                    }
+
+                    // ==========================================
+                    // --- NEW: EXECUTE SHOULDER BARGE ---
+                    // ==========================================
+                    bool barged = false;
+                    if (npc.getBargeCooldown() <= 0.0f) {
+                        float distToAttacker = std::sqrt(toAttacker.x * toAttacker.x + toAttacker.y * toAttacker.y);
+
+                        // Must be within physical contact distance
+                        if (distToAttacker < 130.f) {
+                            sf::Vector2f npcVel = npc.getVelocity();
+                            float npcSpeed = std::sqrt(npcVel.x * npcVel.x + npcVel.y * npcVel.y);
+
+                            bool shoulderToShoulder = false;
+                            if (npcSpeed > 100.f && attackerSpeed > 100.f) {
+                                sf::Vector2f nDir = npcVel / npcSpeed;
+                                float parallelDot = (nDir.x * attackerDir.x) + (nDir.y * attackerDir.y);
+                                if (parallelDot > 0.5f) shoulderToShoulder = true; // Running the same direction
+                            }
+
+                            // "Slam the door": If running shoulder-to-shoulder, OR grinding up close, 
+                            // OR a fast attacker is trying to squeeze past us head-on!
+                            if (shoulderToShoulder || distToAttacker < 70.f || (attackerSpeed > 250.f && !trailingBehind)) {
+
+                                // Aggression determines if they risk the physical contact
+                                if ((rand() % 100) < effectiveAggression) {
+                                    npc.executeShoulderBarge(attacker);
+                                    barged = true;
+                                }
+                            }
+                        }
                     }
 
                     // ==========================================
                     // --- EXECUTE TACKLE ---
                     // ==========================================
-                    // Tightened the physical lunge range from 120px to 90px. 
-                    // This forces them to get closer and jockey rather than lunging from miles away!
                     if (safeToTackle && distToBall < 140.f) {
                         sf::Vector2f futureBallPos = ball.getPosition() + (ball.getVelocity() * 0.24f);
                         npc.startTackle(PlayerAI::normalize(futureBallPos - npcPos));
@@ -436,16 +494,32 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         // ==========================================
         // --- THE FIX: AI BODY ROTATION SYNC ---
         // ==========================================
-        // Before applying physics, force the AI to look exactly where they want to run.
-        // This prevents the PhysicsEngine from thinking they are trying to strafe or backpedal!
         if (finalDirection.x != 0.f || finalDirection.y != 0.f) {
             if (ball.getOwner() == &npc) {
                 // Dribblers ALWAYS face their movement direction
                 npc.setRotationToward(npcPos + finalDirection);
             }
             else if (teamState == TeamState::Defending && distToTarget < 400.f) {
-                // Defenders closing in on a target will jockey (face the ball)
-                npc.setRotationToward(ball.getPosition());
+                // THE FIX 1: DYNAMIC JOCKEYING vs SPRINTING
+                // If the defender is moving slowly, they face the ball (Jockeying).
+                // If they are sprinting backwards to catch a runner, they MUST turn their body to run!
+                sf::Vector2f vel = npc.getVelocity();
+                float currentSpeed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+
+                sf::Vector2f toBall = ball.getPosition() - npcPos;
+                sf::Vector2f toBallDir = PlayerAI::normalize(toBall);
+
+                // Are they running away from the ball?
+                float runAngle = (finalDirection.x * toBallDir.x) + (finalDirection.y * toBallDir.y);
+                bool isRunningAway = (runAngle < -0.3f);
+
+                // If sprinting away from the ball, face the run direction! Otherwise, jockey!
+                if (currentSpeed > (npc.getTopSpeed() * 6.0f) && isRunningAway) {
+                    npc.setRotationToward(npcPos + finalDirection);
+                }
+                else {
+                    npc.setRotationToward(ball.getPosition());
+                }
             }
             else {
                 // Off-ball runners face their run direction
@@ -515,9 +589,6 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
         // --- ON THE BALL (The Open Highway) ---
         maxSpeed = std::min(sprintSpeed, ctx.maxSpeedLimit);
 
-        // Artificial arcade boost: Make them 15% faster while carrying the ball!
-        maxSpeed *= 1.15f;
-
         // Drastically reduce braking so they blast through open space
         slowingRadius = 0.f;
         stopRadius = 10.f;
@@ -525,7 +596,7 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
         // Arrival Easing (Nerfed for dribblers so they don't stutter)
         if (distToTarget < slowingRadius && (directionInput.x != 0.f || directionInput.y != 0.f)) {
             float ramp = (distToTarget - stopRadius) / (slowingRadius - stopRadius);
-            ramp = std::max(0.6f, std::min(ramp, 1.f)); // Never drop below 70% speed while dribbling
+            ramp = std::max(0.4f, std::min(ramp, 1.f)); // Never drop below 70% speed while dribbling
             maxSpeed *= ramp;
         }
     }
