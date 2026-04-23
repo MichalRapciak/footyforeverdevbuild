@@ -1,6 +1,8 @@
 #include "EditorScreen.h"
 #include "imgui-1.92.6/imgui.h"
+#include "imgui-1.92.6/imgui-sfml.h"
 #include "PlaystyleDatabase.h"
+#include "AnimationServer.h"
 #include "Game.h"
 #include <cstdint>
 #include <algorithm>
@@ -19,7 +21,7 @@ bool ColorEdit4SFML(const char* label, sf::Color& color)
     return false;
 }
 
-EditorScreen::EditorScreen() : m_db(nullptr), bg_s(bg_txt), m_selectedPlayerId("") {}
+EditorScreen::EditorScreen() : m_db(nullptr), bg_s(bg_txt), m_selectedPlayerId(""), m_selectedTeamId("") {}
 EditorScreen::~EditorScreen() {}
 
 void EditorScreen::init(sf::Font& font, GameDatabase& database)
@@ -33,6 +35,72 @@ void EditorScreen::init(sf::Font& font, GameDatabase& database)
     bg_s.setTexture(bg_txt);
     bg_s.setTextureRect(sf::IntRect({ 0,0 }, { 1920,1080 }));
     bg_s.setPosition({ 0,0 });
+
+    // ==========================================
+    // --- INITIALIZE RENDER PIPELINE ---
+    // ==========================================
+    AnimationServer::init();
+
+    // THE FIX: SFML 3.0 Fragment Enum!
+    if (!m_kitShader.loadFromFile("ASSETS/SHADERS/kit_mixer.frag", sf::Shader::Type::Fragment)) {
+        std::cout << "Failed to load kit shader in Editor!\n";
+    }
+
+    m_playerPreviewTexture.resize({ 250, 250 });
+    m_teamPreviewTexture.resize({ 250, 250 });
+}
+
+// ==========================================
+// --- SHADER SNAPSHOT GENERATOR ---
+// ==========================================
+// THE FIX: Accept the dynamic vector stack!
+void EditorScreen::updatePreviewTexture(sf::RenderTexture& target, sf::Color skin, const std::vector<KitLayer>& kitLayers, float heightCm, float weightKg)
+{
+    target.clear(sf::Color(30, 30, 40, 255));
+
+    sf::Sprite s(AnimationServer::getSkinTexture());
+    const Animation& anim = AnimationServer::getRunningAnimation(Direction::Down);
+    s.setTextureRect(anim.frames[0]);
+    s.setOrigin({ 250.f, 250.f });
+
+    float scaleX = (weightKg / 70.0f) * 0.45f;
+    float scaleY = (heightCm / 180.0f) * 0.45f;
+    s.setScale({ scaleX, scaleY });
+
+    s.setPosition({ target.getSize().x / 2.f, target.getSize().y / 2.f });
+    s.setRotation(sf::degrees(180.f));
+
+    auto toGlslColor = [](sf::Color c) {
+        return sf::Glsl::Vec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
+        };
+
+    m_kitShader.setUniform("skinColor", toGlslColor(skin));
+    m_kitShader.setUniform("skinTex", sf::Shader::CurrentTexture);
+
+    // THE FIX: Inject the array into the shader slots!
+    static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
+    static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
+    static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+
+    for (int i = 0; i < 8; ++i) {
+        if (i < kitLayers.size()) {
+            sf::Texture* tex = AnimationServer::getKitTexture(kitLayers[i].textureId);
+            if (tex) {
+                m_kitShader.setUniform(uUse[i], true);
+                m_kitShader.setUniform(uTex[i], *tex);
+                m_kitShader.setUniform(uCol[i], toGlslColor(kitLayers[i].color));
+            }
+            else {
+                m_kitShader.setUniform(uUse[i], false);
+            }
+        }
+        else {
+            m_kitShader.setUniform(uUse[i], false);
+        }
+    }
+
+    target.draw(s, &m_kitShader);
+    target.display();
 }
 
 void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
@@ -41,7 +109,7 @@ void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(fullScreenSize, ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.65f);
-    ImGui::Begin("Database Editor", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+    ImGui::Begin("Database Editor", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
 
     float availableHeight = ImGui::GetContentRegionAvail().y - 50.0f;
 
@@ -61,7 +129,7 @@ void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
     }
 
     drawFooter();
-    ImGui::End(); // End of the Main ImGui Window
+    ImGui::End();
 }
 
 // ==========================================
@@ -70,49 +138,36 @@ void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
 
 void EditorScreen::drawPlayerTab(float availableHeight)
 {
-    ImGui::Columns(2, "PlayerColumns", true);
-    ImGui::SetColumnWidth(0, 200.0f);
+    // 1. LEFT PANEL (Player List)
+    ImGui::BeginChild("PlayerListPane", ImVec2(250.0f, availableHeight), true);
 
-    // ==========================================
-    // --- LEFT COLUMN: Player List (Tree View) ---
-    // ==========================================
-    ImGui::BeginChild("PlayerList", ImVec2(0, availableHeight - 40.0f), true);
-
-    // 1. Group by Country -> Team -> Player
+    ImGui::BeginChild("PlayerTree", ImVec2(0, availableHeight - 40.0f), false);
     for (auto& [code, country] : m_db->countries) {
-        // First, check if this country even has any teams to avoid rendering empty folders
         bool hasTeams = false;
         for (auto& [tId, team] : m_db->teams) {
             if (team.countryCode == code) { hasTeams = true; break; }
         }
 
         if (hasTeams) {
-            // Tier 1: The Country Folder
             if (ImGui::TreeNode(country.name.c_str())) {
-
                 for (auto& [tId, team] : m_db->teams) {
                     if (team.countryCode == code) {
-
-                        // Tier 2: The Team Folder
                         if (ImGui::TreeNode(team.fullName.c_str())) {
-
-                            // Tier 3: The Players
                             for (auto& [pId, player] : m_db->players) {
                                 if (player.teamId == tId) {
                                     bool isSelected = (m_selectedPlayerId == pId);
                                     if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
                                 }
                             }
-                            ImGui::TreePop(); // Pop Team
+                            ImGui::TreePop();
                         }
                     }
                 }
-                ImGui::TreePop(); // Pop Country
+                ImGui::TreePop();
             }
         }
     }
 
-    // 2. Free Agents
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     if (ImGui::TreeNode("Free Agents")) {
         for (auto& [pId, player] : m_db->players) {
@@ -124,8 +179,7 @@ void EditorScreen::drawPlayerTab(float availableHeight)
         ImGui::TreePop();
     }
     ImGui::PopStyleColor();
-
-    ImGui::EndChild();
+    ImGui::EndChild(); // End PlayerTree
 
     if (ImGui::Button("+ Create New Player", ImVec2(-FLT_MIN, 30.0f))) {
         int counter = m_db->players.size() + 1000;
@@ -138,7 +192,7 @@ void EditorScreen::drawPlayerTab(float availableHeight)
         newPlayer.id = newId;
         newPlayer.nationality = "ENG";
         newPlayer.name = "New Player";
-        newPlayer.teamId = ""; // Free Agent
+        newPlayer.teamId = "";
         newPlayer.tacticalFamiliarity = 100.f;
         newPlayer.squadNumber = 99;
         newPlayer.age = 18;
@@ -159,102 +213,202 @@ void EditorScreen::drawPlayerTab(float availableHeight)
 
         m_db->players[newId] = newPlayer;
         m_selectedPlayerId = newId;
-
-        // Auto-save the new player so the file exists immediately!
         m_db->savePlayer(newId, "ASSETS/DATA");
     }
+    ImGui::EndChild(); // End PlayerListPane
 
-    // ==========================================
-    // --- THIS IS THE MAGIC LINE YOU MISSED ---
-    // ==========================================
-    ImGui::NextColumn();
+    ImGui::SameLine();
 
-    // ==========================================
-    // --- RIGHT COLUMN: Player Editor ---
-    // ==========================================
-    ImGui::BeginChild("PlayerEditorPane", ImVec2(0, 0), false);
+    // 2. RIGHT PANEL (Editor Workspace)
+    ImGui::BeginChild("PlayerEditorPane", ImVec2(0, availableHeight), true);
 
     if (!m_selectedPlayerId.empty()) {
         PlayerData* p = m_db->getPlayer(m_selectedPlayerId);
-        if (p) 
+        if (p)
         {
             ImGui::Text("Editing Player: %s", p->id.c_str());
 
-            // --- DYNAMIC TEAM ASSIGNMENT & FILE CLEANUP ---
             std::string currentTeamName = "Free Agent";
+            TeamData* t = nullptr;
             if (!p->teamId.empty()) {
-                TeamData* t = m_db->getTeam(p->teamId);
+                t = m_db->getTeam(p->teamId);
                 if (t) currentTeamName = t->fullName;
             }
 
             if (ImGui::BeginCombo("Team", currentTeamName.c_str())) {
-
-                // Helper lambda to cleanly handle all the memory and file logic of a transfer
                 auto handleTransfer = [&](const std::string& newTeamId) {
                     if (p->teamId == newTeamId) return;
 
-                    // 1. Remove from old team's roster in memory
                     if (!p->teamId.empty()) {
                         TeamData* oldT = m_db->getTeam(p->teamId);
                         if (oldT) {
                             auto it = std::find(oldT->rosterPlayerIds.begin(), oldT->rosterPlayerIds.end(), p->id);
                             if (it != oldT->rosterPlayerIds.end()) oldT->rosterPlayerIds.erase(it);
 
-                            // Safety Check: Remove them from the Starting XI and Captaincy if they leave!
                             if (oldT->defaultTactics.captainId == p->id) oldT->defaultTactics.captainId = "";
                             for (auto xiIt = oldT->defaultTactics.startingXI.begin(); xiIt != oldT->defaultTactics.startingXI.end(); ) {
-                                if (xiIt->second == p->id) {
-                                    xiIt = oldT->defaultTactics.startingXI.erase(xiIt);
-                                }
-                                else {
-                                    ++xiIt;
-                                }
+                                if (xiIt->second == p->id) xiIt = oldT->defaultTactics.startingXI.erase(xiIt);
+                                else ++xiIt;
                             }
                         }
                     }
 
-                    // 2. Add to new team's roster in memory
                     if (!newTeamId.empty()) {
                         TeamData* newT = m_db->getTeam(newTeamId);
                         if (newT) {
-                            // Ensure no duplicates just in case
                             if (std::find(newT->rosterPlayerIds.begin(), newT->rosterPlayerIds.end(), p->id) == newT->rosterPlayerIds.end()) {
                                 newT->rosterPlayerIds.push_back(p->id);
                             }
                         }
                     }
 
-                    // 3. Move the physical files on the hard drive
                     m_db->deletePlayerFile(p->id, "ASSETS/DATA", p->teamId);
                     p->teamId = newTeamId;
                     m_db->savePlayer(p->id, "ASSETS/DATA");
                     };
 
-                // Option 1: Free Agent
-                if (ImGui::Selectable("Free Agent", p->teamId.empty())) {
-                    handleTransfer("");
-                }
+                if (ImGui::Selectable("Free Agent", p->teamId.empty())) handleTransfer("");
                 ImGui::Separator();
 
-                // Option 2: Actual Teams
                 for (auto& [tId, team] : m_db->teams) {
-                    if (ImGui::Selectable(team.fullName.c_str(), p->teamId == tId)) {
-                        handleTransfer(tId);
-                    }
+                    if (ImGui::Selectable(team.fullName.c_str(), p->teamId == tId)) handleTransfer(tId);
                 }
                 ImGui::EndCombo();
             }
-        }
             ImGui::Separator();
 
-            // Basic Info
+            // --- SPLIT VISUALS AND STATS PANE ---
+            ImGui::BeginChild("PlayerVisualsPane", ImVec2(0, 265.0f), false);
+
+            ImGui::BeginChild("PlayerPreviewBox", ImVec2(265, 265), true);
+            ImGui::TextDisabled("Live Engine Preview");
+
+            // ==========================================
+            // --- THE FIX 1: EXACT LAYER ORDERING ---
+            // ==========================================
+            std::vector<KitLayer> previewStack;
+
+            // 1. FACE (First thing after the skin body)
+            // We use White so the texture's original pixel colors (eyes/lips) show properly!
+            if (!p->graphics.faceType.empty() && p->graphics.faceType != "None") {
+                previewStack.push_back({ p->graphics.faceType, sf::Color::White });
+            }
+
+            // 2. BEARD (On top of face)
+            if (!p->graphics.beardType.empty() && p->graphics.beardType != "None") {
+                previewStack.push_back({ p->graphics.beardType, p->graphics.beardColor });
+            }
+
+            // 3. HAIR (On top of beard)
+            if (!p->graphics.hairType.empty() && p->graphics.hairType != "None") {
+                previewStack.push_back({ p->graphics.hairType, p->graphics.hairColor });
+            }
+
+            // 4. KITS (On top of the body/head)
+            if (t) {
+                previewStack.insert(previewStack.end(), t->socksLayers.begin(), t->socksLayers.end());
+                previewStack.insert(previewStack.end(), t->shortsLayers.begin(), t->shortsLayers.end());
+                for (const auto& layer : t->shirtLayers) {
+                    KitLayer shirtLayer = layer;
+                    if (p->positionRole == PositionRole::Goalkeeper) {
+                        shirtLayer.color = sf::Color(50, 200, 50);
+                    }
+                    previewStack.push_back(shirtLayer);
+                }
+            }
+            else {
+                previewStack.push_back({ "socks_base", sf::Color::White });
+                previewStack.push_back({ "shorts_base", sf::Color::White });
+                previewStack.push_back({ "shirt_base", (p->positionRole == PositionRole::Goalkeeper) ? sf::Color(50, 200, 50) : sf::Color::White });
+            }
+
+            updatePreviewTexture(m_playerPreviewTexture, p->graphics.skinColor, previewStack, p->heightCm, p->weightKg);
+
+            ImGui::SetCursorPos(ImVec2(7.5f, 25.0f));
+            ImGui::Image(m_playerPreviewTexture.getTexture());
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+
+            ImGui::BeginChild("RadarPane", ImVec2(265.0f, 265.0f), true);
+
+            ImGui::SetWindowFontScale(3.0f);
+            std::string ovrStr = std::to_string(static_cast<int>(p->stats.overallRating));
+            float textWidth = ImGui::CalcTextSize(ovrStr.c_str()).x;
+
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.5f);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.1f, 1.0f), "%s", ovrStr.c_str());
+            ImGui::SetWindowFontScale(1.0f);
+
+            const char* ovrLabel = "OVERALL";
+            textWidth = ImGui::CalcTextSize(ovrLabel).x;
+            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.5f);
+            ImGui::TextDisabled("%s", ovrLabel);
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
+            float availWidthRadar = ImGui::GetContentRegionAvail().x;
+
+            float radius = availWidthRadar * 0.18f;
+            ImVec2 center = ImVec2(cursorScreenPos.x + availWidthRadar * 0.5f, cursorScreenPos.y + radius + 25.0f);
+
+            float nodeStats[6];
+            const char* nodeLabels[6];
+
+            if (p->positionRole == PositionRole::Goalkeeper) {
+                nodeStats[0] = p->stats.getGkCoverage(); nodeStats[1] = p->stats.getGkReactions(); nodeStats[2] = p->stats.getGkCatching();
+                nodeStats[3] = p->stats.getGkThrowing(); nodeStats[4] = p->stats.getGkAwareness(); nodeStats[5] = p->stats.getGkBlocking();
+                nodeLabels[0] = "COV"; nodeLabels[1] = "REA"; nodeLabels[2] = "CAT";
+                nodeLabels[3] = "THR"; nodeLabels[4] = "AWA"; nodeLabels[5] = "BLK";
+            }
+            else {
+                nodeStats[0] = p->stats.getShootingAverage(); nodeStats[1] = p->stats.getPassingAverage(); nodeStats[2] = p->stats.getTechniqueAverage();
+                nodeStats[3] = p->stats.getSpeedAverage(); nodeStats[4] = p->stats.getPhysicalAverage(); nodeStats[5] = p->stats.getMentalAverage();
+                nodeLabels[0] = "SHOT"; nodeLabels[1] = "PASS"; nodeLabels[2] = "TECH";
+                nodeLabels[3] = "PACE"; nodeLabels[4] = "PHYS"; nodeLabels[5] = "MENT";
+            }
+
+            const int numSegments = 6;
+            for (int ring = 1; ring <= 5; ++ring) {
+                float ringRadius = radius * (ring / 5.0f);
+                ImVec2 points[6];
+                for (int i = 0; i < numSegments; ++i) {
+                    float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                    points[i] = ImVec2(center.x + cos(angle) * ringRadius, center.y + sin(angle) * ringRadius);
+                }
+                drawList->AddPolyline(points, 6, IM_COL32(100, 100, 100, 100), ImDrawFlags_Closed, 1.0f);
+            }
+
+            ImVec2 statPoints[6];
+            for (int i = 0; i < numSegments; ++i) {
+                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                float statRadius = radius * (nodeStats[i] / 100.0f);
+                statPoints[i] = ImVec2(center.x + cos(angle) * statRadius, center.y + sin(angle) * statRadius);
+            }
+            drawList->AddConvexPolyFilled(statPoints, 6, IM_COL32(0, 255, 150, 100));
+            drawList->AddPolyline(statPoints, 6, IM_COL32(0, 255, 150, 255), ImDrawFlags_Closed, 2.0f);
+
+            for (int i = 0; i < numSegments; ++i) {
+                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
+                float labelRadius = radius * 1.45f;
+                ImVec2 labelCenter = ImVec2(center.x + cos(angle) * labelRadius, center.y + sin(angle) * labelRadius);
+                char labelBuf[32]; snprintf(labelBuf, sizeof(labelBuf), "%s\n%.0f", nodeLabels[i], nodeStats[i]);
+                ImVec2 textSize = ImGui::CalcTextSize(labelBuf);
+                ImVec2 textDrawPos = ImVec2(labelCenter.x - textSize.x * 0.5f, labelCenter.y - textSize.y * 0.5f);
+                drawList->AddText(textDrawPos, IM_COL32(255, 255, 255, 255), labelBuf);
+            }
+            ImGui::EndChild(); // End RadarPane
+
+            ImGui::EndChild(); // End PlayerVisualsPane
+
+            // --- BASIC INFO & EDITING ---
+            ImGui::BeginChild("PlayerStatsPane", ImVec2(0, 0), true);
+
+            ImGui::Spacing();
             char nameBuffer[128] = "";
             strcpy_s(nameBuffer, p->name.c_str());
             if (ImGui::InputText("Name", nameBuffer, IM_ARRAYSIZE(nameBuffer))) p->name = nameBuffer;
 
-            // ==========================================
-            // --- NEW: NATIONALITY DROPDOWN ---
-            // ==========================================
             std::string currentNatName = "Unknown";
             Country* c = m_db->getCountry(p->nationality);
             if (c) currentNatName = c->name;
@@ -277,7 +431,6 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             int footIdx = (p->preferredFoot == "Left") ? 1 : (p->preferredFoot == "Both" ? 2 : 0);
             if (ImGui::Combo("Preferred Foot", &footIdx, feet, IM_ARRAYSIZE(feet))) p->preferredFoot = feet[footIdx];
 
-            // --- UPDATED POSITION ROLES ---
             const char* roles[] = {
                 "Goalkeeper", "Left Back", "Center Back", "Right Back",
                 "Left Wing Back", "Right Wing Back", "Defensive Mid", "Center Mid",
@@ -287,13 +440,9 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             int roleIdx = static_cast<int>(p->positionRole);
             if (ImGui::Combo("Main Position", &roleIdx, roles, IM_ARRAYSIZE(roles))) {
                 p->positionRole = static_cast<PositionRole>(roleIdx);
-                // When you change the main position, ensure the new one is mastered!
                 p->positionFamiliarity[p->positionRole] = 4;
             }
 
-            // ==========================================
-            // --- NEW: MULTI-POSITION FAMILIARITY UI ---
-            // ==========================================
             if (ImGui::TreeNode("Secondary Positions & Familiarity")) {
                 ImGui::TextDisabled("1: Unable | 2: Rough | 3: Competent | 4: Mastered");
                 ImGui::Spacing();
@@ -301,33 +450,24 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 for (int i = 0; i < IM_ARRAYSIZE(roles); ++i) {
                     PositionRole currentRoleLoop = static_cast<PositionRole>(i);
 
-                    // Initialize if it doesn't exist in the map yet
                     if (p->positionFamiliarity.find(currentRoleLoop) == p->positionFamiliarity.end()) {
-                        p->positionFamiliarity[currentRoleLoop] = 1; // Default to Unable
+                        p->positionFamiliarity[currentRoleLoop] = 1;
                     }
-
-                    // Enforce the Main Position rule
                     if (currentRoleLoop == p->positionRole) {
                         p->positionFamiliarity[currentRoleLoop] = 4;
                     }
 
                     int profLevel = p->positionFamiliarity[currentRoleLoop];
-
-                    // Draw the UI Row
-                    ImGui::PushID(i); // Unique ID so sliders don't conflict
-
-                    // Left align the text, right align the slider
+                    ImGui::PushID(i);
                     ImGui::Text("%-20s", roles[i]);
                     ImGui::SameLine(ImGui::GetWindowWidth() * 0.4f);
 
                     if (currentRoleLoop == p->positionRole) {
-                        // Main position is locked!
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
                         ImGui::Text("Main Position (Mastered)");
                         ImGui::PopStyleColor();
                     }
                     else {
-                        // Editable Slider for secondary positions
                         ImGui::SetNextItemWidth(100.f);
                         if (ImGui::SliderInt("##prof", &profLevel, 1, 4)) {
                             p->positionFamiliarity[currentRoleLoop] = profLevel;
@@ -338,11 +478,9 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 ImGui::TreePop();
             }
 
-            // --- NEW: FILTERED PLAYSTYLE SELECTOR ---
             std::vector<const char*> availableNames;
             std::vector<PlaystyleType> availableTypes;
 
-            // 1. Filter the lists based on the current Position Role
             switch (p->positionRole) {
             case PositionRole::Goalkeeper:
                 availableNames = { "Sweeper Keeper", "On The Line", "Distributor" };
@@ -375,7 +513,7 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             case PositionRole::RightMid:
             case PositionRole::LeftWing:
             case PositionRole::RightWing:
-                availableNames = { "Wide Winger", "False Winger", "Roamer Winger", "Classic Wide Mid", "Defensive Winger", "Inverted Wide Mid" , "Joga Bonito"};
+                availableNames = { "Wide Winger", "False Winger", "Roamer Winger", "Classic Wide Mid", "Defensive Winger", "Inverted Wide Mid" , "Joga Bonito" };
                 availableTypes = { PlaystyleType::WideWinger, PlaystyleType::FalseWinger, PlaystyleType::RoamerWinger, PlaystyleType::ClassicWideMid, PlaystyleType::DefensiveWinger, PlaystyleType::InvertedWideMid, PlaystyleType::JogaBonito };
                 break;
             case PositionRole::CenterForward:
@@ -389,7 +527,6 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 break;
             }
 
-            // 2. Find the current selected index relative to the FILTERED list
             int playstyleIdx = 0;
             for (size_t i = 0; i < availableTypes.size(); ++i) {
                 if (p->playstyle.type == availableTypes[i]) {
@@ -398,30 +535,15 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 }
             }
 
-            // 3. Render the Combo Box using the dynamically filtered arrays
             if (ImGui::Combo("Playstyle", &playstyleIdx, availableNames.data(), static_cast<int>(availableNames.size()))) {
-                // Safely assign the correct enum using the mapped array
                 p->playstyle = PlaystyleDatabase::getPlaystyle(availableTypes[playstyleIdx]);
             }
-
-            // Safety Fallback: If you change a player from Striker to CB, their active 
-            // "Finisher" playstyle will suddenly become invalid for their new role. 
-            // This forces them to default to the first valid playstyle in their new list!
             if (playstyleIdx == 0 && p->playstyle.type != availableTypes[0]) {
                 p->playstyle = PlaystyleDatabase::getPlaystyle(availableTypes[0]);
             }
 
-            // Stats
             ImGui::Separator();
-
-            // Force an update to the overall rating so the UI reflects immediate slider changes
             p->stats.calculateOverallRating(p->positionRole);
-
-            // ==========================================
-            // --- LEFT COLUMN: STAT SLIDERS ---
-            // ==========================================
-            // Give the sliders 55% of the available width, and a fixed height to scroll within
-            ImGui::BeginChild("StatsSlidersPane", ImVec2(ImGui::GetContentRegionAvail().x * 0.55f, 520.0f), false);
 
             ImGui::Text("Player Statistics");
             ImGui::SliderFloat("Natural Fitness", &p->stats.naturalFitness, 1.f, 99.f, "%.0f");
@@ -469,155 +591,72 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             ImGui::SliderInt("Loyalty", &p->loyalty, 1, 99);
             ImGui::SliderFloat("Tactical Familiarity", &p->tacticalFamiliarity, 1.f, 100.f, "%.0f");
 
-            ImGui::EndChild(); // End Left Pane
-
-            // ==========================================
-            // --- RIGHT COLUMN: RADAR & OVERALL RATING ---
-            // ==========================================
-            ImGui::SameLine();
-            ImGui::BeginChild("RadarPane", ImVec2(0, 520.0f), false);
-
-            // --- BIG Overall Rating Text ---
-            ImGui::SetWindowFontScale(4.0f); // Scale up standard text size
-            std::string ovrStr = std::to_string(static_cast<int>(p->stats.overallRating));
-            float textWidth = ImGui::CalcTextSize(ovrStr.c_str()).x;
-
-            // Center the numbers
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.25f);
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.1f, 1.0f), "%s", ovrStr.c_str());
-            ImGui::SetWindowFontScale(1.0f); // Reset scale for normal text
-
-            const char* ovrLabel = "OVERALL";
-            textWidth = ImGui::CalcTextSize(ovrLabel).x;
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - textWidth) * 0.25f);
-            ImGui::TextDisabled("%s", ovrLabel);
-
-            ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing();
-
-            // --- Hexagon Math & Drawing ---
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            ImVec2 cursorScreenPos = ImGui::GetCursorScreenPos();
-            float availWidth = ImGui::GetContentRegionAvail().x;
-
-            // REDUCED RADIUS: Changed from 0.35f to 0.22f to leave plenty of room for text
-            float radius = availWidth * 0.22f;
-
-            // Center point of the radar
-            ImVec2 center = ImVec2(cursorScreenPos.x + availWidth * 0.5f, cursorScreenPos.y + radius + 35.0f);
-
-            // --- DYNAMIC DATA: Check if Goalkeeper ---
-            float nodeStats[6];
-            const char* nodeLabels[6];
-
-            if (p->positionRole == PositionRole::Goalkeeper) {
-                // Goalkeeper Specific Hexagon Data
-                nodeStats[0] = p->stats.getGkCoverage();
-                nodeStats[1] = p->stats.getGkReactions();
-                nodeStats[2] = p->stats.getGkCatching();
-                nodeStats[3] = p->stats.getGkThrowing();
-                nodeStats[4] = p->stats.getGkAwareness();
-                nodeStats[5] = p->stats.getGkBlocking();
-
-                nodeLabels[0] = "COV"; // Coverage
-                nodeLabels[1] = "REA"; // Reactions
-                nodeLabels[2] = "CAT"; // Catching
-                nodeLabels[3] = "THR"; // Throwing
-                nodeLabels[4] = "AWA"; // GK Awareness
-                nodeLabels[5] = "BLK"; // GK Blocking
-            }
-            else {
-                // Outfield Player Hexagon Data
-                nodeStats[0] = p->stats.getShootingAverage();
-                nodeStats[1] = p->stats.getPassingAverage();
-                nodeStats[2] = p->stats.getTechniqueAverage();
-                nodeStats[3] = p->stats.getSpeedAverage();
-                nodeStats[4] = p->stats.getPhysicalAverage();
-                nodeStats[5] = p->stats.getMentalAverage();
-
-                nodeLabels[0] = "SHOT";
-                nodeLabels[1] = "PASS";
-                nodeLabels[2] = "TECH";
-                nodeLabels[3] = "PACE";
-                nodeLabels[4] = "PHYS";
-                nodeLabels[5] = "MENT";
-            }
-
-            // 1. Draw Background Web (Concentric circles/hexagons)
-            const int numSegments = 6;
-            for (int ring = 1; ring <= 5; ++ring) {
-                float ringRadius = radius * (ring / 5.0f);
-                ImVec2 points[6];
-                for (int i = 0; i < numSegments; ++i) {
-                    // Start at top (-90 degrees / -PI/2) and go clockwise
-                    float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
-                    points[i] = ImVec2(center.x + cos(angle) * ringRadius, center.y + sin(angle) * ringRadius);
-                }
-                // Grey semi-transparent lines
-                drawList->AddPolyline(points, 6, IM_COL32(100, 100, 100, 100), ImDrawFlags_Closed, 1.0f);
-            }
-
-            // 2. Draw the Player's Stat Polygon
-            ImVec2 statPoints[6];
-            for (int i = 0; i < numSegments; ++i) {
-                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
-                float statRadius = radius * (nodeStats[i] / 100.0f); // Scale distance by stat (0-100)
-                statPoints[i] = ImVec2(center.x + cos(angle) * statRadius, center.y + sin(angle) * statRadius);
-            }
-            // Fill with a transparent green, outline with solid green
-            drawList->AddConvexPolyFilled(statPoints, 6, IM_COL32(0, 255, 150, 100));
-            drawList->AddPolyline(statPoints, 6, IM_COL32(0, 255, 150, 255), ImDrawFlags_Closed, 2.0f);
-
-            // 3. Draw Labels and Numbers at the edges
-            for (int i = 0; i < numSegments; ++i) {
-                float angle = (i * (3.14159265f / 3.0f)) - (3.14159265f / 2.0f);
-                float labelRadius = radius * 1.35f; // Push text outside the outer hexagon boundary
-                ImVec2 labelCenter = ImVec2(center.x + cos(angle) * labelRadius, center.y + sin(angle) * labelRadius);
-
-                char labelBuf[32];
-                snprintf(labelBuf, sizeof(labelBuf), "%s\n%.0f", nodeLabels[i], nodeStats[i]);
-
-                ImVec2 textSize = ImGui::CalcTextSize(labelBuf);
-                ImVec2 textDrawPos = ImVec2(labelCenter.x - textSize.x * 0.5f, labelCenter.y - textSize.y * 0.5f);
-
-                drawList->AddText(textDrawPos, IM_COL32(255, 255, 255, 255), labelBuf);
-            }
-
-            ImGui::EndChild(); // End Right Pane
-
-            // Graphics
             ImGui::Separator(); ImGui::Text("Player Graphics");
-            char faceBuf[64] = "", hairBuf[64] = "", beardBuf[64] = "", bootBuf[64] = "";
-            strcpy_s(faceBuf, p->graphics.faceType.c_str());
-            strcpy_s(hairBuf, p->graphics.hairType.c_str());
-            strcpy_s(beardBuf, p->graphics.beardType.c_str());
-            strcpy_s(bootBuf, p->graphics.bootType.c_str());
 
-            if (ImGui::InputText("Face Texture ID", faceBuf, IM_ARRAYSIZE(faceBuf))) p->graphics.faceType = faceBuf;
-            if (ImGui::InputText("Hair Texture ID", hairBuf, IM_ARRAYSIZE(hairBuf))) p->graphics.hairType = hairBuf;
-            ColorEdit4SFML("Hair Color", p->graphics.hairColor);
-            if (ImGui::InputText("Beard Texture ID", beardBuf, IM_ARRAYSIZE(beardBuf))) p->graphics.beardType = beardBuf;
-            ColorEdit4SFML("Beard Color", p->graphics.beardColor);
-            if (ImGui::InputText("Boot Texture ID", bootBuf, IM_ARRAYSIZE(bootBuf))) p->graphics.bootType = bootBuf;
-            ColorEdit4SFML("Boot Color", p->graphics.bootColor);
+            // Base Skin
             ColorEdit4SFML("Skin Color", p->graphics.skinColor);
+            ImGui::Separator();
+
+            // ==========================================
+            // --- THE FIX 2: NEW UI DROPDOWNS ---
+            // ==========================================
+
+            // --- FACE ---
+            const char* faceOptions[] = { "None", "player_face_ing" }; // Expand this array as you make more faces!
+            int currentFaceIdx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(faceOptions); ++i) {
+                if (p->graphics.faceType == faceOptions[i]) { currentFaceIdx = i; break; }
+            }
+            if (ImGui::Combo("Face Style", &currentFaceIdx, faceOptions, IM_ARRAYSIZE(faceOptions))) {
+                p->graphics.faceType = faceOptions[currentFaceIdx];
+            }
+
+            // --- BEARD ---
+            const char* beardOptions[] = { "None", "player_beard_ing", "player_goatee_ing" };
+            int currentBeardIdx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(beardOptions); ++i) {
+                if (p->graphics.beardType == beardOptions[i]) { currentBeardIdx = i; break; }
+            }
+            if (ImGui::Combo("Beard Style", &currentBeardIdx, beardOptions, IM_ARRAYSIZE(beardOptions))) {
+                p->graphics.beardType = beardOptions[currentBeardIdx];
+            }
+            ColorEdit4SFML("Beard Color", p->graphics.beardColor);
+
+            // --- HAIR ---
+            const char* hairOptions[] = { "None", "hair_bun", "hair_curlytop", "hair_dreads", "hair_flattop", "hair_short", "hair_skinfade" };
+            int currentHairIdx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(hairOptions); ++i) {
+                if (p->graphics.hairType == hairOptions[i]) { currentHairIdx = i; break; }
+            }
+            if (ImGui::Combo("Hair Style", &currentHairIdx, hairOptions, IM_ARRAYSIZE(hairOptions))) {
+                p->graphics.hairType = hairOptions[currentHairIdx];
+            }
+            ColorEdit4SFML("Hair Color", p->graphics.hairColor);
+
+            ImGui::Separator();
+
+            // --- BOOTS ---
+            char bootBuf[64] = "";
+            strcpy_s(bootBuf, p->graphics.bootType.c_str());
+            if (ImGui::InputText("Boot ID", bootBuf, IM_ARRAYSIZE(bootBuf))) p->graphics.bootType = bootBuf;
+            ColorEdit4SFML("Boot Color", p->graphics.bootColor);
+
+            ImGui::EndChild(); // End PlayerStatsPane
+        }
     }
     else {
         ImGui::Text("Select a player to edit.");
     }
 
-    ImGui::EndChild(); // <-- Ends the right pane scroll box
-    ImGui::Columns(1); // <-- Ends the ImGui columns
+    ImGui::EndChild(); // Ends PlayerEditorPane
 }
 
 void EditorScreen::drawTeamTab(float availableHeight)
 {
-    ImGui::Columns(2, "TeamColumns", true);
-    ImGui::SetColumnWidth(0, 200.0f);
+    // 1. LEFT PANE (Team List)
+    ImGui::BeginChild("TeamListPane", ImVec2(250.0f, availableHeight), true);
 
-    // --- LEFT COLUMN: Team List ---
-    ImGui::BeginChild("TeamList", ImVec2(0, availableHeight - 40.0f), true);
-
-    // Group by Country -> Team
+    ImGui::BeginChild("TeamTree", ImVec2(0, availableHeight - 40.0f), false);
     for (auto& [code, country] : m_db->countries) {
         bool hasTeams = false;
         for (auto& [tId, team] : m_db->teams) {
@@ -625,22 +664,18 @@ void EditorScreen::drawTeamTab(float availableHeight)
         }
 
         if (hasTeams) {
-            // Tier 1: The Country Folder
             if (ImGui::TreeNode(country.name.c_str())) {
-
-                // Tier 2: The Teams
                 for (auto& [tId, team] : m_db->teams) {
                     if (team.countryCode == code) {
                         bool isSelected = (m_selectedTeamId == tId);
                         if (ImGui::Selectable(team.fullName.c_str(), isSelected)) m_selectedTeamId = tId;
                     }
                 }
-                ImGui::TreePop(); // Pop Country
+                ImGui::TreePop();
             }
         }
     }
-
-    ImGui::EndChild();
+    ImGui::EndChild(); // End TeamTree
 
     if (ImGui::Button("+ Create New Team", ImVec2(-FLT_MIN, 30.0f))) {
         int counter = m_db->teams.size() + 100;
@@ -659,9 +694,12 @@ void EditorScreen::drawTeamTab(float availableHeight)
         newTeam.stadiumName = "Local Park";
         newTeam.managerName = "Coach";
         newTeam.uiColor = sf::Color(100, 100, 100);
-        newTeam.shirt.primaryColor = sf::Color::White;
-        newTeam.shorts.primaryColor = sf::Color::White;
-        newTeam.socks.primaryColor = sf::Color::White;
+
+        // Setup initial default layers
+        newTeam.shirtLayers.push_back({ "shirt_base", sf::Color::White });
+        newTeam.shortsLayers.push_back({ "shorts_base", sf::Color::White });
+        newTeam.socksLayers.push_back({ "socks_base", sf::Color::White });
+
         newTeam.defaultTactics.formationName = "4-3-3";
         newTeam.defaultTactics.defensiveDepth = 50;
         newTeam.defaultTactics.passingLength = 50;
@@ -670,10 +708,13 @@ void EditorScreen::drawTeamTab(float availableHeight)
         m_db->teams[newId] = newTeam;
         m_selectedTeamId = newId;
     }
+    ImGui::EndChild(); // End TeamListPane
 
-    ImGui::NextColumn();
+    ImGui::SameLine();
 
-    // --- RIGHT COLUMN: Team Sub-Tabs ---
+    // 2. RIGHT PANE (Team Editor)
+    ImGui::BeginChild("TeamEditorPane", ImVec2(0, availableHeight), true);
+
     if (!m_selectedTeamId.empty()) {
         TeamData* t = m_db->getTeam(m_selectedTeamId);
         if (t) {
@@ -704,7 +745,7 @@ void EditorScreen::drawTeamTab(float availableHeight)
     else {
         ImGui::Text("Select a team to edit.");
     }
-    ImGui::Columns(1);
+    ImGui::EndChild(); // End TeamEditorPane
 }
 
 // ==========================================
@@ -751,34 +792,64 @@ void EditorScreen::drawTeamGeneralTab(TeamData* t)
 
 void EditorScreen::drawTeamKitsTab(TeamData* t)
 {
-    char sBadge[64] = "", sManuf[64] = "", sSpon[64] = "";
+    ImGui::BeginChild("KitControlsPane", ImVec2(350.0f, 300.0f), false);
 
-    if (ImGui::TreeNode("Shirt Details")) {
-        ColorEdit4SFML("Shirt Primary Color", t->shirt.primaryColor);
-        strcpy_s(sBadge, t->shirt.badgeId.c_str());
-        strcpy_s(sManuf, t->shirt.manufacturerId.c_str());
-        strcpy_s(sSpon, t->shirt.sponsorId.c_str());
-        if (ImGui::InputText("Shirt Badge ID", sBadge, IM_ARRAYSIZE(sBadge))) t->shirt.badgeId = sBadge;
-        if (ImGui::InputText("Shirt Manufacturer ID", sManuf, IM_ARRAYSIZE(sManuf))) t->shirt.manufacturerId = sManuf;
-        if (ImGui::InputText("Shirt Sponsor ID", sSpon, IM_ARRAYSIZE(sSpon))) t->shirt.sponsorId = sSpon;
-        ImGui::TreePop();
-    }
+    // THE FIX: Dynamic Array Lambda! Allows for infinite Kit Layer building.
+    auto drawKitArrayUI = [](const char* title, std::vector<KitLayer>& layerArray, const char* defaultTex) {
+        if (ImGui::TreeNodeEx(title, ImGuiTreeNodeFlags_DefaultOpen)) {
 
-    if (ImGui::TreeNode("Shorts Details")) {
-        ColorEdit4SFML("Shorts Primary Color", t->shorts.primaryColor);
-        strcpy_s(sBadge, t->shorts.badgeId.c_str());
-        strcpy_s(sManuf, t->shorts.manufacturerId.c_str());
-        if (ImGui::InputText("Shorts Badge ID", sBadge, IM_ARRAYSIZE(sBadge))) t->shorts.badgeId = sBadge;
-        if (ImGui::InputText("Shorts Manufacturer ID", sManuf, IM_ARRAYSIZE(sManuf))) t->shorts.manufacturerId = sManuf;
-        ImGui::TreePop();
-    }
+            for (size_t i = 0; i < layerArray.size(); ++i) {
+                ImGui::PushID(static_cast<int>(i));
 
-    if (ImGui::TreeNode("Socks Details")) {
-        ColorEdit4SFML("Socks Primary Color", t->socks.primaryColor);
-        strcpy_s(sManuf, t->socks.manufacturerId.c_str());
-        if (ImGui::InputText("Socks Manufacturer ID", sManuf, IM_ARRAYSIZE(sManuf))) t->socks.manufacturerId = sManuf;
-        ImGui::TreePop();
-    }
+                char texBuf[64];
+                strcpy_s(texBuf, layerArray[i].textureId.c_str());
+                if (ImGui::InputText("Texture ID", texBuf, IM_ARRAYSIZE(texBuf))) {
+                    layerArray[i].textureId = texBuf;
+                }
+
+                ColorEdit4SFML("Color", layerArray[i].color);
+
+                if (ImGui::Button("Remove Layer")) {
+                    layerArray.erase(layerArray.begin() + i);
+                    ImGui::PopID();
+                    ImGui::TreePop();
+                    return; // Early return to prevent vector out-of-bounds crash!
+                }
+
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+
+            if (ImGui::Button("+ Add Layer")) {
+                layerArray.push_back({ defaultTex, sf::Color::White });
+            }
+
+            ImGui::TreePop();
+        }
+        };
+
+    drawKitArrayUI("Shirt Layers", t->shirtLayers, "shirt_base");
+    drawKitArrayUI("Shorts Layers", t->shortsLayers, "shorts_base");
+    drawKitArrayUI("Socks Layers", t->socksLayers, "socks_base");
+
+    ImGui::EndChild(); // End KitControlsPane
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("KitPreviewPane", ImVec2(265.0f, 300.0f), true);
+    ImGui::TextDisabled("Home Kit Preview");
+
+    // THE FIX: Compile the entire team's layer stack dynamically for the Preview!
+    std::vector<KitLayer> teamStack;
+    teamStack.insert(teamStack.end(), t->socksLayers.begin(), t->socksLayers.end());
+    teamStack.insert(teamStack.end(), t->shortsLayers.begin(), t->shortsLayers.end());
+    teamStack.insert(teamStack.end(), t->shirtLayers.begin(), t->shirtLayers.end());
+
+    updatePreviewTexture(m_teamPreviewTexture, sf::Color(255, 224, 189), teamStack, 180.f, 75.f);
+
+    ImGui::SetCursorPos(ImVec2(7.5f, 25.0f));
+    ImGui::Image(m_teamPreviewTexture.getTexture());
+    ImGui::EndChild(); // End KitPreviewPane
 }
 
 void EditorScreen::drawTeamRosterTab(TeamData* t)
@@ -796,7 +867,7 @@ void EditorScreen::drawTeamRosterTab(TeamData* t)
             if (ImGui::Button(("X##" + pId).c_str())) {
                 it = t->rosterPlayerIds.erase(it);
                 if (t->defaultTactics.captainId == pId) t->defaultTactics.captainId = "";
-                p->teamId = ""; // Make Free Agent
+                p->teamId = "";
                 continue;
             }
             ImGui::SameLine();
@@ -856,15 +927,11 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
 {
     float halfWidth = ImGui::GetContentRegionAvail().x * 0.5f;
 
-    // ==========================================
-    // --- LEFT SIDE: TACTICAL SLIDERS & SET PIECES ---
-    // ==========================================
     ImGui::BeginChild("TacticsLeftPane", ImVec2(halfWidth, 0), false);
 
     ImGui::Text("Team Style");
     ImGui::Separator();
 
-    // --- FORMATION COMBO BOX ---
     const char* formations[] = { "4-3-3", "4-4-2", "4-2-4", "5-3-2", "5-2-3", "5-4-1" };
     int formIdx = 0;
     for (int i = 0; i < 6; ++i) {
@@ -877,7 +944,6 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
         t->defaultTactics.formationName = formations[formIdx];
     }
 
-    // --- TACTICAL SLIDERS ---
     ImGui::SliderInt("Defensive Depth", &t->defaultTactics.defensiveDepth, 0, 100);
     ImGui::SliderInt("Passing Length", &t->defaultTactics.passingLength, 0, 100);
     ImGui::SliderInt("Attacking Width", &t->defaultTactics.attackingWidth, 0, 100);
@@ -911,28 +977,21 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
     playerCombo("L. Corner", t->defaultTactics.leftCornerTakerId);
     playerCombo("R. Corner", t->defaultTactics.rightCornerTakerId);
 
-    ImGui::EndChild(); // End Left Pane
+    ImGui::EndChild();
 
     ImGui::SameLine();
 
-    // ==========================================
-    // --- RIGHT SIDE: STARTING XI ASSIGNMENT ---
-    // ==========================================
     ImGui::BeginChild("TacticsRightPane", ImVec2(0, 0), false);
 
     ImGui::Text("Starting XI Builder (%s)", t->defaultTactics.formationName.c_str());
     ImGui::Separator();
 
-    // Fetch the structural layout based on the current formation!
     auto formationLayout = getFormationLayout(t->defaultTactics.formationName);
-
     float paneWidth = ImGui::GetContentRegionAvail().x;
 
-    // Draw the UI line by line (GK, DEF, MID, ATT)
     for (size_t i = 0; i < formationLayout.size(); ++i) {
         const auto& line = formationLayout[i];
 
-        // Center the buttons dynamically based on how many players are in this line
         float buttonWidth = 90.0f;
         float totalLineWidth = (buttonWidth * line.size()) + (ImGui::GetStyle().ItemSpacing.x * (line.size() - 1));
         float startPosX = (paneWidth - totalLineWidth) * 0.5f;
@@ -940,13 +999,12 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
         ImGui::SetCursorPosX(startPosX);
 
         for (size_t j = 0; j < line.size(); ++j) {
-            int slotId = line[j].first;            // <--- NEW: Grab the Slot ID (0-10)
-            PositionRole role = line[j].second;    // <--- The tactical role for the pitch
+            int slotId = line[j].first;
+            PositionRole role = line[j].second;
             std::string roleName = roleToString(role);
 
-            // Format the display string: "Role\nPlayerName"
             std::string currPlayerName = "Empty";
-            if (t->defaultTactics.startingXI.count(slotId)) {   // <--- Check map by slotId
+            if (t->defaultTactics.startingXI.count(slotId)) {
                 PlayerData* p = m_db->getPlayer(t->defaultTactics.startingXI[slotId]);
                 if (p) {
                     size_t spacePos = p->name.find_last_of(' ');
@@ -954,7 +1012,6 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
                 }
             }
 
-            // Hidden ID ensures ImGui knows which button is which, even if names are identical
             std::string buttonText = roleName + "\n" + currPlayerName;
             std::string buttonId = "##Slot_" + std::to_string(slotId);
 
@@ -964,7 +1021,7 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
 
             if (ImGui::Button((buttonText + buttonId).c_str(), ImVec2(buttonWidth, 40))) {
                 if (currPlayerName != "Empty") {
-                    t->defaultTactics.startingXI.erase(slotId); // <--- Erase by slotId
+                    t->defaultTactics.startingXI.erase(slotId);
                 }
             }
 
@@ -975,18 +1032,17 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
                 ImGui::SetTooltip("Click to remove %s from XI", currPlayerName.c_str());
             }
 
-            // Drag and Drop Logic
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ROSTER_PLAYER")) {
                     std::string droppedId = static_cast<const char*>(payload->Data);
-                    t->defaultTactics.startingXI[slotId] = droppedId; // <--- Assign by slotId
+                    t->defaultTactics.startingXI[slotId] = droppedId;
                 }
                 ImGui::EndDragDropTarget();
             }
 
             if (j < line.size() - 1) ImGui::SameLine();
         }
-        ImGui::Spacing(); // Add a gap between lines (e.g. between Def and Mid)
+        ImGui::Spacing();
     }
 
     ImGui::Spacing();
@@ -1024,7 +1080,6 @@ void EditorScreen::drawFooter()
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.1f, 0.6f, 0.1f, 1.0f));
 
     if (ImGui::Button("Save All Changes to JSON", ImVec2(200, 30))) {
-        // --- NEW: Single call to save the whole directory structure ---
         m_db->saveDatabase("ASSETS/DATA");
     }
     ImGui::PopStyleColor(3);

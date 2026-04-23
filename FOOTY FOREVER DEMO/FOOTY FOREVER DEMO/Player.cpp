@@ -43,14 +43,38 @@ void Player::loadFromData(const PlayerData& data, const TeamData& teamData)
     m_stats = data.stats;
 
     // ==========================================
-    // --- THE FIX: STORE SHADER UNIFORMS ---
+    // --- BUILD THE KIT STACK (Match Engine) ---
     // ==========================================
     m_skinColor = data.graphics.skinColor;
-    m_shirtColor = (m_matchRole == PositionRole::Goalkeeper) ? sf::Color(50, 200, 50) : teamData.shirt.primaryColor;
-    m_shortsColor = teamData.shorts.primaryColor;
-    m_socksColor = teamData.socks.primaryColor;
+    m_kitLayers.clear();
 
-    // Bind the shared static skin texture just to establish bounds! The shader handles the rest.
+    // 1. Face
+    if (!data.graphics.faceType.empty() && data.graphics.faceType != "None") {
+        m_kitLayers.push_back({ data.graphics.faceType, sf::Color::White });
+    }
+
+    // 2. Beard
+    if (!data.graphics.beardType.empty() && data.graphics.beardType != "None") {
+        m_kitLayers.push_back({ data.graphics.beardType, data.graphics.beardColor });
+    }
+
+    // 3. Hair
+    if (!data.graphics.hairType.empty() && data.graphics.hairType != "None") {
+        m_kitLayers.push_back({ data.graphics.hairType, data.graphics.hairColor });
+    }
+
+    // 4. Kits (Socks -> Shorts -> Shirt)
+    for (const auto& layer : teamData.socksLayers) m_kitLayers.push_back(layer);
+    for (const auto& layer : teamData.shortsLayers) m_kitLayers.push_back(layer);
+    for (const auto& layer : teamData.shirtLayers) {
+        KitLayer shirtLayer = layer;
+        if (m_matchRole == PositionRole::Goalkeeper) {
+            shirtLayer.color = sf::Color(50, 200, 50); // GK Override
+        }
+        m_kitLayers.push_back(shirtLayer);
+    }
+
+    // Bind the shared static skin texture just to establish bounds! 
     m_sprite.setTexture(AnimationServer::getSkinTexture());
 
     m_currentDirection = Direction::Down;
@@ -128,15 +152,12 @@ void Player::swapIdentityWith(Player* other) {
     std::swap(this->injuryDaysRemaining, other->injuryDaysRemaining);
     std::swap(this->currentInjurySeverity, other->currentInjurySeverity);
 
-    // ==========================================
-    // --- THE FIX: SWAP SHADER COLORS ---
-    // ==========================================
-    std::swap(this->m_skinColor, other->m_skinColor);
-    std::swap(this->m_shirtColor, other->m_shirtColor);
-    std::swap(this->m_shortsColor, other->m_shortsColor);
-    std::swap(this->m_socksColor, other->m_socksColor);
 
     // 6. Graphics Sync (Apply the new heights and visually snap the sprites)
+
+    std::swap(this->m_skinColor, other->m_skinColor);
+    std::swap(this->m_kitLayers, other->m_kitLayers);
+
     this->m_sprite.setTexture(AnimationServer::getSkinTexture());
     other->m_sprite.setTexture(AnimationServer::getSkinTexture());
 
@@ -166,7 +187,7 @@ bool Player::hasTrait(const std::string& traitName) const
 void Player::applyPhysicalScale()
 {
     const float BASE_HEIGHT = 180.0f;
-    const float BASE_WEIGHT = 70.0f;
+    const float BASE_WEIGHT = 80.0f;
     const float BASE_SCALE = 0.26f;
 
     float scaleX = BASE_SCALE * (height / BASE_HEIGHT);
@@ -356,7 +377,7 @@ void Player::update(float dt)
     else {
         // Player is moving. Scale the animation speed dynamically!
         animSpeedMultiplier = speed / BASE_RUN_SPEED;
-        animSpeedMultiplier = std::clamp(animSpeedMultiplier, 0.6f, 2.5f);
+        animSpeedMultiplier = std::clamp(animSpeedMultiplier, 0.8f, 2.0f);
     }
 
     // ==========================================

@@ -7,6 +7,7 @@
 #include "PositionRole.h"
 #include "Playstyle.h"
 #include "InjuryData.h"
+#include "KitLayer.h"
 
 // --- SUB-STRUCTURES ---
 
@@ -17,11 +18,6 @@ struct Country {
 
     // Future-proofing: You can easily add confederations later!
     // std::string confederation; // e.g., "UEFA", "CONMEBOL"
-};
-
-struct KitLayer {
-    std::string textureId; // e.g., "Stripes_01"
-    sf::Color color;       // Tint for this specific layer
 };
 
 struct KitData {
@@ -121,6 +117,9 @@ struct TeamData {
     KitData shirt;
     KitData shorts;
     KitData socks;
+    std::vector<KitLayer> socksLayers;
+    std::vector<KitLayer> shortsLayers;
+    std::vector<KitLayer> shirtLayers;
 
     // --- ROSTER (The Entire Club) ---
     std::vector<std::string> rosterPlayerIds; 

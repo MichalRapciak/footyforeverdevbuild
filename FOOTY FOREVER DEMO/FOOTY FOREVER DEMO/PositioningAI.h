@@ -25,7 +25,7 @@ public:
     static sf::Vector2f applyTacticalPositioning(NPCPlayer& npc, Ball& ball, sf::Vector2f homePos, sf::Vector2f ballPos, sf::Vector2f goalPos, TeamState state, TacticalZone zone, const Pitch& pitch, const std::vector<Player*>& team, const std::vector<Player*>& opposition, const TeamAI& teamAI, const SpatialGrid& spatialGrid);
 
     static bool evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall);
-    static sf::Vector2f calculateInterceptionPoint(NPCPlayer& npc, Ball& ball);
+    static sf::Vector2f calculateInterceptionPoint(NPCPlayer& npc, Ball& ball, const Pitch& pitch);
     static sf::Vector2f calculateSeparation(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opponents, sf::Vector2f ballPos, const TeamAI& teamAI);
 
     static bool shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder, float distToBall, const Pitch& pitch, Ball& ball, MatchState matchstate, const TeamAI& teamAI);
@@ -33,5 +33,5 @@ public:
     static sf::Vector2f clampToTacticalZone(sf::Vector2f target, sf::Vector2f homePos, const TacticalZone& zone, float distToBall, bool isHomeSide, const TeamAI& teamAI);
     static bool shouldRecoverPosition(const sf::Vector2f& npcPos, const sf::Vector2f& homePos, const TacticalZone& zone, float distToBall, bool isHomeSide, const TeamAI& teamAI);
 
-    static Player* identifyTargetReceiver(Ball& ball, const std::vector<Player*>& team);
+    static Player* identifyTargetReceiver(Ball& ball, const std::vector<Player*>& team, const Pitch& pitch);
 };

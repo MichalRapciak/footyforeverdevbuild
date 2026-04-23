@@ -191,3 +191,60 @@ sf::Vector2f SpatialGrid::findBestAttackingPocket(sf::Vector2f myPos, sf::Vector
     }
     return bestSpot;
 }
+
+sf::Vector2f SpatialGrid::findBestSupportPocket(sf::Vector2f carrierPos, sf::Vector2f myPos, Team myTeam, const Pitch& pitch) const {
+    sf::Vector2i carrierGrid = worldToGrid(carrierPos, pitch);
+
+    // Search up to ~25m (2500px) around the ball carrier
+    int checkRadius = static_cast<int>(std::ceil(2500.f / m_cellWidth));
+
+    sf::Vector2f bestSpot = myPos;
+    float bestScore = -9999.f;
+
+    for (int x = -checkRadius; x <= checkRadius; ++x) {
+        for (int y = -checkRadius; y <= checkRadius; ++y) {
+            int cx = carrierGrid.x + x;
+            int cy = carrierGrid.y + y;
+
+            if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
+                sf::Vector2f cellWorld = gridToWorld(cx, cy, pitch);
+                float distToCarrier = std::sqrt(std::pow(cellWorld.x - carrierPos.x, 2) + std::pow(cellWorld.y - carrierPos.y, 2));
+
+                // Pockets must be a safe passing distance (not too close, not too far)
+                if (distToCarrier > 500.f && distToCarrier < 2500.f) {
+                    float oppInf = (myTeam == Team::Home) ? m_cells[cx][cy].awayInfluence : m_cells[cx][cy].homeInfluence;
+                    float myInf = (myTeam == Team::Home) ? m_cells[cx][cy].homeInfluence : m_cells[cx][cy].awayInfluence;
+
+                    float distToMe = std::sqrt(std::pow(cellWorld.x - myPos.x, 2) + std::pow(cellWorld.y - myPos.y, 2));
+
+                    // Base Score: Low enemy presence, High friendly presence (safety in numbers)
+                    float score = (myInf * 1.0f) - (oppInf * 5.0f);
+
+                    // Penalty for running across the entire pitch to a pocket meant for someone else
+                    score -= (distToMe / 400.f);
+
+                    // ==========================================
+                    // --- THE GRID LANE CHECK ---
+                    // ==========================================
+                    // Sample the grid halfway between the carrier and this pocket. 
+                    // If the passing lane is heavily occupied by enemies, it's a terrible pocket!
+                    sf::Vector2f midPoint = (carrierPos + cellWorld) * 0.5f;
+                    sf::Vector2i midGrid = worldToGrid(midPoint, pitch);
+                    float laneOppInf = (myTeam == Team::Home) ? m_cells[midGrid.x][midGrid.y].awayInfluence : m_cells[midGrid.x][midGrid.y].homeInfluence;
+
+                    score -= (laneOppInf * 8.0f);
+
+                    // Bonus for forward progress to encourage attacking shape
+                    float forwardProgress = (myTeam == Team::Home) ? (cellWorld.x - carrierPos.x) : (carrierPos.x - cellWorld.x);
+                    if (forwardProgress > 0.f) score += (forwardProgress / 500.f);
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestSpot = cellWorld;
+                    }
+                }
+            }
+        }
+    }
+    return bestSpot;
+}

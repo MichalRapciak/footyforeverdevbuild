@@ -196,6 +196,7 @@
     <ClInclude Include="imgui-1.92.6\imstb_textedit.h" />
     <ClInclude Include="imgui-1.92.6\imstb_truetype.h" />
     <ClInclude Include="InjuryData.h" />
+    <ClInclude Include="KitLayer.h" />
     <ClInclude Include="MatchDayScreen.h" />
     <ClInclude Include="MatchIntroState.h" />
     <ClInclude Include="MatchStatistics.h" />

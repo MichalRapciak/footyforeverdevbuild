@@ -4,18 +4,28 @@
         "country_code": "ESP",
         "full_name": "FC Barcelona",
         "kits": {
-            "shirt": {
-                "design_layers": [],
-                "primary_color": "#551C89"
-            },
-            "shorts": {
-                "design_layers": [],
-                "primary_color": "#1C2193"
-            },
-            "socks": {
-                "design_layers": [],
-                "primary_color": "#3B227E"
-            }
+            "shirt": [
+                {
+                    "color": "#C53172",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#293492",
+                    "texture_id": "shirt_sleeves"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#2F3BA6",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#23479B",
+                    "texture_id": "socks_base"
+                }
+            ]
         },
         "manager_name": "Hansi Flick",
         "roster": [

@@ -233,6 +233,35 @@ sf::Color hexToColor(const std::string& hexStr) {
     return sf::Color(r, g, b, a);
 }
 
+// ==========================================
+// --- NEW: PARSE & SERIALIZE ARRAYS ---
+// ==========================================
+std::vector<KitLayer> parseKitLayers(const json& jArray)
+{
+    std::vector<KitLayer> layers;
+    if (jArray.is_array()) {
+        for (const auto& layerJson : jArray) {
+            KitLayer layer;
+            layer.textureId = layerJson.value("texture_id", "unknown");
+            layer.color = hexToColor(layerJson.value("color", "#FFFFFF"));
+            layers.push_back(layer);
+        }
+    }
+    return layers;
+}
+
+json serializeKitLayers(const std::vector<KitLayer>& layers)
+{
+    json jArray = json::array();
+    for (const auto& layer : layers) {
+        json layerJson;
+        layerJson["texture_id"] = layer.textureId;
+        layerJson["color"] = colorToHex(layer.color);
+        jArray.push_back(layerJson);
+    }
+    return jArray;
+}
+
 
 PlayerData* GameDatabase::getPlayer(const std::string& id) {
     auto it = players.find(id);
@@ -368,52 +397,6 @@ void GameDatabase::initializeDefaultCountries() {
     std::cout << "Successfully initialized " << countries.size() << " default countries!\n";
 }
 
-// --- HELPER: Parse KitData ---
-KitData parseKitData(const json& kitJson)
-{
-    KitData kit;
-    kit.primaryColor   = hexToColor(kitJson.value("primary_color", "#FFFFFF"));
-    kit.badgeId        = kitJson.value("badge_id", "");
-    kit.manufacturerId = kitJson.value("manufacturer_id", "");
-    kit.sponsorId      = kitJson.value("sponsor_id", "");
-
-    if (kitJson.contains("design_layers")) {
-        for (const auto& layerJson : kitJson["design_layers"]) {
-            KitLayer layer;
-            layer.textureId = layerJson.value("texture_id", "");
-            layer.color     = hexToColor(layerJson.value("color", "#FFFFFF"));
-            kit.designLayers.push_back(layer);
-        }
-    }
-    return kit;
-}
-
-TeamData* GameDatabase::getTeam(const std::string& id) {
-    auto it = teams.find(id);
-    if (it != teams.end()) {
-        return &(it->second);
-    }
-    return nullptr;
-}
-
-json serializeKitData(const KitData& kit)
-{
-    json j;
-    j["primary_color"] = colorToHex(kit.primaryColor);
-    if (!kit.badgeId.empty()) j["badge_id"] = kit.badgeId;
-    if (!kit.manufacturerId.empty()) j["manufacturer_id"] = kit.manufacturerId;
-    if (!kit.sponsorId.empty()) j["sponsor_id"] = kit.sponsorId;
-
-    j["design_layers"] = json::array(); 
-    for (const auto& layer : kit.designLayers) {
-        json layerJson;
-        layerJson["texture_id"] = layer.textureId;
-        layerJson["color"]      = colorToHex(layer.color);
-        j["design_layers"].push_back(layerJson);
-    }
-    return j;
-}
-
 void GameDatabase::loadDatabase(const std::string& baseDir) {
     players.clear();
     teams.clear();
@@ -448,12 +431,16 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                     t.managerName = teamData.value("manager_name", "Unknown Manager");
                     t.uiColor = hexToColor(teamData.value("ui_color", "#FFFFFF"));
 
+                    // ==========================================
+                    // --- THE FIX: PARSE THE INFINITE ARRAYS ---
+                    // ==========================================
                     if (teamData.contains("kits")) {
                         auto& kits = teamData["kits"];
-                        if (kits.contains("shirt"))  t.shirt = parseKitData(kits["shirt"]);
-                        if (kits.contains("shorts")) t.shorts = parseKitData(kits["shorts"]);
-                        if (kits.contains("socks"))  t.socks = parseKitData(kits["socks"]);
+                        if (kits.contains("shirt"))  t.shirtLayers = parseKitLayers(kits["shirt"]);
+                        if (kits.contains("shorts")) t.shortsLayers = parseKitLayers(kits["shorts"]);
+                        if (kits.contains("socks"))  t.socksLayers = parseKitLayers(kits["socks"]);
                     }
+
                     if (teamData.contains("roster")) {
                         for (const auto& playerId : teamData["roster"]) {
                             t.rosterPlayerIds.push_back(playerId.get<std::string>());
@@ -477,12 +464,10 @@ void GameDatabase::loadDatabase(const std::string& baseDir) {
                         if (tac.contains("starting_xi")) {
                             for (auto& [slotStr, pId] : tac["starting_xi"].items()) {
                                 try {
-                                    // Convert the JSON string key ("0", "1", "2") back to an integer
                                     int slotId = std::stoi(slotStr);
                                     t.defaultTactics.startingXI[slotId] = pId.get<std::string>();
                                 }
                                 catch (const std::invalid_argument&) {
-                                    // Catch old save files that still say "Goalkeeper" or "CenterMid"
                                     std::cout << "Skipping legacy tactic key: " << slotStr << " for team " << t.id << "\n";
                                 }
                             }
@@ -588,7 +573,6 @@ void GameDatabase::deletePlayerFile(const std::string& id, const std::string& ba
         folder = baseDir + "/FreeAgents/";
     }
     else {
-        // Look up the old team to find out which country folder the player is currently sitting in
         TeamData* t = getTeam(oldTeamId);
         std::string cCode = (t && !t->countryCode.empty()) ? t->countryCode : "UNK";
         folder = baseDir + "/" + cCode + "/Teams/" + oldTeamId + "/Players/";
@@ -599,11 +583,6 @@ void GameDatabase::deletePlayerFile(const std::string& id, const std::string& ba
 }
 
 void GameDatabase::saveDatabase(const std::string& baseDir) {
-    // ==========================================
-    // --- THE FIX: WIPE AND REBUILD ---
-    // ==========================================
-    // By wiping the directory entirely, we ensure that if a team changes leagues/countries, 
-    // we don't leave orphaned files behind in their old country folder!
     if (fs::exists(baseDir)) {
         fs::remove_all(baseDir);
     }
@@ -623,7 +602,6 @@ void GameDatabase::savePlayer(const std::string& id, const std::string& baseDir)
         folder = baseDir + "/FreeAgents/";
     }
     else {
-        // Grab the team to route the player to the correct country folder
         TeamData* t = getTeam(p->teamId);
         std::string cCode = (t && !t->countryCode.empty()) ? t->countryCode : "UNK";
         folder = baseDir + "/" + cCode + "/Teams/" + p->teamId + "/Players/";
@@ -700,7 +678,6 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     TeamData* t = getTeam(id);
     if (!t) return;
 
-    // Push the team into its designated country folder
     std::string cCode = t->countryCode.empty() ? "UNK" : t->countryCode;
     std::string folder = baseDir + "/" + cCode + "/Teams/" + id + "/";
     fs::create_directories(folder);
@@ -715,9 +692,12 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
     j[id]["manager_name"] = t->managerName;
     j[id]["ui_color"] = colorToHex(t->uiColor);
 
-    j[id]["kits"]["shirt"] = serializeKitData(t->shirt);
-    j[id]["kits"]["shorts"] = serializeKitData(t->shorts);
-    j[id]["kits"]["socks"] = serializeKitData(t->socks);
+    // ==========================================
+    // --- THE FIX: SERIALIZE THE ARRAYS ---
+    // ==========================================
+    j[id]["kits"]["shirt"] = serializeKitLayers(t->shirtLayers);
+    j[id]["kits"]["shorts"] = serializeKitLayers(t->shortsLayers);
+    j[id]["kits"]["socks"] = serializeKitLayers(t->socksLayers);
 
     j[id]["roster"] = t->rosterPlayerIds;
 
@@ -745,4 +725,15 @@ void GameDatabase::saveTeam(const std::string& id, const std::string& baseDir) {
 
     std::ofstream file(folder + "TeamData.json");
     if (file.is_open()) file << j.dump(4);
+}
+
+// ==========================================
+// --- THE MISSING FUNCTION: PUT THIS BACK! ---
+// ==========================================
+TeamData* GameDatabase::getTeam(const std::string& id) {
+    auto it = teams.find(id);
+    if (it != teams.end()) {
+        return &(it->second);
+    }
+    return nullptr;
 }

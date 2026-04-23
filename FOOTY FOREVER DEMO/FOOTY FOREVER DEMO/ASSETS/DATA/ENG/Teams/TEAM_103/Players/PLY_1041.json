@@ -19,14 +19,14 @@
         },
         "graphics": {
             "accessories": [],
-            "beard_color": "#282828",
-            "beard_type": "Beard_None",
+            "beard_color": "#4F453A",
+            "beard_type": "None",
             "boot_color": "#000000",
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",
-            "hair_color": "#282828",
-            "hair_type": "Hair_Short",
-            "skin_color": "#B99E7F"
+            "hair_color": "#43361E",
+            "hair_type": "hair_short",
+            "skin_color": "#CBB499"
         },
         "height_cm": 188,
         "loyalty": 92,

@@ -5,7 +5,7 @@
         "graphics": {
             "accessories": [],
             "beard_color": "#282828",
-            "beard_type": "Beard_None",
+            "beard_type": "player_goatee_ing",
             "boot_color": "#000000",
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",

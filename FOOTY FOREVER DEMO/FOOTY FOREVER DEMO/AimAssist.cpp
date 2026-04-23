@@ -21,7 +21,7 @@ static sf::Vector2f normalize(sf::Vector2f source) {
 // --- PASSING ASSIST ---
 // ==========================================
 
-void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& aimDir, float& kickPower, bool isHighPass, bool isNPC) {
+void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& aimDir, float& kickPower, bool isHighPass, bool isNPC, const Pitch& pitch) {
     if (!receiver) return;
 
     sf::Vector2f playerPos = passer.getPosition();
@@ -32,97 +32,85 @@ void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& 
     float stat = isHighPass ? passer.getLongPassing() : ((rawDist < 1500.f) ? passer.getShortPassing() : passer.getLongPassing());
     float passingNorm = stat / 100.f;
 
-    float travelTime = 0.f;
+    bool isHome = (passer.getTeam() == Team::Home);
+    float forwardProgress = isHome ? (targetPos.x - playerPos.x) : (playerPos.x - targetPos.x);
+    bool isBackpass = (forwardProgress < -300.f);
+    if (isBackpass) isHighPass = false;
+
+    // ==========================================
+    // --- 1. THE UNIFIED LEAD PREDICTION ---
+    // ==========================================
+    float leadTime = 0.f;
+    if (isHighPass) {
+        float estVz = std::clamp(400.f + (rawDist * 0.15f), 550.f, 1050.f);
+        float timeInAir = (2.f * estVz) / 980.f;
+        leadTime = std::max(0.1f, timeInAir - 0.15f);
+    }
+    else {
+        float estV0 = std::sqrt(2.f * 800.f * rawDist) + 500.f;
+        leadTime = rawDist / (estV0 * 0.6f);
+        leadTime = std::min(leadTime, 1.2f);
+    }
+
+    sf::Vector2f leadVec = targetVel * leadTime;
+    float maxLeadDist = receiver->getTopSpeed() * 10.f * leadTime;
+    float leadLen = std::sqrt(leadVec.x * leadVec.x + leadVec.y * leadVec.y);
+    if (leadLen > maxLeadDist && leadLen > 0.001f) {
+        leadVec = (leadVec / leadLen) * maxLeadDist;
+    }
+
+    sf::Vector2f aimSpot = targetPos + leadVec;
+
+    aimSpot.x = std::clamp(aimSpot.x, pitch.margin + 50.f, pitch.totalWidth - pitch.margin - 50.f);
+    aimSpot.y = std::clamp(aimSpot.y, pitch.margin + 50.f, pitch.totalHeight - pitch.margin - 50.f);
+
+    // ==========================================
+    // --- 2. THE UNIFIED POWER SOLVER ---
+    // ==========================================
+    float exactDist = dist(playerPos, aimSpot);
     float idealPowerWorld = 0.f;
-    sf::Vector2f aimSpot;
+    float ballFriction = 800.f;
 
     if (isHighPass) {
-        float maxLoft = std::clamp(500.f + (rawDist * 0.25f), 700.f, 1150.f);
-        float vzPower = std::max(maxLoft - ((stat / 100.f) * 80.f), 300.f);
-
-        float g = 980.f;
-        float targetZ = 30.f;
-        float discriminant = (vzPower * vzPower) - (2.f * g * targetZ);
-
-        if (discriminant > 0.f) {
-            travelTime = (vzPower + std::sqrt(discriminant)) / g;
-        }
-        else {
-            travelTime = (2.0f * vzPower) / g;
-        }
-
-        // THE FIX 1: CAP RUN PREDICTION
-        // Players don't sprint in a perfectly straight line for 3 seconds. 
-        // We cap the prediction vector to 0.8 seconds max so the ball is played to their feet/immediate path!
-        float predictionTime = std::min(travelTime, 0.8f);
-        sf::Vector2f predictedPos = targetPos + (targetVel * predictionTime);
-
-        float leadAmount = (passingNorm > 0.8f) ? 120.f : 40.f;
-        sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
-        aimSpot = predictedPos + (dirToPredicted * leadAmount);
-
-        float perfectDist = dist(playerPos, aimSpot);
-
-        // THE FIX 2: INTENTIONAL UNDERHIT FOR LONG BALLS
-        float requiredVelocity = perfectDist / travelTime;
-        float dragTax = 1.0f + (travelTime * 0.05f); // Reduced drag tax
-
-        // If the pass is over 20 meters (2000px), progressively underhit it 
-        // so it drops out of the sky early and allows the receiver to run onto it
-        float longPassUnderhit = 1.0f;
-        if (rawDist > 2000.f) {
-            longPassUnderhit = std::clamp(1.0f - ((rawDist - 2000.f) / 12000.f), 0.70f, 1.0f);
-        }
-
-        idealPowerWorld = requiredVelocity * dragTax * longPassUnderhit;
+        float finalVz = std::clamp(400.f + (exactDist * 0.15f), 550.f, 1050.f);
+        float timeInAir = (2.f * finalVz) / 980.f;
+        float reqHorizSpeed = exactDist / timeInAir;
+        float dragTax = 1.01f; // Reduced
+        idealPowerWorld = reqHorizSpeed * dragTax;
     }
     else {
-        float ballFriction = 800.f;
+        float arrivalSpeed = std::clamp(exactDist * 1.0f, 400.f, 800.f);
+        if (isBackpass) arrivalSpeed = 350.f;
 
-        bool isHome = (passer.getTeam() == Team::Home);
-        float forwardProgress = isHome ? (targetPos.x - playerPos.x) : (playerPos.x - targetPos.x);
-        bool isBackpass = (forwardProgress < -150.f);
-
-        float arrivalSpeed = 400.f - (std::clamp(rawDist / 3000.f, 0.f, 1.f) * 350.f);
-        if (isBackpass) arrivalSpeed = 100.f;
-
-        float v0_est = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * rawDist));
-        travelTime = (v0_est - arrivalSpeed) / ballFriction;
-
-        // Ground passes use a smaller prediction cap
-        float predictionTime = std::min(travelTime, 0.6f);
-        sf::Vector2f predictedPos = targetPos + (targetVel * predictionTime);
-
-        float leadAmount = (passingNorm > 0.8f) ? 200.f : 80.f;
-        sf::Vector2f dirToPredicted = normalize(predictedPos - playerPos);
-        aimSpot = predictedPos + (dirToPredicted * leadAmount);
-
-        float perfectDist = dist(playerPos, aimSpot);
-        idealPowerWorld = std::sqrt((arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * perfectDist));
+        float requiredV0Sq = (arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * exactDist);
+        idealPowerWorld = std::sqrt(requiredV0Sq);
+        idealPowerWorld = std::max(idealPowerWorld, 1200.f); // Base punch
     }
 
-    // --- 5. APPLY MAGNETISM TO AIM ---
-    sf::Vector2f perfectPassDir = normalize(aimSpot - playerPos);
-    float aimDot = (aimDir.x * perfectPassDir.x) + (aimDir.y * perfectPassDir.y);
-
-    if (aimDot > 0.5f) {
-        float magnetism = 0.4f + (passingNorm * 0.5f);
-        aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectPassDir * magnetism));
-    }
-
-    // --- 6. APPLY PERFECT POWER ---
     float idealPowerAssisted = idealPowerWorld / 52.0f;
+    sf::Vector2f perfectAim = normalize(aimSpot - playerPos);
 
     if (isNPC) {
-        float weightErrorFactor = (1.0f - passingNorm) * 0.05f; // Very tight error margin for NPCs
-        float randomWeight = 1.0f + (((rand() % 200) - 100) / 100.f) * weightErrorFactor;
-        kickPower = std::min(idealPowerAssisted * randomWeight, passer.getKickPower());
+        float magnetism = 0.6f + (passingNorm * 0.3f);
+        aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectAim * magnetism));
+
+        float powerMagnetism = 0.8f + (passingNorm * 0.2f);
+        kickPower = (kickPower * (1.0f - powerMagnetism)) + (idealPowerAssisted * powerMagnetism);
+
+        if (isHighPass) kickPower *= 0.95;
+        else kickPower *= 1.2;
     }
     else {
+        float aimDot = (aimDir.x * perfectAim.x) + (aimDir.y * perfectAim.y);
+        if (aimDot > 0.4f) {
+            float magnetism = 0.4f + (passingNorm * 0.5f);
+            aimDir = normalize((aimDir * (1.0f - magnetism)) + (perfectAim * magnetism));
+        }
         float powerMagnetism = 0.3f + (passingNorm * 0.6f);
         kickPower = (kickPower * (1.0f - powerMagnetism)) + (idealPowerAssisted * powerMagnetism);
-        kickPower = std::min(kickPower, passer.getKickPower());
     }
+
+    kickPower = std::clamp(kickPower, 5.f, passer.getKickPower());
 }
 
 Player* AimAssist::getTargetLock(const sf::Vector2f& playerPos, const sf::Vector2f& aimDir, const std::vector<Player*>& teammates) {

@@ -48,10 +48,10 @@ void Stadium::initialiseStadium()
     m_linesBG.setTexture(m_linesTXT);
     m_linesBG.setPosition({ 0.f, 0.f });
     m_linesBG.setColor({ 255,255,255,150 });
-    m_linesBG.setTextureRect(sf::IntRect({ 0, 0 }, { 10000, 7000 }));
+    m_linesBG.setTextureRect(sf::IntRect({ 0, 0 }, { 1000, 700 }));
 
     // Stretch the lines to cover the 10000x7000 pitch
-    m_linesBG.setScale({ 1.0f, 1.0f });
+    m_linesBG.setScale({ 10.0f, 10.0f });
 }
 
 void Stadium::update(GamePlay& game)

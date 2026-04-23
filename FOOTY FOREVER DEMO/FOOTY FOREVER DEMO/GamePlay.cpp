@@ -48,9 +48,15 @@ void GamePlay::initialise(sf::Font& t_font)
 
 	initPauseMenuButtons();
 
+	// ==========================================
+	// --- NEW: LOAD GRAPHICS TO VRAM ---
+	// ==========================================
 	if (!m_kitShader.loadFromFile("ASSETS/SHADERS/kit_mixer.frag", sf::Shader::Type::Fragment)) {
-		std::cerr << "Failed to load kit shader!\n";
+		std::cout << "Failed to load kit shader!\n";
 	}
+
+	// Boot up the Flyweight Animation Server to load the 5 master templates!
+	AnimationServer::init();
 }
 
 /// <summary>
@@ -303,7 +309,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		m_homeGoal.drawPosts(t_window); m_awayGoal.drawPosts(t_window);
 		m_homeGoal.drawCrossbar(t_window); m_awayGoal.drawCrossbar(t_window);
 
-		m_replayEngine.render(t_window);
+		m_replayEngine.render(t_window, &m_kitShader);
 	}
 	else {
 		// A. Draw the Floor & Netting FIRST (Always behind the players)
@@ -481,17 +487,17 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 				t_window.draw(floodShadow);
 			}
 		}
-	}
 
-	// ==========================================
-	// 2B. CORE PLAYER SHADOW (Ambient Occlusion)
-	// ==========================================
-	sf::CircleShape shadow(20.f);
-	shadow.setFillColor(sf::Color(0, 0, 0, static_cast<std::uint8_t>(100 * airFade)));
-	shadow.setOrigin({ 20.f, 20.f });
-	shadow.setPosition(feetPos);
-	shadow.setScale({ shadowScale, shadowScale });
-	t_window.draw(shadow);
+		// ==========================================
+		// 2B. CORE CIRCULAR SHADOW
+		// ==========================================
+		sf::CircleShape core(20.f);
+		core.setFillColor(sf::Color(0, 0, 0, static_cast<std::uint8_t>(100 * airFade)));
+		core.setOrigin({ 20.f, 20.f });
+		core.setPosition(feetPos);
+		core.setScale({ shadowScale, shadowScale });
+		t_window.draw(core);
+	}
 
 	// ==========================================
 	// 3. ELEVATED PLAYER VISUALS
@@ -503,31 +509,50 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 	float scaleMultiplier = 1.0f + (z / 750.f);
 	visualSprite.setScale({ visualSprite.getScale().x * scaleMultiplier, visualSprite.getScale().y * scaleMultiplier });
 
+	// ==========================================
+	// --- DYNAMIC SHADER INJECTION ---
+	// ==========================================
 	Player* p = dynamic_cast<Player*>(entity);
+
 	if (p) {
-		// 1. Convert SFML colors (0-255) to GLSL vectors (0.0 - 1.0)
 		auto toGlslColor = [](sf::Color c) {
 			return sf::Glsl::Vec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
 			};
 
-		// 2. Feed the GPU the specific colors for this player
+		// 1. Base Layer (Skin)
 		m_kitShader.setUniform("skinColor", toGlslColor(p->getSkinColor()));
-		m_kitShader.setUniform("shirtColor", toGlslColor(p->getShirtColor()));
-		m_kitShader.setUniform("shortsColor", toGlslColor(p->getShortsColor()));
-		m_kitShader.setUniform("socksColor", toGlslColor(p->getSocksColor()));
-
-		// 3. Feed the GPU the raw textures
-		// We bind the active sprite's texture to the skin, then pass the rest manually
 		m_kitShader.setUniform("skinTex", sf::Shader::CurrentTexture);
-		m_kitShader.setUniform("shirtTex", AnimationServer::getShirtTexture());
-		m_kitShader.setUniform("shortsTex", AnimationServer::getShortsTexture());
-		m_kitShader.setUniform("socksTex", AnimationServer::getSocksTexture());
+
+		// 2. Pre-allocated string arrays for maximum performance
+		static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
+		static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
+		static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+
+		const auto& layers = p->getKitLayers();
+
+		// 3. Feed the dynamic stack to the GPU
+		for (int i = 0; i < 8; ++i) {
+			if (i < layers.size()) {
+				sf::Texture* tex = AnimationServer::getKitTexture(layers[i].textureId);
+				if (tex) {
+					m_kitShader.setUniform(uUse[i], true);
+					m_kitShader.setUniform(uTex[i], *tex);
+					m_kitShader.setUniform(uCol[i], toGlslColor(layers[i].color));
+				}
+				else {
+					m_kitShader.setUniform(uUse[i], false); // Texture ID was invalid
+				}
+			}
+			else {
+				m_kitShader.setUniform(uUse[i], false); // No more layers for this player
+			}
+		}
 
 		// 4. Draw the sprite USING the shader!
 		t_window.draw(visualSprite, &m_kitShader);
 	}
 	else {
-		// Non-players (like the ball) draw normally
+		// Non-players (like the ball) draw normally without the shader
 		t_window.draw(visualSprite);
 	}
 }

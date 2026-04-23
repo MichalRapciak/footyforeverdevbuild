@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "InjuryData.h"
+#include "KitLayer.h"
 
 // Forward declare the database struct 
 struct PlayerData;
@@ -203,13 +204,8 @@ public:
     float getMovementMultiplier() const;
     float getGeneralMultiplier() const;
 
-    // ==========================================
-    // --- NEW: SHADER COLOR GETTERS ---
-    // ==========================================
+    const std::vector<KitLayer>& getKitLayers() const { return m_kitLayers; }
     sf::Color getSkinColor() const { return m_skinColor; }
-    sf::Color getShirtColor() const { return m_shirtColor; }
-    sf::Color getShortsColor() const { return m_shortsColor; }
-    sf::Color getSocksColor() const { return m_socksColor; }
 
 protected:
     sf::Vector2f m_baseHomePosition;
@@ -237,13 +233,8 @@ protected:
     Animator m_animator;
     Direction m_currentDirection = Direction::Down;
 
-    // ==========================================
-    // --- NEW: SHADER COLOR VARIABLES ---
-    // ==========================================
+    std::vector<KitLayer> m_kitLayers;
     sf::Color m_skinColor;
-    sf::Color m_shirtColor;
-    sf::Color m_shortsColor;
-    sf::Color m_socksColor;
 
     // --- IDENTITY & BIO DATA ---
     std::string m_id;

@@ -4,18 +4,28 @@
         "country_code": "ENG",
         "full_name": "Arsenal FC",
         "kits": {
-            "shirt": {
-                "design_layers": [],
-                "primary_color": "#FF4848"
-            },
-            "shorts": {
-                "design_layers": [],
-                "primary_color": "#D32626"
-            },
-            "socks": {
-                "design_layers": [],
-                "primary_color": "#FFFFFF"
-            }
+            "shirt": [
+                {
+                    "color": "#E22C2C",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_sleeves"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#E22B2B",
+                    "texture_id": "socks_base"
+                }
+            ]
         },
         "manager_name": "Mikel Arteta",
         "roster": [

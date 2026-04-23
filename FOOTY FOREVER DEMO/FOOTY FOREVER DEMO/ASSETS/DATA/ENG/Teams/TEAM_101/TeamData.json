@@ -4,47 +4,24 @@
         "country_code": "ENG",
         "full_name": "Liverpool FC",
         "kits": {
-            "shirt": {
-                "badge_id": "Badge_LIV",
-                "design_layers": [
-                    {
-                        "color": "#FFFFFF",
-                        "texture_id": "Shirt_VNeck_Collar"
-                    },
-                    {
-                        "color": "#FFFFFF",
-                        "texture_id": "Shirt_SleeveCuffs"
-                    },
-                    {
-                        "color": "#B30E29",
-                        "texture_id": "Shirt_Pinstripes"
-                    }
-                ],
-                "manufacturer_id": "Logo_Nike",
-                "primary_color": "#8D1429",
-                "sponsor_id": "Logo_StandardChartered"
-            },
-            "shorts": {
-                "badge_id": "Badge_LIV",
-                "design_layers": [
-                    {
-                        "color": "#FFFFFF",
-                        "texture_id": "Shorts_SideStripe"
-                    }
-                ],
-                "manufacturer_id": "Logo_Nike",
-                "primary_color": "#C8102E"
-            },
-            "socks": {
-                "design_layers": [
-                    {
-                        "color": "#FFFFFF",
-                        "texture_id": "Socks_TopBand"
-                    }
-                ],
-                "manufacturer_id": "Logo_Nike",
-                "primary_color": "#C8102E"
-            }
+            "shirt": [
+                {
+                    "color": "#922B2B",
+                    "texture_id": "shirt_base"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#922525",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#972929",
+                    "texture_id": "socks_base"
+                }
+            ]
         },
         "manager_name": "Jurgen Klopp",
         "roster": [

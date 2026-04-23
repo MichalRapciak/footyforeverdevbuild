@@ -4,18 +4,24 @@
         "country_code": "ENG",
         "full_name": "Manchester City",
         "kits": {
-            "shirt": {
-                "design_layers": [],
-                "primary_color": "#00FFD9"
-            },
-            "shorts": {
-                "design_layers": [],
-                "primary_color": "#53D7CA"
-            },
-            "socks": {
-                "design_layers": [],
-                "primary_color": "#4FCBC1"
-            }
+            "shirt": [
+                {
+                    "color": "#00E6FF",
+                    "texture_id": "shirt_base"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#00E6FF",
+                    "texture_id": "socks_base"
+                }
+            ]
         },
         "manager_name": "Pep Guardiola",
         "roster": [

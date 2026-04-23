@@ -4,13 +4,13 @@
         "familiarity": {},
         "graphics": {
             "accessories": [],
-            "beard_color": "#282828",
-            "beard_type": "Beard_None",
+            "beard_color": "#534333",
+            "beard_type": "player_beard_ing",
             "boot_color": "#000000",
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",
-            "hair_color": "#282828",
-            "hair_type": "Hair_Short",
+            "hair_color": "#473321",
+            "hair_type": "hair_dreads",
             "skin_color": "#E6CBB2"
         },
         "height_cm": 182,

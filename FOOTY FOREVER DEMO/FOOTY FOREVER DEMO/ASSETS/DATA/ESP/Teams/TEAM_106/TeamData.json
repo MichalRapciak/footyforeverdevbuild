@@ -4,18 +4,24 @@
         "country_code": "ESP",
         "full_name": "Real Madrid CF",
         "kits": {
-            "shirt": {
-                "design_layers": [],
-                "primary_color": "#FFFFFF"
-            },
-            "shorts": {
-                "design_layers": [],
-                "primary_color": "#FFFFFF"
-            },
-            "socks": {
-                "design_layers": [],
-                "primary_color": "#FFFFFF"
-            }
+            "shirt": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_base"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "socks_base"
+                }
+            ]
         },
         "manager_name": "A. Arebeola",
         "roster": [

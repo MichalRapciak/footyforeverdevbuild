@@ -18,7 +18,7 @@ public:
     static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer* user, const TeamAI& teamAI, const Pitch& pitch);
     static sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI);
 
-    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, SoundManager& soundManager, MatchStatistics& stats);
+    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats);
     static void executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt, SoundManager& soundManager, MatchStatistics& stats);
     static void executeThrowIn(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates);
 

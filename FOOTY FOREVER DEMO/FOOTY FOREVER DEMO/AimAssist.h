@@ -12,7 +12,7 @@ public:
     // ==========================================
     // Calculates where the receiver will be when the ball arrives, and bends the aim/power toward it.
     // If 'isNPC' is true, it perfectly calculates the power. If false, it blends with the User's charged power.
-    static void applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& aimDir, float& kickPower, bool isHighPass, bool isNPC = false);
+    static void applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& aimDir, float& kickPower, bool isHighPass, bool isNPC, const Pitch& pitch);
 
     // Helps the User controller find which teammate they are currently pointing their mouse at
     static Player* getTargetLock(const sf::Vector2f& playerPos, const sf::Vector2f& aimDir, const std::vector<Player*>& teammates);

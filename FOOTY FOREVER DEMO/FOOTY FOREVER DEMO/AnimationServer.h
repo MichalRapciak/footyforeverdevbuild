@@ -7,7 +7,8 @@
 
 class AnimationServer {
 public:
-    AnimationServer();
+    // --- STATIC INITIALIZER ---
+    static void init();
 
     // --- NEW: Global Texture Loader ---
     static void loadMasterTextures();
@@ -22,6 +23,13 @@ public:
     static const Animation& getRunningAnimation(Direction dir);
     static const Animation& getTackleAnimation(Direction dir, int currentRunFrame);
 
+    static sf::Texture* getKitTexture(const std::string& id) {
+        if (s_kitTextures.find(id) != s_kitTextures.end()) {
+            return &s_kitTextures[id];
+        }
+        return nullptr; // Returns null if you typed the texture ID wrong in the editor!
+    }
+
 private:
     // Shared VRAM Textures
     static sf::Texture s_skinTexture;
@@ -29,11 +37,13 @@ private:
     static sf::Texture s_shortsTexture;
     static sf::Texture s_socksTexture;
     static sf::Texture s_tackleTexture;
+    static std::map<std::string, sf::Texture> s_kitTextures;
     static bool s_texturesLoaded;
 
     static std::map<Direction, Animation> s_runningAnimations;
     static std::map<Direction, std::vector<Animation>> s_tackleAnimations;
 
-    Animation sliceRow(int startY, int numFrames, int frameW, int frameH, bool flipX = false, int loopStart = 0);
-    void buildAnimations();
+    // THE FIX: These helper functions must ALSO be static!
+    static Animation sliceRow(int startY, int numFrames, int frameW, int frameH, bool flipX = false, int loopStart = 0);
+    static void buildAnimations();
 };

@@ -10,8 +10,8 @@
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",
             "hair_color": "#282828",
-            "hair_type": "Hair_Short",
-            "skin_color": "#3F3727"
+            "hair_type": "hair_flattop",
+            "skin_color": "#514732"
         },
         "height_cm": 177,
         "loyalty": 90,
@@ -53,6 +53,6 @@
         "tactical_familiarity": 100.0,
         "team_id": "TEAM_104",
         "traits": [],
-        "weight_kg": 76
+        "weight_kg": 69
     }
 }

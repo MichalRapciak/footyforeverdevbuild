@@ -9,10 +9,11 @@ sf::Texture AnimationServer::s_skinTexture;
 sf::Texture AnimationServer::s_shirtTexture;
 sf::Texture AnimationServer::s_shortsTexture;
 sf::Texture AnimationServer::s_socksTexture;
+std::map<std::string, sf::Texture> AnimationServer::s_kitTextures;
 sf::Texture AnimationServer::s_tackleTexture;
 bool AnimationServer::s_texturesLoaded = false;
 
-AnimationServer::AnimationServer() {
+void AnimationServer::init() {
     loadMasterTextures();
     buildAnimations();
 }
@@ -22,10 +23,26 @@ void AnimationServer::loadMasterTextures() {
 
     std::cout << "Loading Master Textures into VRAM...\n";
     if (!s_skinTexture.loadFromFile("ASSETS/PLAYER/player_run_ing.png")) std::cerr << "Failed to load skin!\n";
-    if (!s_shirtTexture.loadFromFile("ASSETS/PLAYER/shirt_run_ing.png")) std::cerr << "Failed to load shirt!\n";
-    if (!s_shortsTexture.loadFromFile("ASSETS/PLAYER/shorts_run_ing.png")) std::cerr << "Failed to load shorts!\n";
-    if (!s_socksTexture.loadFromFile("ASSETS/PLAYER/socks_run_ing.png")) std::cerr << "Failed to load socks!\n";
+    if (!s_kitTextures["shirt_base"].loadFromFile("ASSETS/PLAYER/shirt_run_ing.png")) std::cerr << "Failed to load shirt!\n";
+    if (!s_kitTextures["shirt_sleeves"].loadFromFile("ASSETS/PLAYER/sleeve_run_ing.png")) std::cerr << "Failed to load sleeves!\n";
+    if (!s_kitTextures["shorts_base"].loadFromFile("ASSETS/PLAYER/shorts_run_ing.png")) std::cerr << "Failed to load shorts!\n";
+    if (!s_kitTextures["socks_base"].loadFromFile("ASSETS/PLAYER/socks_run_ing.png")) std::cerr << "Failed to load socks!\n";
     if (!s_tackleTexture.loadFromFile("ASSETS/PLAYER/player_tackle_ing.png")) std::cerr << "Failed to load tackle!\n";
+
+    // ==========================================
+    // --- NEW: FACES AND BEARDS ---
+    // ==========================================
+    if (!s_kitTextures["player_face_ing"].loadFromFile("ASSETS/PLAYER/player_face_ing.png")) std::cerr << "Failed to load face!\n";
+    if (!s_kitTextures["player_beard_ing"].loadFromFile("ASSETS/PLAYER/player_beard_ing.png")) std::cerr << "Failed to load beard!\n";
+    if (!s_kitTextures["player_goatee_ing"].loadFromFile("ASSETS/PLAYER/player_goatee_ing.png")) std::cerr << "Failed to load goatee!\n";
+
+    // --- HAIR ---
+    if (!s_kitTextures["hair_bun"].loadFromFile("ASSETS/PLAYER/hair_bun.png")) std::cerr << "Failed to load hair bun!\n";
+    if (!s_kitTextures["hair_curlytop"].loadFromFile("ASSETS/PLAYER/hair_curlytop.png")) std::cerr << "Failed to load curly top!\n";
+    if (!s_kitTextures["hair_dreads"].loadFromFile("ASSETS/PLAYER/hair_dreads.png")) std::cerr << "Failed to load dreads!\n";
+    if (!s_kitTextures["hair_flattop"].loadFromFile("ASSETS/PLAYER/hair_flattop.png")) std::cerr << "Failed to load flat top!\n";
+    if (!s_kitTextures["hair_short"].loadFromFile("ASSETS/PLAYER/hair_short.png")) std::cerr << "Failed to load short hair!\n";
+    if (!s_kitTextures["hair_skinfade"].loadFromFile("ASSETS/PLAYER/hair_skinfade.png")) std::cerr << "Failed to load skin fade!\n";
 
     s_texturesLoaded = true;
 }

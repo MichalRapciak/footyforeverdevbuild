@@ -3,6 +3,8 @@
 
 #include "GameDatabase.h"
 #include <SFML/Graphics.hpp>
+#include <SFML/Graphics/RenderTexture.hpp> // <-- NEW
+#include <SFML/Graphics/Shader.hpp>        // <-- NEW
 #include <string>
 
 class EditorScreen {
@@ -28,6 +30,15 @@ private:
 
     // Global Footer
     void drawFooter();
+
+    // ==========================================
+    // --- NEW: OFFFSCREEN RENDER PIPELINE ---
+    // ==========================================
+    void updatePreviewTexture(sf::RenderTexture& target, sf::Color skin, const std::vector<KitLayer>& kitLayers, float heightCm, float weightKg);
+
+    sf::Shader m_kitShader;
+    sf::RenderTexture m_playerPreviewTexture;
+    sf::RenderTexture m_teamPreviewTexture;
 
     // --- State ---
     sf::Font m_font;

@@ -445,7 +445,7 @@ void GoalkeeperAI::distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std:
     float statToUse = useThrow ? npc.getGkThrowing() : npc.getLongPassing();
 
     float finalPower = npc.getKickPower(); // Provide maximum base power to avoid 0.0f tap passes
-    AimAssist::applyPassAssist(npc, bestTarget, directDir, finalPower, goHigh, true);
+    AimAssist::applyPassAssist(npc, bestTarget, directDir, finalPower, goHigh, true, pitch);
 
     float vzPower = 0.f;
     float finalBackspin = 0.f;

@@ -1,43 +1,42 @@
 #include "ReplayEngine.h"
+#include "GameDatabase.h"
+#include "AnimationServer.h"
 
 void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayers)
 {
     if (m_isReplaying) return;
 
-    // ==========================================
-    // --- NEW: POST-ROLL FREEZE CHECK ---
-    // ==========================================
     if (m_isRecordingLocked) {
         if (m_postRollFrames > 0) {
-            m_postRollFrames--; // Count down the frames
+            m_postRollFrames--;
         }
         else {
-            return; // The timer hit 0! The buffer is perfectly frozen in time.
+            return;
         }
     }
 
     ReplayFrame frame;
 
     // ==========================================
-    // 1. RECORD BALL (Index 0 in the bodies array)
+    // 1. RECORD BALL 
     // ==========================================
     if (ball) {
-        frame.ballShadow = ball->getShadow(); // Assuming getShadow returns sf::Sprite or sf::CircleShape
+        frame.ballShadow = ball->getShadow();
         frame.ballPos = ball->getPosition();
 
         BodySnapshot ballSnap;
         ballSnap.sprite = ball->getSprite();
         ballSnap.sortDepth = ball->getSortDepth();
+        ballSnap.isPlayer = false;
         frame.bodies.push_back(ballSnap);
     }
 
     // ==========================================
-    // 2. RECORD PLAYERS (Unsorted / Fixed Order)
+    // 2. RECORD PLAYERS 
     // ==========================================
     for (Player* p : allPlayers) {
         if (p && !p->isSentOff()) {
 
-            // --- A. GET RAW DATA ---
             sf::Vector2f groundPos = p->getPosition();
             float z = p->z;
             sf::Vector2f spriteScale = p->getSprite().getScale();
@@ -49,7 +48,6 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
             float shadowScale = 1.f - (zRatio * 0.5f);
             float currentRadius = 20.f * shadowScale;
 
-            // --- B. FLOODLIGHT SHADOWS ---
             if (airFade > 0.01f) {
                 sf::Vector2f lights[4] = {
                     {-500.f, -500.f},
@@ -102,7 +100,6 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
                 }
             }
 
-            // --- C. CORE SHADOW ---
             sf::CircleShape core(20.f);
             core.setFillColor(sf::Color(0, 0, 0, static_cast<std::uint8_t>(100 * airFade)));
             core.setOrigin({ 20.f, 20.f });
@@ -110,7 +107,6 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
             core.setScale({ shadowScale, shadowScale });
             frame.playerCoreShadows.push_back(core);
 
-            // --- D. ELEVATED PLAYER VISUALS ---
             sf::Vector2f visualPos = { groundPos.x + (z / 1.5f), groundPos.y };
             sf::Sprite visualSprite = p->getSprite();
             visualSprite.setPosition(visualPos);
@@ -118,17 +114,20 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
             float scaleMultiplier = 1.0f + (z / 750.f);
             visualSprite.setScale({ visualSprite.getScale().x * scaleMultiplier, visualSprite.getScale().y * scaleMultiplier });
 
-            // Push to the unsorted array with depth info
             BodySnapshot pSnap;
             pSnap.sprite = visualSprite;
             pSnap.sortDepth = p->getSortDepth();
+
+            pSnap.isPlayer = true;
+            pSnap.skinColor = p->getSkinColor();
+
+            // THE FIX: Store the dynamic array into the snapshot
+            pSnap.kitLayers = p->getKitLayers();
+
             frame.bodies.push_back(pSnap);
         }
     }
 
-    // ==========================================
-    // 3. BUFFER MANAGEMENT
-    // ==========================================
     m_buffer.push_back(frame);
     if (m_buffer.size() > MAX_FRAMES) {
         m_buffer.pop_front();
@@ -144,7 +143,6 @@ void ReplayEngine::startReplay(float playbackSpeed)
     m_playbackIndex = 0;
     m_frameTimer = 0.0f;
 
-    // Snap the camera to the ball's exact position on frame 1
     if (m_buffer[0].ballPos.has_value()) {
         m_replayCamPos = m_buffer[0].ballPos.value();
     }
@@ -163,56 +161,45 @@ void ReplayEngine::update(float dt)
 
         if (m_playbackIndex >= m_buffer.size() - 1) {
             m_isReplaying = false;
-
-            // --- NEW: AUTO-UNLOCK ---
             m_isRecordingLocked = false;
-
             m_buffer.clear();
             return;
         }
     }
 
-    // --- CALCULATE BLEND FACTOR ---
-    // If m_frameTimer is half of timePerFrame, this equals 0.5 (50% blend)
     m_blendFactor = m_frameTimer / timePerFrame;
 }
 
-// Helper function for linear interpolation
 static sf::Vector2f lerpPos(sf::Vector2f a, sf::Vector2f b, float t) {
     return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
 }
 
-void ReplayEngine::render(sf::RenderWindow& window)
+void ReplayEngine::render(sf::RenderWindow& window, sf::Shader* kitShader)
 {
     if (!m_isReplaying || m_playbackIndex >= m_buffer.size() - 1) return;
 
-    // Grab the current frame and the NEXT frame
     const ReplayFrame& frameA = m_buffer[m_playbackIndex];
     const ReplayFrame& frameB = m_buffer[m_playbackIndex + 1];
 
-    // ==========================================
-    // 1. DRAW SHADOWS (Using Frame A is fine for soft shadows)
-    // ==========================================
     if (frameA.ballShadow.has_value()) window.draw(frameA.ballShadow.value());
     for (const auto& flood : frameA.playerFloodlights) window.draw(flood);
     for (const auto& core : frameA.playerCoreShadows) window.draw(core);
 
-    // ==========================================
-    // 2. INTERPOLATE BODIES
-    // ==========================================
     std::vector<BodySnapshot> blendedBodies;
-
-    // Safety check: ensure both frames have the exact same number of entities
     size_t count = std::min(frameA.bodies.size(), frameB.bodies.size());
 
     for (size_t i = 0; i < count; ++i) {
         BodySnapshot blended;
 
-        // Blend Depth
         blended.sortDepth = frameA.bodies[i].sortDepth + (frameB.bodies[i].sortDepth - frameA.bodies[i].sortDepth) * m_blendFactor;
+        blended.sprite = frameA.bodies[i].sprite;
 
-        // Blend Sprite Properties
-        blended.sprite = frameA.bodies[i].sprite; // Copy texture/rect info
+        // Pass the shader info forward
+        blended.isPlayer = frameA.bodies[i].isPlayer;
+        blended.skinColor = frameA.bodies[i].skinColor;
+
+        // THE FIX: Copy the array
+        blended.kitLayers = frameA.bodies[i].kitLayers;
 
         sf::Vector2f posA = frameA.bodies[i].sprite.value().getPosition();
         sf::Vector2f posB = frameB.bodies[i].sprite.value().getPosition();
@@ -225,15 +212,50 @@ void ReplayEngine::render(sf::RenderWindow& window)
         blendedBodies.push_back(blended);
     }
 
-    // ==========================================
-    // 3. DEPTH SORT & DRAW
-    // ==========================================
     std::sort(blendedBodies.begin(), blendedBodies.end(), [](const BodySnapshot& a, const BodySnapshot& b) {
         return a.sortDepth > b.sortDepth;
         });
 
+    // ==========================================
+    // --- THE FIX: RENDER WITH THE DYNAMIC SHADER ---
+    // ==========================================
     for (const auto& body : blendedBodies) {
-        window.draw(body.sprite.value());
+        if (body.isPlayer && kitShader) {
+            auto toGlslColor = [](sf::Color c) {
+                return sf::Glsl::Vec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
+                };
+
+            kitShader->setUniform("skinColor", toGlslColor(body.skinColor));
+            kitShader->setUniform("skinTex", sf::Shader::CurrentTexture);
+
+            // Pre-allocated array names for performance
+            static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
+            static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
+            static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+
+            for (int i = 0; i < 8; ++i) {
+                if (i < body.kitLayers.size()) {
+                    sf::Texture* tex = AnimationServer::getKitTexture(body.kitLayers[i].textureId);
+                    if (tex) {
+                        kitShader->setUniform(uUse[i], true);
+                        kitShader->setUniform(uTex[i], *tex);
+                        kitShader->setUniform(uCol[i], toGlslColor(body.kitLayers[i].color));
+                    }
+                    else {
+                        kitShader->setUniform(uUse[i], false);
+                    }
+                }
+                else {
+                    kitShader->setUniform(uUse[i], false);
+                }
+            }
+
+            window.draw(body.sprite.value(), kitShader);
+        }
+        else {
+            // It's the ball, just draw it normally!
+            window.draw(body.sprite.value());
+        }
     }
 }
 
@@ -249,7 +271,6 @@ void ReplayEngine::replayCam(sf::RenderWindow& window)
     replayView.zoom(0.8f);
     replayView.setRotation(sf::degrees(90.f));
 
-    // Smooth Camera Follow (LERP)
     if (frame.ballPos.has_value()) {
         sf::Vector2f targetPos = frame.ballPos.value();
 

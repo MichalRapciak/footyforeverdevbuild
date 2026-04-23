@@ -25,8 +25,8 @@
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",
             "hair_color": "#282828",
-            "hair_type": "Hair_Short",
-            "skin_color": "#FFE0BD"
+            "hair_type": "hair_flattop",
+            "skin_color": "#594325"
         },
         "height_cm": 176,
         "loyalty": 96,

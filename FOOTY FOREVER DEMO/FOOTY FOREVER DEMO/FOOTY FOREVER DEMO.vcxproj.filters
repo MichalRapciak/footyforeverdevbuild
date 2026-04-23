@@ -338,6 +338,9 @@
     <ClInclude Include="MatchIntroState.h">
       <Filter>Header Files\Menus</Filter>
     </ClInclude>
+    <ClInclude Include="KitLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

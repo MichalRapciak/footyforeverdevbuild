@@ -5,13 +5,13 @@
         "graphics": {
             "accessories": [],
             "beard_color": "#282828",
-            "beard_type": "Beard_None",
+            "beard_type": "player_goatee_ing",
             "boot_color": "#000000",
             "boot_type": "Boots_Basic",
             "face_type": "Face_01",
-            "hair_color": "#282828",
-            "hair_type": "Hair_Short",
-            "skin_color": "#6C583A"
+            "hair_color": "#C3C3C3",
+            "hair_type": "hair_flattop",
+            "skin_color": "#B0986D"
         },
         "height_cm": 191,
         "loyalty": 93,
@@ -53,6 +53,6 @@
         "tactical_familiarity": 90.0,
         "team_id": "TEAM_104",
         "traits": [],
-        "weight_kg": 96
+        "weight_kg": 83
     }
 }

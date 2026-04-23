@@ -251,12 +251,34 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
     float bcNorm = player.getBallControl() / 100.f;
     float agilityNorm = player.getAgility() / 100.f;
 
-    // ==========================================
-    // --- THE ASYMMETRICAL AI LOCK ---
-    // ==========================================
-    // Replace this with however your engine checks for AI vs User!
-    // e.g., bool isAI = (dynamic_cast<NPCPlayer*>(&player) != nullptr);
     bool isAI = (dynamic_cast<NPCPlayer*>(&player) != nullptr);
+
+    // ==========================================
+    // --- THE FIX: EXAGGERATED GALLOP PHYSICS ---
+    // ==========================================
+    int currentFrame = player.getAnimator().getCurrentFrameIndex();
+
+    // Planted to catch weight, or stepping down
+    bool isPlantedOrDown = (currentFrame == 0 || currentFrame == 1 || currentFrame == 4 ||
+        currentFrame == 5 || currentFrame == 8 || currentFrame == 9);
+
+    // Actively pushing off the turf
+    bool isPushing = (currentFrame == 2 || currentFrame == 3 || currentFrame == 6 ||
+        currentFrame == 7 || currentFrame == 10 || currentFrame == 11);
+
+    float frameAccelMultiplier = 1.0f;
+
+    // "First Step" bypass to break out of the Idle Lock
+    if (currentSpeed > 15.f) {
+        // Exactly half the frames (6/12) produce zero propulsion.
+        // To maintain overall speed, the pushing frames must output >2.0x force!
+        if (isPlantedOrDown) {
+            frameAccelMultiplier = 0.0f;
+        }
+        else if (isPushing) {
+            frameAccelMultiplier = 2.2f; // Exaggerated punchy burst
+        }
+    }
 
     // ==========================================
     // 1. DYNAMIC TURN SHARPNESS & REDIRECTION
@@ -284,10 +306,7 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
             turnMultiplier = 0.0f; // Cannot cut into the new direction while sliding
         }
         else if (hasBall && isAI) {
-            // ==========================================
-            // THE FIX 1: AI-ONLY VECTOR SNAP
-            // ==========================================
-            // AI dribblers instantly bend their momentum toward the input!
+            // AI-ONLY VECTOR SNAP
             float pivotRate = (3.0f + (agilityNorm * 7.0f)) * dt;
             pivotRate = std::clamp(pivotRate, 0.0f, 1.0f);
 
@@ -301,15 +320,12 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
             currentSpeed = std::max(0.0f, currentSpeed - baseFriction);
             vel = velDir * currentSpeed;
 
-            // High BC AI players keep a massive chunk of their burst
             float minTurnAccel = 0.4f + (bcNorm * 0.4f);
             float penalty = misalignment * (0.3f + (speedRatio * 0.4f));
             turnMultiplier = std::max(minTurnAccel, 1.2f - penalty);
         }
         else {
-            // ==========================================
             // STANDARD BRAKING (Off-Ball AND Human Dribblers)
-            // ==========================================
             float hardBrakeFriction = player.getAgility() * 15.0f * misalignment * dt;
             currentSpeed = std::max(0.0f, currentSpeed - hardBrakeFriction);
             vel = velDir * currentSpeed;
@@ -333,21 +349,20 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
     // 3. OMNI-DIRECTIONAL vs TANK CONTROLS
     // ==========================================
     if (hasBall && isAI) {
-        // ==========================================
-        // THE FIX 2: AI-ONLY OMNI-DIRECTIONAL BURST
-        // ==========================================
+        // AI-ONLY OMNI-DIRECTIONAL BURST
         float fwdAccel = player.getAcceleration() * burstMultiplier * turnMultiplier;
 
         // Elite AI dribblers get an injection of base acceleration and top speed
         fwdAccel *= 0.9f + (bcNorm * 0.5f) + (agilityNorm * 0.2f);
         maxSpeed *= 0.9f + (bcNorm * 0.3f) + (agilityNorm * 0.1f);
 
+        // --- APPLY THE FRAME MULTIPLIER ---
+        fwdAccel *= frameAccelMultiplier;
+
         accelVec = normInput * fwdAccel; // Drive directly into the input!
     }
     else {
-        // ==========================================
         // TANK CONTROLS (Off-Ball AND Human Dribblers)
-        // ==========================================
         sf::Vector2f forwardDir = player.getAimDirection();
         sf::Vector2f rightDir(-forwardDir.y, forwardDir.x);
 
@@ -381,15 +396,15 @@ void PhysicsEngine::applyPlayerLocomotion(Player& player, sf::Vector2f inputDir,
             maxSpeed *= 0.7f;
         }
 
-        // ==========================================
         // HUMAN DRIBBLING PENALTY
-        // ==========================================
-        // The human player uses Tank Controls AND receives a realistic 
-        // physics penalty to their acceleration when carrying the ball!
         if (hasBall && !isAI) {
             fwdAccel *= 0.5f + (bcNorm * 0.25f);
             maxSpeed *= 0.85f + (bcNorm * 0.15f);
         }
+
+        // --- APPLY THE FRAME MULTIPLIER ---
+        fwdAccel *= frameAccelMultiplier;
+        sideAccel *= frameAccelMultiplier;
 
         accelVec = (forwardDir * inputForward * fwdAccel) + (rightDir * inputRight * sideAccel);
     }

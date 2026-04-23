@@ -810,7 +810,7 @@ void UserController::executeKickRelease(GamePlay& game)
 	// Elite players will use their magnetism to pull the shanked aimDir back on target.
 	// Poor players have no magnetism, so the shanked aimDir stays wild!
 	if (m_currentTarget != nullptr) {
-		AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false);
+		AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false, game.m_pitch);
 		game.m_matchStats.recordPassAttempt(m_userPlayer.getTeam());
 	}
 	else if (!isHighKick) {

@@ -69,28 +69,16 @@ void Ball::updateDribbling(float dt)
 {
     if (!owner) return;
 
-    // ==========================================
-    // --- THE FIX 2: THE COOLDOWN LOCK (NPC SAFE) ---
-    // ==========================================
-    // Safely cast the generic Player pointer to an NPCPlayer.
-    // If it's a UserPlayer, npcOwner will be nullptr and it skips the check!
     if (NPCPlayer* npcOwner = dynamic_cast<NPCPlayer*>(owner)) {
         if (npcOwner->getKickCooldown() > 0.0f) {
-            return; // Lock the dribble motor while the NPC is kicking
+            return;
         }
     }
 
     // --- 1. PLAYER STATE & DIRECTION ---
     sf::Vector2f playerCenter = owner->getPosition();
-
-    // Grab the exact current scale of this specific player (e.g., 0.13 * height)
     sf::Vector2f playerScale = owner->getSprite().getScale();
-
-    // Start at the center (500, 500)
     sf::Vector2f feetPos = playerCenter;
-
-    // Shift 200 raw pixels down the sprite's local vertical axis (Y) to hit the boots,
-    // perfectly multiplied by whatever their dynamic height scale is!
     feetPos.x -= 150.0f * std::abs(playerScale.x);
 
     sf::Vector2f playerVel = owner->getVelocity();
@@ -110,94 +98,151 @@ void Ball::updateDribbling(float dt)
     float bcNorm = owner->getBallControl() / 100.0f;
     float errorFactor = 1.0f - bcNorm;
 
-    // --- 2. THE DRIBBLE LEASH ---
-    // Use feetPos instead of the center!
+    // --- 2. THE LEASH (Fixed Turnovers) ---
     sf::Vector2f toBall = shape.getPosition() - feetPos;
     float dist = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
-    sf::Vector2f toBallNorm = (dist > 0.f) ? toBall / dist : sf::Vector2f{ 0.f, 0.f };
-    float cosAngle = forward.x * toBallNorm.x + forward.y * toBallNorm.y;
+    float cosAngle = (dist > 0.f) ? ((toBall.x / dist) * forward.x + (toBall.y / dist) * forward.y) : 0.f;
 
-    float frontMax = 120.f + (bcNorm * 60.f);
-    float backMax = 60.f + (bcNorm * 40.f);
+    float frontMax = 140.f + (bcNorm * 60.f);
+    float backMax = 80.f + (bcNorm * 40.f);
     float maxDist = backMax + (frontMax - backMax) * ((cosAngle + 1.f) / 2.f);
 
-    // Added a 40px buffer to the leash so temporary physics stretching doesn't break possession
-    if (dist > maxDist + 40.f) {
+    float leashLimit = std::max(220.f, maxDist + 100.f);
+    if (dist > leashLimit) {
         release();
         return;
     }
 
-    // --- 3. THE "STEP & TAP" CYCLE ---
-    float stepInterval = 0.5f - (speedFactor * 0.25f);
-    static sf::Vector2f stepError = { 0.f, 0.f };
+    // ==========================================
+    // --- 3. ACTIVE FOOT TAP LOGIC ---
+    // ==========================================
+    int currentFrame = owner->getAnimator().getCurrentFrameIndex();
+    bool isRightFoot = owner->usingRightFoot();
+    bool isTapFrame = false;
 
-    footTimer += dt;
+    if (isRightFoot && currentFrame == 7) {
+        isTapFrame = true;
+    }
+    else if (!isRightFoot && (currentFrame == 3 || currentFrame == 11)) {
+        isTapFrame = true;
+    }
 
-    if (footTimer >= stepInterval) {
-        footTimer = 0.f;
+    if (currentFrame == 0) m_lastDribbleFrame = -1;
 
-        if (playerSpeed > 50.f) {
-            float randAngle = ((rand() % 360) * 3.14159f) / 180.f;
-            float maxErrorDist = 35.f * errorFactor;
-            float randMag = (rand() % 100) / 100.f * maxErrorDist;
-            stepError = sf::Vector2f(std::cos(randAngle) * randMag, std::sin(randAngle) * randMag);
+    if (isTapFrame && currentFrame != m_lastDribbleFrame) {
+        m_lastDribbleFrame = currentFrame;
+
+        // ==========================================
+        // THE FIX 1: THE PHYSICAL WHIFF
+        // ==========================================
+        // If the ball has swung too far wide during a sharp cut, 
+        // the foot swing misses completely! 
+        float maxLegReach = 65.f + (bcNorm * 40.f); // 65px to 105px reach
+        if (m_isFirstTouch) maxLegReach += 30.f; // Lunge allowance
+
+        if (dist > maxLegReach) {
+            // WHIFF! Let the ball coast smoothly on its current trajectory
+            velocity *= 0.965f;
+            m_isFirstTouch = false;
         }
         else {
-            stepError = { 0.f, 0.f };
+            sf::Vector2f stepError = { 0.f, 0.f };
+            if (playerSpeed > 50.f) {
+                float randAngle = ((rand() % 360) * 3.14159f) / 180.f;
+                float maxErrorDist = 20.f * (errorFactor * errorFactor);
+                float randMag = (rand() % 100) / 100.f * maxErrorDist;
+                stepError = sf::Vector2f(std::cos(randAngle) * randMag, std::sin(randAngle) * randMag);
+            }
+
+            float basePush = 14.f + (12.f * errorFactor);
+            float sprintPush = 40.f * speedFactor * (1.0f + errorFactor);
+            float dynamicForwardPush = basePush + sprintPush;
+
+            float footSpread = (playerSpeed < 50.f) ? 8.f : 16.f;
+            float sideOffset = isRightFoot ? footSpread : -footSpread;
+
+            float turnDot = (m_lastDribbleDir.x * forward.x) + (m_lastDribbleDir.y * forward.y);
+            float turnSeverity = std::max(0.0f, 1.0f - turnDot);
+
+            if (m_isFirstTouch) {
+                dynamicForwardPush = 14.f + (25.f * speedFactor);
+                sideOffset *= 0.2f;
+                m_isFirstTouch = false;
+            }
+            else {
+                if (turnSeverity > 0.15f) {
+                    dynamicForwardPush *= (1.0f + (turnSeverity * 0.4f));
+                }
+            }
+            m_lastDribbleDir = forward;
+
+            sf::Vector2f desiredPos = feetPos + (forward * dynamicForwardPush) + (lateral * sideOffset) + stepError;
+            sf::Vector2f targetDiff = desiredPos - shape.getPosition();
+
+            // ==========================================
+            // THE FIX 2: THE GLANCING BLOW
+            // ==========================================
+            // If they are stretching to reach a ball that is wide, they can't put full 
+            // power into redirecting it. The touch becomes a weak "glancing blow".
+            float diffLen = std::sqrt(targetDiff.x * targetDiff.x + targetDiff.y * targetDiff.y);
+            float kickSnap = 8.0f + (8.0f * speedFactor);
+
+            if (diffLen > 45.f) {
+                // Reduce snap strength drastically if the adjustment is huge
+                kickSnap *= (45.f / diffLen);
+            }
+
+            sf::Vector2f pureKickVel = playerVel + (targetDiff * kickSnap);
+
+            // ==========================================
+            // THE FIX 3: MOMENTUM BLENDING
+            // ==========================================
+            // Prevent telepathy by retaining the ball's existing rolling momentum based on turn severity.
+            // Straight lines = keep 15%. Sharp cuts = keep up to 85% of the old rolling speed!
+            float momentumResistance = 0.7f - (bcNorm * 0.4f); // Good players kill momentum better
+            float oldMomentumWeight = 0.15f + (turnSeverity * momentumResistance);
+            oldMomentumWeight = std::clamp(oldMomentumWeight, 0.15f, 0.85f);
+
+            velocity = (velocity * oldMomentumWeight) + (pureKickVel * (1.0f - oldMomentumWeight));
+        }
+    }
+    else {
+        // --- 3.5. THE ANTI-GLUE MICRO-BUMP ---
+        if (playerSpeed > 10.f) {
+            float footSpread = (playerSpeed < 50.f) ? 8.f : 16.f;
+            float sideOffset = owner->usingRightFoot() ? footSpread : -footSpread;
+
+            if (cosAngle < -0.05f || dist < 20.f) {
+                sf::Vector2f microTarget = feetPos + (forward * 22.f) + (lateral * sideOffset);
+                sf::Vector2f toMicro = microTarget - shape.getPosition();
+                velocity = playerVel + (toMicro * 10.0f);
+            }
+            else {
+                velocity *= 0.965f;
+            }
+        }
+        else {
+            float footSpread = 10.f;
+            float sideOffset = owner->usingRightFoot() ? footSpread : -footSpread;
+            sf::Vector2f idleTarget = feetPos + (forward * 14.f) + (lateral * sideOffset);
+
+            sf::Vector2f pull = idleTarget - shape.getPosition();
+            velocity += pull * 15.0f * dt;
+            velocity *= 0.85f;
         }
     }
 
-    // --- 4. CALCULATING THE DYNAMIC OFFSET ---
-    float stepProgress = footTimer / stepInterval;
-
-    float basePush = 25.f;
-    float maxPushExt = 40.f + (errorFactor * 50.f);
-
-    float dynamicForwardPush = basePush + (maxPushExt * speedFactor * (1.0f - stepProgress));
-
-    float footSpread = (playerSpeed < 50.f) ? 12.f : 22.f;
-    float sideOffset = owner->usingRightFoot() ? footSpread : -footSpread;
-
-    // ANCHOR TO THE FEET!
-    sf::Vector2f desiredPos = feetPos + (forward * dynamicForwardPush) + (lateral * sideOffset) + stepError;
-
-    // ==========================================
-        // --- 5. SMOOTH "TAP AND ROLL" PHYSICS ---
-        // ==========================================
-    sf::Vector2f toTarget = desiredPos - shape.getPosition();
-    dist = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y);
-
-    float controlMultiplier = 0.8f + (bcNorm * 1.2f);
-
-    // 1. THE GOLDILOCKS SPRING
-    // Strong enough to follow the player, soft enough to absorb the "teleporting" footstep target
-    float springStrength = 18.0f * controlMultiplier;
-
-    // The ball matches the player's base speed, plus the pull of the spring
-    sf::Vector2f targetVel = playerVel + (toTarget * springStrength);
-
-    // ==========================================
-    // --- THE FIX 3: SPEED LIMITER ---
-    // ==========================================
-    // The ball should never travel significantly faster than the player's top speed 
-    // while it is attached to their feet!
-    float targetSpeed = std::sqrt(targetVel.x * targetVel.x + targetVel.y * targetVel.y);
-    float absoluteMaxSpeed = topSpeed * 1.5f; // Cap dribble snaps at 150% of player sprint speed
+    // --- 4. APPLY MOVEMENT ---
+    float targetSpeed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    float absoluteMaxSpeed = topSpeed * 2.5f;
 
     if (targetSpeed > absoluteMaxSpeed) {
-        targetVel = (targetVel / targetSpeed) * absoluteMaxSpeed;
+        velocity = (velocity / targetSpeed) * absoluteMaxSpeed;
     }
 
-    // 2. THE SMOOTHING DAMPING
-    // 0.75f gives us enough "slide" to make the ball roll smoothly between touches,
-    // but prevents it from feeling laggy or getting left behind.
-    float damping = 0.75f;
-
-    velocity = (velocity * damping) + (targetVel * (1.0f - damping));
-
-    // --- 6. APPLY MOVEMENT & AIR PHYSICS ---
     shape.move(velocity * dt);
 
+    // --- 5. AIR PHYSICS & VISUALS ---
     if (z > 0.f || vz != 0.f) {
         vz -= gravity * dt;
         z += vz * dt;
@@ -205,17 +250,14 @@ void Ball::updateDribbling(float dt)
         if (z < 0.f) {
             z = 0.f;
             vz = 0.f;
-            velocity *= 0.85f; 
+            velocity *= 0.85f;
         }
     }
 
-    // --- VISUAL SCALING ---
     float t = std::min(z / 300.f, 1.f);
     float scale = minScale + (maxScale - minScale) * t;
     shape.setScale({ scale, scale });
     shadow.setPosition(shape.getPosition());
-
-    // THE SHADOW FIX: Shrink the shadow along the X-axis instead of Y
     shadow.setScale({ 1.f - (t * 0.5f), 1.f });
 }
 
@@ -350,29 +392,41 @@ void Ball::possess(Player* player)
 
         lastTouch = player;
 
-        // --- SET INITIAL FOOT STATE ---
-        bool prefersRight = (owner->getPreferredFoot() == "Right");
-        if (!prefersRight && owner->usingRightFoot()) {
+        // ==========================================
+                // --- NEW: DYNAMIC RECEIVING FOOT ---
+                // ==========================================
+                // Figure out which side the ball is physically arriving on
+        sf::Vector2f forward = owner->getAimDirection();
+        sf::Vector2f lateral = { -forward.y, forward.x };
+        sf::Vector2f toBall = shape.getPosition() - owner->getPosition();
+
+        bool ballArrivingOnRight = (toBall.x * lateral.x + toBall.y * lateral.y) > 0;
+
+        // Force the player to trap it with the foot closest to the ball!
+        if (ballArrivingOnRight && !owner->usingRightFoot()) {
             owner->changeFoot();
         }
-        else if (prefersRight && !owner->usingRightFoot()) {
+        else if (!ballArrivingOnRight && owner->usingRightFoot()) {
             owner->changeFoot();
         }
 
         // ==========================================
-        // --- THE FIX 1: SNAP TO FEET ---
+        // --- SNAP TO FEET ---
         // ==========================================
-        // Prevent the "Rubber-Band" acceleration bug by instantly snapping 
-        // the ball to the player's feet the moment they gain possession.
         sf::Vector2f playerScale = owner->getSprite().getScale();
         sf::Vector2f feetPos = owner->getPosition();
-        feetPos.x -= 150.0f * std::abs(playerScale.x); // Shift down to boots
+        feetPos.x -= 150.0f * std::abs(playerScale.x);
 
+        m_isLooseControl = false;
         shape.setPosition(feetPos);
 
+        // --- THE FIX: SETUP FIRST TOUCH ---
+        m_isFirstTouch = true;
+        m_lastDribbleDir = owner->getAimDirection();
+
         // Reset physics
-        footTimer = 0.f;
-        velocity = { 0, 0 };
+        m_lastDribbleFrame = -1;
+        velocity = owner->getVelocity();
         vz = 0.f;
         z = 0.f;
     }
@@ -387,30 +441,65 @@ void Ball::release()
         lastOwner = owner;
         owner = nullptr;
     }
+    m_isLooseControl = false;
     // THE EXPONENTIAL SPEED BOMB IS DELETED.
     // No more velocity *= 1.4f; here!
 }
 
 void Ball::shoot(const sf::Vector2f& direction, float power, float kickSpin, float v0z, float backspin)
 {
-    m_isSetPiece = false;
-    // 1. Release the owner if there is one
+    // 1. Release the owner if there is one (WITH PHYSICAL REACH CHECK)
     if (owner)
     {
+        // --- PHYSICAL REACH & ANGLE CHECK ---
+        sf::Vector2f playerScale = owner->getSprite().getScale();
+        sf::Vector2f feetPos = owner->getPosition();
+        feetPos.x -= 150.0f * std::abs(playerScale.x);
+
+        sf::Vector2f toBall = shape.getPosition() - feetPos;
+        float distSq = toBall.x * toBall.x + toBall.y * toBall.y;
+
+        float maxReachSq = 120.f * 120.f;
+        bool whiffed = false;
+
+        // Check Distance & Angle
+        if (distSq > maxReachSq) {
+            whiffed = true;
+        }
+        else if (distSq > 0.001f) {
+            float dist = std::sqrt(distSq);
+            sf::Vector2f toBallNorm = toBall / dist;
+            sf::Vector2f forward = owner->getAimDirection();
+
+            float dot = (toBallNorm.x * forward.x) + (toBallNorm.y * forward.y);
+            if (dot < -0.1f) whiffed = true;
+        }
+
+        // ==========================================
+        // THE FIX: GUARANTEED POSSESSION STRIP
+        // ==========================================
+        // Whether they hit it clean or swung at thin air, they lose possession!
         owner->setBallPossession(false);
         lastOwner = owner;
         owner = nullptr;
+        m_isLooseControl = false;
+
+        // If they whiffed, ABORT the kick physics! 
+        // The ball will smoothly continue its previous momentum in free physics.
+        if (whiffed) return;
     }
 
-    // 2. APPLY PHYSICS EVEN IF THERE IS NO OWNER (For loose-ball volleys!)
+    // Only wake the ball up if the kick actually connected!
+    m_isSetPiece = false;
+
+    // 2. APPLY PHYSICS 
     velocity = direction * (power * 52);
     spin = kickSpin;
     vz = (v0z < 100.f) ? 100.f : v0z;
     bs = backspin;
 
-    // 3. FIX: Do NOT set z = 0 here! That ruins aerial shots.
-    // Instead, just give it a microscopic bump so it registers as "in the air" and escapes grass friction.
-    z = 1.0f; // <--- You wrote the comment but forgot to write this line!
+    // 3. AIR ESCAPE
+    z = 1.0f;
 }
 
 bool Ball::hasOwner() const

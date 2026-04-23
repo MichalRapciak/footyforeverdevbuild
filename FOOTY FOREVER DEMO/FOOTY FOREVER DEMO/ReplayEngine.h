@@ -8,22 +8,30 @@
 #include "Player.h"
 #include "Ball.h"
 
+struct KitLayer;
+
 struct BodySnapshot {
     std::optional<sf::Sprite> sprite;
     float sortDepth;
+
+    // --- NEW: Shader data for Replays ---
+    bool isPlayer = false;
+    sf::Color skinColor;
+
+    // THE FIX: Replace hardcoded colors with the dynamic stack!
+    std::vector<KitLayer> kitLayers;
 };
 
 struct ReplayFrame {
     std::optional<sf::Vector2f> ballPos;
-    
-    std::optional<sf::CircleShape> ballShadow; 
+
+    std::optional<sf::CircleShape> ballShadow;
     std::vector<sf::CircleShape> playerCoreShadows;
     std::vector<sf::VertexArray> playerFloodlights;
 
-    // --- NEW: Unsorted bodies with depth data ---
     std::vector<BodySnapshot> bodies;
 
-    ReplayFrame() = default; 
+    ReplayFrame() = default;
 };
 
 class ReplayEngine {
@@ -45,13 +53,14 @@ public:
     void recordFrame(Ball* ball, const std::vector<Player*>& allPlayers);
     void startReplay(float playbackSpeed = 0.5f);
     void update(float dt);
-    void render(sf::RenderWindow& window);
+
+    void render(sf::RenderWindow& window, sf::Shader* kitShader);
+
     void replayCam(sf::RenderWindow& window);
 
     bool isReplaying() const { return m_isReplaying; }
 
 private:
-    // --- NEW: DVR FREEZE VARIABLES ---
     bool m_isRecordingLocked = false;
     int m_postRollFrames = 0;
     std::deque<ReplayFrame> m_buffer;

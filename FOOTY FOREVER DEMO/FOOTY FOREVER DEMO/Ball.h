@@ -37,6 +37,8 @@ public:
     bool isSetPiece() const { return m_isSetPiece; }
     void setSetPiece(bool state) { m_isSetPiece = state; }
 
+    bool isLooseControl() const { return m_isLooseControl; }
+
     Player* lastTouch = nullptr;
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
@@ -46,27 +48,32 @@ public:
     sf::CircleShape shape;
     bool passCompletedEvent = false;
 private:
+
     sf::Sprite sprite;
     sf::Texture texture;
+
+    bool m_isLooseControl = false;
 
     Player* owner = nullptr;
     Player* lastOwner = nullptr;
     bool m_isSetPiece = false;
 
-
     float maxSpeed = 3400.f;
-    float footTimer = 0.f;
-    const float footSwitchTime = 0.15f;
 
+    // --- NEW: Replaced footTimer with Frame Tracker ---
+    int m_lastDribbleFrame = -1;
+
+    // --- NEW: Advanced Touch Mechanics ---
+    bool m_isFirstTouch = false;
+    sf::Vector2f m_lastDribbleDir = { 0.f, 0.f };
+
+    const float footSwitchTime = 0.15f;
     float spinFriction = 0.f;
 
     float minScale = 1.f;
     float maxScale = 1.6f;
 
-
-
-    sf::CircleShape shadow;   // shadow on the ground
-
+    sf::CircleShape shadow;
     void updateDribbling(float dt);
 
 };
