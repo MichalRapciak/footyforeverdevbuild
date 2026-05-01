@@ -1,6 +1,6 @@
 #include "Stadium.h"
 #include <iostream>
-#include "GamePlay.h"
+#include "MatchEngine.h"
 #include <random>
 
 Stadium::Stadium()
@@ -54,7 +54,7 @@ void Stadium::initialiseStadium()
     m_linesBG.setScale({ 10.0f, 10.0f });
 }
 
-void Stadium::update(GamePlay& game)
+void Stadium::update(MatchEngine& game)
 {
 }
 

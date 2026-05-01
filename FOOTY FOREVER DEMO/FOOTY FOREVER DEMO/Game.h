@@ -1,7 +1,7 @@
 #ifndef GAME_HPP
 #define GAME_HPP
 #include <SFML/Graphics.hpp>
-#include "GamePlay.h"
+#include "MatchEngine.h"
 #include "LicenseScreen.h"
 #include "SplashScreen.h"
 #include "MainMenu.h"
@@ -28,7 +28,7 @@ enum class
 	TournamentHub,
 	MatchDay,
 	MatchIntro,
-	GamePlay
+	MatchEngine
 };
 
 class Game
@@ -73,7 +73,7 @@ private:
 	MatchIntroState m_matchIntroScreen;
 	TournamentSetup m_tourSetupScreen;
 	TournamentHub m_tourHubScreen;
-	std::unique_ptr<GamePlay> m_gamingScreen;
+	std::unique_ptr<MatchEngine> m_matchEngineScreen;
 
 	bool m_exitGame; // control exiting game
 

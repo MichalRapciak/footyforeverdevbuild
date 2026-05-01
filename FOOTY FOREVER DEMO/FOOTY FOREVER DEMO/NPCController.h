@@ -17,6 +17,7 @@ struct TacticalContext;
 struct TeamState;
 class SpatialGrid;
 class MatchStatistics;
+struct MatchEnvironment;
 
 // Defines how an NPC should behave
 enum class AIRole {
@@ -34,35 +35,21 @@ public:
     ~NPCController();
 
     // The main entry point for the AI brain
-    void update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
-        const std::vector<Player*>& team, const std::vector<Player*>& opposition,
-        const Pitch& pitch, float dt, Player* firstResponder,
-        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager, const SpatialGrid& spatialGrid
-        , MatchStatistics& stats);
+    void update(NPCPlayer& npc, UserPlayer* userPlayer, float dt, Player* firstResponder, const TeamAI& teamAI, MatchEnvironment& env);
 
 private:
     // 3. Update the Physics signature (add TacticalContext at the end)
     void applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionInput, bool isSprinting,
-        float dt, float distToTarget, Ball& ball, Player* firstResponder,
-        const Pitch& pitch, bool keeperBall, TacticalContext ctx);
+        float dt, float distToTarget, Player* firstResponder,
+        bool keeperBall, TacticalContext ctx, MatchEnvironment& env);
 
-    void handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-        const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
-        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager,
-        MatchStatistics& stats, const TacticalContext& ctx);
+    void handleSetPiece(NPCPlayer& npc, UserPlayer* user, float dt, const TeamAI& teamAI, const TacticalContext& ctx, MatchEnvironment& env);
 
-    bool handleAerialLogic(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-        const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI,
-        SoundManager& soundManager, MatchStatistics& stats);
+    bool handleAerialLogic(NPCPlayer& npc, UserPlayer* user, const TeamAI& teamAI, MatchEnvironment& env);
 
-    void handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-        const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
-        Player* firstResponder, const TeamAI& teamAI, SoundManager& soundManager,
-        const SpatialGrid& spatialGrid, MatchStatistics& stats, const TacticalContext& ctx,
-        const PositioningMask& mask);
+    void handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, float dt, Player* firstResponder, const TeamAI& teamAI, const TacticalContext& ctx, const PositioningMask& mask, MatchEnvironment& env);
 
-    void processDefensiveActions(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& opposition,
-        const Pitch& pitch, float dt, const TacticalContext& ctx, const TeamAI& teamAI);
+    void processDefensiveActions(NPCPlayer& npc, float dt, const TacticalContext& ctx, const TeamAI& teamAI, MatchEnvironment& env);
 
     // Constants for AI behavior tuning
     const float M_SUPPORT_DISTANCE = 400.f;

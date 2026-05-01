@@ -74,3 +74,44 @@ void MatchInfo::recordAppearanceEnd(const std::string& playerId, int minute) {
         }
     }
 }
+
+void MatchInfo::recordPass(const std::string& playerId, bool completed, bool isKeyPass) {
+    if (playerId.empty()) return;
+    m_playerStats[playerId].passesAttempted++;
+    if (completed) m_playerStats[playerId].passesCompleted++;
+    if (isKeyPass) m_playerStats[playerId].keyPasses++;
+}
+
+void MatchInfo::recordShot(const std::string& playerId, bool onTarget) {
+    if (playerId.empty()) return;
+    m_playerStats[playerId].shots++;
+    if (onTarget) m_playerStats[playerId].shotsOnTarget++;
+}
+
+void MatchInfo::recordTackle(const std::string& playerId, bool won) {
+    if (playerId.empty()) return;
+    m_playerStats[playerId].tacklesAttempted++;
+    if (won) m_playerStats[playerId].tacklesWon++;
+}
+
+void MatchInfo::recordInterception(const std::string& playerId) {
+    if (!playerId.empty()) m_playerStats[playerId].interceptions++;
+}
+
+void MatchInfo::recordClearance(const std::string& playerId) {
+    if (!playerId.empty()) m_playerStats[playerId].clearances++;
+}
+
+void MatchInfo::recordSave(const std::string& playerId) {
+    if (!playerId.empty()) m_playerStats[playerId].saves++;
+}
+
+void MatchInfo::recordFoul(const std::string& playerId) {
+    if (!playerId.empty()) m_playerStats[playerId].foulsCommitted++;
+}
+
+void MatchInfo::recordDribble(const std::string& playerId, bool won) {
+    if (playerId.empty()) return;
+    m_playerStats[playerId].dribblesAttempted++;
+    if (won) m_playerStats[playerId].dribblesCompleted++;
+}

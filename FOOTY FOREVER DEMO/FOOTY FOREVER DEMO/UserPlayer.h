@@ -5,7 +5,7 @@
 #include "PlayerStats.h"
 #include "PlayerState.h"
 
-class GamePlay;
+class MatchEngine;
 
 class UserPlayer : public Player
 {

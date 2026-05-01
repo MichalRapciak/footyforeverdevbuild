@@ -141,7 +141,7 @@
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="GameDatabase.cpp" />
     <ClCompile Include="GamemodeSelect.cpp" />
-    <ClCompile Include="GamePlay.cpp" />
+    <ClCompile Include="MatchEngine.cpp" />
     <ClCompile Include="GoalkeeperAI.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui-SFML.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui.cpp" />
@@ -186,7 +186,7 @@
     <ClInclude Include="Game.h" />
     <ClInclude Include="GameDatabase.h" />
     <ClInclude Include="GamemodeSelect.h" />
-    <ClInclude Include="GamePlay.h" />
+    <ClInclude Include="MatchEngine.h" />
     <ClInclude Include="GlobalSettings.h" />
     <ClInclude Include="GoalkeeperAI.h" />
     <ClInclude Include="imgui-1.92.6\imconfig-SFML.h" />
@@ -201,6 +201,7 @@
     <ClInclude Include="InjuryData.h" />
     <ClInclude Include="KitLayer.h" />
     <ClInclude Include="MatchDayScreen.h" />
+    <ClInclude Include="MatchEnvironment.h" />
     <ClInclude Include="MatchInfo.h" />
     <ClInclude Include="MatchIntroState.h" />
     <ClInclude Include="MatchStatistics.h" />

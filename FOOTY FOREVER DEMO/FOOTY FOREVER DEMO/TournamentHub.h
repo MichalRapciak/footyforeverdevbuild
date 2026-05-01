@@ -2,57 +2,62 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <string>
+#include "GameDatabase.h"
 
-class GameDatabase;
+struct BracketNode {
+    std::string homeTeamId;
+    std::string awayTeamId;
+    int homeScore = 0;
+    int awayScore = 0;
+    bool isCompleted = false;
+};
+
 struct ImVec2;
 struct ImDrawList;
 
-// Simple struct to hold match data for the bracket
-struct TournamentMatch {
-	std::string team1Id; // Home Team
-	std::string team2Id; // Away Team
-	std::string winnerId = "";
-	int score1 = 0;
-	int score2 = 0;
-	bool isPlayed = false;
-};
-
-class TournamentHub
-{
+class TournamentHub {
 public:
-	TournamentHub();
-	~TournamentHub();
+    TournamentHub();
+    ~TournamentHub();
 
-	void init(sf::Font& font, GameDatabase& database, const std::vector<std::string>& bracket, const std::string& userTeamId);
-	void update(sf::Time dt, sf::RenderWindow& window);
-	void render(sf::RenderWindow& window);
+    void init(sf::Font& font, GameDatabase& db, const std::vector<std::string>& participantIds, const std::string& userTeamId);
 
-	const std::string& getUserTeamId() const { return m_userTeamId; }
-	const std::string& getNextOpponentId() const { return m_nextOpponentId; }
+    void advanceTournament(const MatchInfo& result);
 
-	// NEW: Getters to pass directly into MatchDayScreen::init()
-	const std::string& getCurrentMatchHomeId() const { return m_currentHomeId; }
-	const std::string& getCurrentMatchAwayId() const { return m_currentAwayId; }
+    // THE FIX: Provide the getters for Game.cpp!
+    std::string getCurrentMatchHomeId() const { return m_currentHomeId; }
+    std::string getCurrentMatchAwayId() const { return m_currentAwayId; }
+    std::string getUserTeamId() const { return m_userTeamId; }
+    std::string getActiveCompId() const { return m_activeCompId; }
 
-protected:
-	GameDatabase* m_db{ nullptr };
-	sf::Sprite bg_s;
-	sf::Texture bg_txt;
+    void update(sf::Time dt, sf::RenderWindow& window);
+    void render(sf::RenderWindow& window);
 
-	// State Variables
-	std::string m_userTeamId;
-	int m_tournamentSize;
-	std::string m_nextOpponentId;
+private:
+    GameDatabase* m_db = nullptr;
+    sf::Font m_font;
 
-	// NEW: Store the explicit sides for the upcoming match
-	std::string m_currentHomeId;
-	std::string m_currentAwayId;
+    std::string m_userTeamId;
+    std::string m_activeCompId;
 
-	// Rounds
-	std::vector<TournamentMatch> m_quarterFinals;
-	std::vector<TournamentMatch> m_semiFinals;
-	std::vector<TournamentMatch> m_final;
+    // The Tree: m_bracket[RoundIndex][MatchIndex]
+    std::vector<std::vector<BracketNode>> m_bracket;
 
-	// Helper to draw the bracket boxes
-	void drawBracketNode(const std::string& teamId, ImVec2 pos, ImVec2 size, ImDrawList* drawList);
+    int m_currentRound = 0;
+    int m_currentMatchIndex = 0;
+
+    // Tracker variables for the UI and the MatchDay transition
+    std::string m_nextOpponentId = "";
+    std::string m_currentHomeId = "";
+    std::string m_currentAwayId = "";
+    std::string m_tournamentWinnerId = "";
+
+    sf::Texture bg_txt;
+    sf::Sprite bg_s;
+
+    void generateBracket(const std::vector<std::string>& participantIds);
+    void simulateBackgroundMatches();
+    void updateNextFixture(); // NEW: Extracts the next match info
+
+    void drawBracketNode(const std::string& teamId, ImVec2 pos, ImVec2 size, ImDrawList* drawList);
 };

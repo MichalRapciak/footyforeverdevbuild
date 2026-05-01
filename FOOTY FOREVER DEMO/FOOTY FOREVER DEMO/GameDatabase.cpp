@@ -7,6 +7,8 @@
     #include <sstream>
     #include <vector>
     #include <filesystem>
+    #include "MatchInfo.h"
+
     namespace fs = std::filesystem;
 
     using json = nlohmann::json;
@@ -794,4 +796,79 @@
             return &(it->second);
         }
         return nullptr;
+    }
+
+    CompetitionData* GameDatabase::getCompetition(const std::string& id) {
+        auto it = competitions.find(id);
+        if (it != competitions.end()) return &(it->second);
+        return nullptr;
+    }
+
+    CupTournamentData* GameDatabase::getCupTournament(const std::string& id) {
+        auto it = cupTournaments.find(id);
+        if (it != cupTournaments.end()) return &(it->second);
+        return nullptr;
+    }
+
+    void GameDatabase::processMatchResult(const MatchInfo& info, const std::string& compId) {
+
+        CompetitionData* comp = getCompetition(compId);
+
+        // 1. Process all Goals & Assists
+        for (const auto& goal : info.getGoals()) {
+            // We don't credit own goals to a player's total tally
+            if (!goal.isOwnGoal && !goal.scorerPlayerId.empty()) {
+                if (comp) comp->playerStats[goal.scorerPlayerId].goals++;
+            }
+
+            if (!goal.assistPlayerId.empty()) {
+                if (comp) comp->playerStats[goal.assistPlayerId].assists++;
+            }
+        }
+
+        // 2. Process all Cards
+        for (const auto& card : info.getCards()) {
+            if (comp) {
+                if (card.isRedCard) {
+                    comp->playerStats[card.playerId].redCards++;
+                }
+                else {
+                    comp->playerStats[card.playerId].yellowCards++;
+                }
+            }
+        }
+
+        // 3. Process Appearances & Minutes Played
+        for (const auto& app : info.getAppearances()) {
+            int minutesPlayed = app.minuteOff - app.minuteOn;
+            if (minutesPlayed > 0 && comp) {
+                comp->playerStats[app.playerId].appearances++;
+                comp->playerStats[app.playerId].minutesPlayed += minutesPlayed;
+            }
+        }
+
+        // 4. Update the Fixture Record
+        if (comp) {
+            // Find the specific fixture that matches these two teams and mark it played
+            for (auto& fixture : comp->fixtures) {
+                if (!fixture.isPlayed &&
+                    ((fixture.homeTeamId == info.getHomeTeamId() && fixture.awayTeamId == info.getAwayTeamId()) ||
+                        (fixture.homeTeamId == info.getAwayTeamId() && fixture.awayTeamId == info.getHomeTeamId())))
+                {
+                    fixture.homeScore = info.getHomeScore();
+                    fixture.awayScore = info.getAwayScore();
+
+                    // If it was played at the away stadium, swap the scores for the record
+                    if (fixture.homeTeamId == info.getAwayTeamId()) {
+                        fixture.homeScore = info.getAwayScore();
+                        fixture.awayScore = info.getHomeScore();
+                    }
+
+                    fixture.isPlayed = true;
+                    break; // Found and updated!
+                }
+            }
+        }
+
+        std::cout << "Successfully processed match result into database.\n";
     }

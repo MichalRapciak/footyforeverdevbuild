@@ -19,13 +19,14 @@
 #include "SpatialGrid.h"
 #include "MatchStatistics.h"
 #include "MatchInfo.h"
+#include "MatchEnvironment.h"
 #include <algorithm>
 
-class GamePlay
+class MatchEngine
 {
 	public:
-		GamePlay(); // main game function
-		~GamePlay();
+		MatchEngine(); // main game function
+		~MatchEngine();
 
 		void processEvents(sf::Event& t_event, sf::RenderWindow& t_window);
 		void processKeys(sf::Event t_event);
@@ -52,6 +53,11 @@ class GamePlay
 		float loadNextPlayer(); // Returns progress from 0.0 to 1.0
 		void finalizeMatchSetup();
 
+		bool isExitRequested() const { return m_exitRequested; }
+		bool isMatchFinished() const { return m_matchLogged && m_gameOver; }
+
+		const MatchInfo& getMatchInfo() const { return m_matchInfo; }
+
 		std::unique_ptr<Ball> m_ball;
 		Pitch m_pitch;
 		Goal m_homeGoal;
@@ -72,9 +78,9 @@ class GamePlay
 
 		MatchStatistics m_matchStats;
 
+
 	protected:
 		sf::Font m_font;
-		sf::Text m_pauseText;
 		sf::Text m_gameOverText;
 		sf::Text m_gameWonText;
 		SpatialGrid m_spatialGrid;
@@ -177,6 +183,10 @@ class GamePlay
 	void drawDebugOffsideLines(sf::RenderWindow& window);
 	void drawDebugNames(sf::RenderWindow& window, const sf::Font& font);
 	void drawDebugHitboxes(sf::RenderWindow& window);
-	void drawPassDebug(sf::RenderWindow& t_window);
+	bool m_matchLogged = false;
+
+	bool m_exitRequested = false;
+	bool m_showWarning = false;
+	sf::Text m_warningText;
 
 };

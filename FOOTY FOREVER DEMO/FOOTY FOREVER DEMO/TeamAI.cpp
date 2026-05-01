@@ -4,6 +4,7 @@
 #include "Pitch.h"
 #include "MatchReferee.h"
 #include <algorithm>
+#include "MatchEnvironment.h"
 
 TeamAI::TeamAI(bool isHomeTeam, const TeamTactics& tactics)
     : m_isHomeTeam(isHomeTeam), m_tactics(tactics), m_offsideLineX(0.f), m_ballProgress(0.5f), m_opposingBlockPush(0.5f), m_phaseTimer(0.f)
@@ -13,15 +14,15 @@ TeamAI::TeamAI(bool isHomeTeam, const TeamTactics& tactics)
     m_lastPhase = MatchPhase::Neutral;
 }
 
-void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, const Pitch& pitch, float dt, const MatchReferee& referee) {
-    float ballX = ball.getPosition().x;
-    m_ballProgress = m_isHomeTeam ? (ballX / pitch.totalWidth) : (1.0f - (ballX / pitch.totalWidth));
+void TeamAI::update(float dt, MatchEnvironment& env) {
+    float ballX = env.ball->getPosition().x;
+    m_ballProgress = m_isHomeTeam ? (ballX / env.pitch->totalWidth) : (1.0f - (ballX / env.pitch->totalWidth));
     m_ballProgress = std::clamp(m_ballProgress, 0.0f, 1.0f);
 
-    float deepestOpponentX = m_isHomeTeam ? 0.0f : pitch.totalWidth;
-    m_highestAttackerX = m_isHomeTeam ? pitch.totalWidth : 0.0f;
+    float deepestOpponentX = m_isHomeTeam ? 0.0f : env.pitch->totalWidth;
+    m_highestAttackerX = m_isHomeTeam ? env.pitch->totalWidth : 0.0f;
 
-    for (Player* opp : opposition) {
+    for (Player* opp : *env.opposition) {
         if (opp->getPositionRole() == PositionRole::Goalkeeper) continue;
         float oppX = opp->getPosition().x;
 
@@ -32,15 +33,15 @@ void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, co
         else if (!m_isHomeTeam && oppX > m_highestAttackerX) m_highestAttackerX = oppX;
     }
 
-    float halfwayX = pitch.totalWidth / 2.f;
+    float halfwayX = env.pitch->totalWidth / 2.f;
     if (m_isHomeTeam) m_offsideLineX = std::max({ deepestOpponentX, ballX, halfwayX });
     else m_offsideLineX = std::min({ deepestOpponentX, ballX, halfwayX });
 
-    float distToTheirGoal = m_isHomeTeam ? (pitch.totalWidth - deepestOpponentX) : deepestOpponentX;
+    float distToTheirGoal = m_isHomeTeam ? (env.pitch->totalWidth - deepestOpponentX) : deepestOpponentX;
     m_opposingBlockPush = std::clamp((distToTheirGoal - 1500.f) / 3000.f, 0.0f, 1.0f);
 
-    Player* owner = ball.getOwner();
-    if (!owner) owner = ball.getLastOwner();
+    Player* owner = env.ball->getOwner();
+    if (!owner) owner = env.ball->getLastOwner();
 
     MatchPhase currentPhase = MatchPhase::Defending;
     if (owner) {
@@ -59,9 +60,9 @@ void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, co
     // ==========================================
     // --- 1. THE MANAGER'S BRAIN (Commands) ---
     // ==========================================
-    float matchMin = referee.getMatchMinute();
-    int myScore = m_isHomeTeam ? referee.getHomeScore() : referee.getAwayScore();
-    int oppScore = m_isHomeTeam ? referee.getAwayScore() : referee.getHomeScore();
+    float matchMin = env.referee->getMatchMinute();
+    int myScore = m_isHomeTeam ? env.referee->getHomeScore() : env.referee->getAwayScore();
+    int oppScore = m_isHomeTeam ? env.referee->getAwayScore() : env.referee->getHomeScore();
     int scoreDiff = myScore - oppScore;
 
     m_managerCommand = ManagerCommand::Neutral;

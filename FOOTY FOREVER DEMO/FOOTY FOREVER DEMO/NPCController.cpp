@@ -2,7 +2,7 @@
 #include "Ball.h"
 #include "UserPlayer.h"
 #include "Pitch.h"
-#include "MatchContext.h"
+#include "MatchEnvironment.h" // THE FIX: Now using MatchEnvironment
 #include "MatchReferee.h"
 #include "PhysicsEngine.h"
 #include "AimAssist.h"
@@ -13,15 +13,13 @@
 #include "GoalkeeperAI.h"
 #include "SpatialGrid.h"
 #include "MatchStatistics.h"
+#include "SoundManager.h" // Need this to call playRandomSound
 #include <cmath>
 
 NPCController::NPCController() {}
 NPCController::~NPCController() {}
 
-void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
-    const std::vector<Player*>& team, const std::vector<Player*>& opposition,
-    const Pitch& pitch, float dt, Player* firstResponder,
-    const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager, const SpatialGrid& spatialGrid, MatchStatistics& stats)
+void NPCController::update(NPCPlayer& npc, UserPlayer* userPlayer, float dt, Player* firstResponder, const TeamAI& teamAI, MatchEnvironment& env)
 {
     npc.updateCooldown(dt);
     PhysicsEngine::updatePlayerAirPhysics(npc, dt);
@@ -47,30 +45,30 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 
         if (frameHit || npc.m_pendingKick.failsafeTimer > 0.4f) {
 
-            // THE FIX: Whiff Check! Make sure the ball hasn't been stolen!
-            float distToBall = PlayerAI::dist(npc.getPosition(), ball.getPosition());
+            // THE FIX: Use env.ball
+            float distToBall = PlayerAI::dist(npc.getPosition(), env.ball->getPosition());
 
             if (distToBall < 100.f) {
 
                 // 1. EXECUTE DEFERRED STAT LOGGING
                 if (npc.m_pendingKick.isPassIntent) {
-                    stats.recordPassAttempt(npc.getTeam());
-                    ball.isPassIntent = true;
+                    env.stats->recordPassAttempt(npc.getTeam());
+                    env.ball->isPassIntent = true;
                 }
                 else if (npc.m_pendingKick.isShotIntent) {
-                    ball.lastShooter = &npc;
-                    ball.lastShotWasOnTarget = npc.m_pendingKick.isShotOnTarget;
-                    ball.lastShooterAssister = npc.m_pendingKick.assistCandidate;
-                    stats.recordShot(npc.getTeam(), npc.m_pendingKick.isShotOnTarget);
-                    ball.isPassIntent = false;
+                    env.ball->lastShooter = &npc;
+                    env.ball->lastShotWasOnTarget = npc.m_pendingKick.isShotOnTarget;
+                    env.ball->lastShooterAssister = npc.m_pendingKick.assistCandidate;
+                    env.stats->recordShot(npc.getTeam(), npc.m_pendingKick.isShotOnTarget);
+                    env.ball->isPassIntent = false;
                 }
 
                 // 2. Audio
                 float kickVol = std::clamp(0.f + ((npc.m_pendingKick.power / npc.getKickPower()) * 40.0f), 10.f, 100.f);
-                soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+                env.sound->playRandomSound("kick", 3, kickVol, 0.15f);
 
                 // 3. The Physical Strike
-                ball.shoot(
+                env.ball->shoot(
                     npc.m_pendingKick.aimDir,
                     npc.m_pendingKick.power,
                     npc.m_pendingKick.spin,
@@ -88,9 +86,9 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         return;
     }
 
-    bool isTaker = (&npc == referee.getSetPieceTaker());
-    TacticalContext ctx = referee.getTacticalContext(npc.getTeam(), isTaker);
-    PositioningMask mask = referee.getPositioningMask(&npc, pitch);
+    bool isTaker = (&npc == env.referee->getSetPieceTaker());
+    TacticalContext ctx = env.referee->getTacticalContext(npc.getTeam(), isTaker);
+    PositioningMask mask = env.referee->getPositioningMask(&npc, *(env.pitch));
 
     // 1. DEAD BALL STATES
     if (ctx.state == MatchState::HalfTime || ctx.state == MatchState::FullTime || ctx.state == MatchState::GoalScored) {
@@ -100,30 +98,30 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     else if (ctx.state != MatchState::InPlay) {
         npc.updateStamina(dt, false);
         if (isTaker) {
-            handleSetPiece(npc, user, ball, team, opposition, pitch, dt, referee, teamAI, soundManager, stats, ctx);
+            handleSetPiece(npc, userPlayer, dt, teamAI, ctx, env);
         }
-        return; // Set piece players handle their own logic exclusively until the ball is kicked
+        return;
     }
 
     // 2. AERIAL LOGIC (Headers and Volleys)
-    if (ball.z > 80.f) {
-        if (handleAerialLogic(npc, user, ball, team, opposition, pitch, teamAI, soundManager, stats)) {
-            return; // Successful aerial strike skips the rest of the update
+    if (env.ball->z > 80.f) {
+        if (handleAerialLogic(npc, userPlayer, teamAI, env)) {
+            return;
         }
     }
 
     // 3. ROLE DISTRIBUTION
     if (npc.getPositionRole() == PositionRole::Goalkeeper) {
-        GoalkeeperAI::handleGoalkeeping(npc, ball, pitch, team, opposition, dt, teamAI, soundManager);
+        GoalkeeperAI::handleGoalkeeping(npc, dt, teamAI, env);
     }
     else {
-        handleOutfieldActions(npc, user, ball, team, opposition, pitch, dt, firstResponder, teamAI, soundManager, spatialGrid, stats, ctx, mask);
+        handleOutfieldActions(npc, userPlayer, dt, firstResponder, teamAI, ctx, mask, env);
     }
 
     // 4. IDLE FACING
     if (ctx.state == MatchState::InPlay) {
         if (std::sqrt(npc.getVelocity().x * npc.getVelocity().x + npc.getVelocity().y * npc.getVelocity().y) < 2.f) {
-            if (ball.getOwner() != &npc) npc.setRotationToward(ball.getPosition());
+            if (env.ball->getOwner() != &npc) npc.setRotationToward(env.ball->getPosition());
         }
     }
 }
@@ -132,14 +130,11 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 // --- NEW HELPER FUNCTIONS ---
 // ==========================================
 
-void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-    const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
-    const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager,
-    MatchStatistics& stats, const TacticalContext& ctx)
+void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, float dt, const TeamAI& teamAI, const TacticalContext& ctx, MatchEnvironment& env)
 {
-    if (!referee.isWhistleBlown()) {
+    if (!env.referee->isWhistleBlown()) {
         npc.setVelocity({ 0.f, 0.f });
-        npc.setRotationToward(ball.getPosition());
+        npc.setRotationToward(env.ball->getPosition());
         npc.m_passTimer = 0.0f;
         return;
     }
@@ -147,10 +142,10 @@ void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     if (npc.getKickCooldown() > 0.0f) return;
 
     bool isHome = (npc.getTeam() == Team::Home);
-    sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
+    sf::Vector2f goalPos = isHome ? sf::Vector2f(env.pitch->totalWidth - env.pitch->margin, 3500.f) : sf::Vector2f(env.pitch->margin, 3500.f);
 
     if (ctx.state == MatchState::ThrowIn) {
-        PossessionAI::executeThrowIn(npc, ball, team);
+        PossessionAI::executeThrowIn(npc, env);
         return;
     }
 
@@ -161,13 +156,13 @@ void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball,
 
     if (npc.m_passTimer < waitTime && ctx.state != MatchState::Penalty) {
         npc.setVelocity({ 0.f, 0.f });
-        sf::Vector2f surveyTarget = isHome ? sf::Vector2f(pitch.totalWidth, pitch.totalHeight / 2.f) : sf::Vector2f(0.f, pitch.totalHeight / 2.f);
+        sf::Vector2f surveyTarget = isHome ? sf::Vector2f(env.pitch->totalWidth, env.pitch->totalHeight / 2.f) : sf::Vector2f(0.f, env.pitch->totalHeight / 2.f);
         npc.setRotationToward(surveyTarget);
         return;
     }
 
     // Run-up
-    sf::Vector2f ballPos = ball.getPosition();
+    sf::Vector2f ballPos = env.ball->getPosition();
     sf::Vector2f npcPos = npc.getPosition();
     float distToBall = PlayerAI::dist(npcPos, ballPos);
     sf::Vector2f moveDir = PlayerAI::normalize(ballPos - npcPos);
@@ -185,19 +180,19 @@ void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         else if (ctx.state == MatchState::FreeKick && distToGoal < 2800.f && npc.getPlaystyle().behavior.shootBias >= 0.3f) isShooting = true;
 
         if (ctx.state == MatchState::GoalKick) {
-            GoalkeeperAI::distributeBallAsGoalie(npc, ball, team, opposition, pitch, teamAI, soundManager);
+            GoalkeeperAI::distributeBallAsGoalie(npc, teamAI, env);
         }
         else if (isShooting) {
-            PossessionAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager, stats);
+            PossessionAI::executeShot(npc, goalPos, dt, teamAI, env);
         }
         else if (ctx.state == MatchState::Corner || ctx.state == MatchState::FreeKick) {
-            PossessionAI::executeSetPiece(npc, ball, team, opposition, pitch, ctx.state, soundManager, stats, teamAI);
+            PossessionAI::executeSetPiece(npc, ctx.state, teamAI, env);
         }
         else {
-            Player* passTarget = PossessionAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+            Player* passTarget = PossessionAI::findBestPassOption(npc, user, teamAI, env);
             if (!passTarget) {
                 float maxScore = -99999.f;
-                for (Player* tm : team) {
+                for (Player* tm : *(env.teammates)) {
                     if (tm == &npc || tm->isSentOff() || tm->getState() == PlayerState::Injured) continue;
                     float score = -PlayerAI::dist(npcPos, tm->getPosition());
                     if (ctx.state == MatchState::KickOff) {
@@ -207,8 +202,8 @@ void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball,
                     if (score > maxScore) { maxScore = score; passTarget = tm; }
                 }
             }
-            if (passTarget) PossessionAI::executePass(npc, ball, passTarget, opposition, pitch, soundManager, stats, teamAI);
-            else PossessionAI::executeShot(npc, ball, goalPos, opposition, pitch, dt, soundManager, stats);
+            if (passTarget) PossessionAI::executePass(npc, passTarget, teamAI, env);
+            else PossessionAI::executeShot(npc, goalPos, dt, teamAI, env);
         }
 
         npc.setVelocity({ 0.f, 0.f });
@@ -217,14 +212,12 @@ void NPCController::handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball,
     }
 }
 
-bool NPCController::handleAerialLogic(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-    const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI,
-    SoundManager& soundManager, MatchStatistics& stats)
+bool NPCController::handleAerialLogic(NPCPlayer& npc, UserPlayer* user, const TeamAI& teamAI, MatchEnvironment& env)
 {
-    PossessionAI::handleNPCJumpLogic(npc, ball);
+    PossessionAI::handleNPCJumpLogic(npc, *(env.ball));
 
     bool isHome = (npc.getTeam() == Team::Home);
-    sf::Vector2f oppGoalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
+    sf::Vector2f oppGoalPos = isHome ? sf::Vector2f(env.pitch->totalWidth - env.pitch->margin, 3500.f) : sf::Vector2f(env.pitch->margin, 3500.f);
     float distToGoal = PlayerAI::dist(npc.getPosition(), oppGoalPos);
 
     bool isShot = false;
@@ -235,7 +228,7 @@ bool NPCController::handleAerialLogic(NPCPlayer& npc, UserPlayer* user, Ball& ba
         aimDir = PlayerAI::normalize(oppGoalPos - npc.getPosition());
     }
     else {
-        Player* aerialPassTarget = PossessionAI::findBestPassOption(npc, team, opposition, user, teamAI, pitch);
+        Player* aerialPassTarget = PossessionAI::findBestPassOption(npc, user, teamAI, env);
         if (aerialPassTarget) {
             isShot = false;
             aimDir = PlayerAI::normalize(aerialPassTarget->getPosition() - npc.getPosition());
@@ -246,18 +239,14 @@ bool NPCController::handleAerialLogic(NPCPlayer& npc, UserPlayer* user, Ball& ba
         }
     }
 
-    if (PossessionAI::tryNPCAerialStrike(npc, ball, aimDir, isShot, soundManager, stats, pitch)) {
+    if (PossessionAI::tryNPCAerialStrike(npc, aimDir, isShot, env)) {
         npc.deductStaminaAction(1.5f);
         return true;
     }
     return false;
 }
 
-void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
-    const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
-    Player* firstResponder, const TeamAI& teamAI, SoundManager& soundManager,
-    const SpatialGrid& spatialGrid, MatchStatistics& stats, const TacticalContext& ctx,
-    const PositioningMask& mask)
+void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, float dt, Player* firstResponder, const TeamAI& teamAI, const TacticalContext& ctx, const PositioningMask& mask, MatchEnvironment& env)
 {
     sf::Vector2f npcPos = npc.getPosition();
     sf::Vector2f finalDirection(0.f, 0.f);
@@ -266,31 +255,31 @@ void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball
     Player* effectiveResponder = firstResponder;
 
     // A. OFFENSIVE POSSESSION
-    if (ball.getOwner() == &npc) {
-        finalDirection = PossessionAI::handlePossession(npc, ball, team, opposition, user, pitch, dt, ctx.state, teamAI, soundManager, stats);
+    if (env.ball->getOwner() == &npc) {
+        finalDirection = PossessionAI::handlePossession(npc, user, dt, ctx.state, teamAI, env);
         distToTarget = 500.f;
         isSprinting = true;
     }
     // B. OFF-BALL MOVEMENT
     else {
-        bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
+        bool isTeammatePass = (!env.ball->hasOwner() && env.ball->getLastOwner() && env.ball->getLastOwner()->getTeam() == npc.getTeam());
         bool amITargetReceiver = false;
 
         if (isTeammatePass) {
-            Player* targetReceiver = PositioningAI::identifyTargetReceiver(ball, team, pitch);
+            Player* targetReceiver = PositioningAI::identifyTargetReceiver(env);
             if (targetReceiver) {
                 effectiveResponder = targetReceiver;
                 if (targetReceiver == &npc) amITargetReceiver = true;
             }
         }
 
-        sf::Vector2f targetPos = PositioningAI::decideTargetPosition(npc, ball, pitch, teamAI.getCurrentState(), team, opposition, effectiveResponder, mask, teamAI, spatialGrid);
+        sf::Vector2f targetPos = PositioningAI::decideTargetPosition(npc, effectiveResponder, mask, teamAI, env);
         sf::Vector2f toTarget = targetPos - npcPos;
         distToTarget = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y);
 
         sf::Vector2f separation(0.f, 0.f);
         if (!amITargetReceiver) {
-            separation = PositioningAI::calculateSeparation(npc, team, opposition, ball.getPosition(), teamAI);
+            separation = PositioningAI::calculateSeparation(npc, teamAI, env);
         }
 
         sf::Vector2f normTarget = (distToTarget > 0.1f) ? (toTarget / distToTarget) : sf::Vector2f(0.f, 0.f);
@@ -299,23 +288,23 @@ void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball
         AIUrgency urgency = (teamAI.getCurrentState().phase == MatchPhase::Defending) ? AIUrgency::Recovery : AIUrgency::AttackingRun;
         if (effectiveResponder == &npc) urgency = AIUrgency::Critical;
 
-        isSprinting = PositioningAI::evaluateSprintUrgency(npc, urgency, distToTarget, PlayerAI::dist(npcPos, ball.getPosition()), teamAI.getCurrentState());
+        isSprinting = PositioningAI::evaluateSprintUrgency(npc, urgency, distToTarget, PlayerAI::dist(npcPos, env.ball->getPosition()), teamAI.getCurrentState());
         if (amITargetReceiver || npc.getBallPossession()) isSprinting = true;
 
         // C. PICK UP LOOSE BALL
-        float distToBall = PlayerAI::dist(ball.getPosition(), npc.getPosition());
-        if (!ball.hasOwner() && distToBall < 70.f && ctx.canPossess) {
+        float distToBall = PlayerAI::dist(env.ball->getPosition(), npc.getPosition());
+        if (!env.ball->hasOwner() && distToBall < 70.f && ctx.canPossess) {
             if (npc.getState() != PlayerState::Tackling && npc.getState() != PlayerState::Stunned &&
                 npc.getState() != PlayerState::Stumbled && npc.getState() != PlayerState::FallOver &&
-                ball.z < 40.f && npc.getKickCooldown() <= 0.0f)
+                env.ball->z < 40.f && npc.getKickCooldown() <= 0.0f)
             {
-                ball.possess(&npc);
+                env.ball->possess(&npc);
             }
         }
 
         // D. DEFENSIVE ACTIONS
-        if (ball.hasOwner() && ball.getOwner()->getTeam() != npc.getTeam() && distToBall < 200.f && ctx.canTackle) {
-            processDefensiveActions(npc, ball, opposition, pitch, dt, ctx, teamAI);
+        if (env.ball->hasOwner() && env.ball->getOwner()->getTeam() != npc.getTeam() && distToBall < 200.f && ctx.canTackle) {
+            processDefensiveActions(npc, dt, ctx, teamAI, env);
         }
     }
 
@@ -333,20 +322,20 @@ void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball
             finalDirection = PlayerAI::normalize(currentFacing + (finalDirection - currentFacing) * turnRate);
         }
 
-        if (ball.getOwner() == &npc) {
+        if (env.ball->getOwner() == &npc) {
             npc.setRotationToward(npcPos + finalDirection);
         }
         else if (teamAI.getCurrentState().phase == MatchPhase::Defending && distToTarget < 400.f) {
             sf::Vector2f vel = npc.getVelocity();
             float currentSpeed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
-            sf::Vector2f toBallDir = PlayerAI::normalize(ball.getPosition() - npcPos);
+            sf::Vector2f toBallDir = PlayerAI::normalize(env.ball->getPosition() - npcPos);
             bool isRunningAway = ((finalDirection.x * toBallDir.x + finalDirection.y * toBallDir.y) < -0.3f);
 
             if (currentSpeed > (npc.getTopSpeed() * 6.0f) && isRunningAway) {
                 npc.setRotationToward(npcPos + finalDirection);
             }
             else {
-                npc.setRotationToward(ball.getPosition());
+                npc.setRotationToward(env.ball->getPosition());
             }
         }
         else {
@@ -356,15 +345,14 @@ void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball
 
     // F. APPLY FINAL PHYSICS
     if (npc.getState() != PlayerState::Stunned && npc.getState() != PlayerState::Stumbled) {
-        bool isKeeperBall = (ball.hasOwner() && ball.getOwner()->getPositionRole() == PositionRole::Goalkeeper);
-        applyMovementPhysics(npc, finalDirection, isSprinting, dt, distToTarget, ball, effectiveResponder, pitch, isKeeperBall, ctx);
+        bool isKeeperBall = (env.ball->hasOwner() && env.ball->getOwner()->getPositionRole() == PositionRole::Goalkeeper);
+        applyMovementPhysics(npc, finalDirection, isSprinting, dt, distToTarget, effectiveResponder, isKeeperBall, ctx, env);
     }
 }
 
-void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& opposition,
-    const Pitch& pitch, float dt, const TacticalContext& ctx, const TeamAI& teamAI)
+void NPCController::processDefensiveActions(NPCPlayer& npc, float dt, const TacticalContext& ctx, const TeamAI& teamAI, MatchEnvironment& env)
 {
-    Player* attacker = ball.getOwner();
+    Player* attacker = env.ball->getOwner();
     if (attacker->getPositionRole() == PositionRole::Goalkeeper) return;
 
     sf::Vector2f npcPos = npc.getPosition();
@@ -383,21 +371,15 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
     bool isTackleFromFront = (refDot > 0.4f);
     bool isHomeSide = (npc.getTeam() == Team::Home);
 
-    sf::Vector2f myGoalPos = isHomeSide ? sf::Vector2f(pitch.margin, 3500.f) : sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f);
+    sf::Vector2f myGoalPos = isHomeSide ? sf::Vector2f(env.pitch->margin, 3500.f) : sf::Vector2f(env.pitch->totalWidth - env.pitch->margin, 3500.f);
     bool inOwnBox = (std::abs(npcPos.x - myGoalPos.x) < 1650.f && std::abs(npcPos.y - myGoalPos.y) < 2050.f);
-    bool inOpponentHalf = isHomeSide ? (npcPos.x > pitch.totalWidth / 2.f) : (npcPos.x < pitch.totalWidth / 2.f);
+    bool inOpponentHalf = isHomeSide ? (npcPos.x > env.pitch->totalWidth / 2.f) : (npcPos.x < env.pitch->totalWidth / 2.f);
 
-    float ballExposedDist = PlayerAI::dist(attacker->getPosition(), ball.getPosition());
+    float ballExposedDist = PlayerAI::dist(attacker->getPosition(), env.ball->getPosition());
     float requiredExposureOppHalf = std::clamp(40.f / timeScaleNorm, 15.f, 80.f);
     float requiredExposureOpen = std::clamp(25.f / timeScaleNorm, 10.f, 50.f);
     float requiredExposureOwnBox = std::clamp(15.f / timeScaleNorm, 5.f, 40.f);
 
-    // ==========================================
-    // --- THE FIX 1: EXPOSURE MATH CORRECTION ---
-    // ==========================================
-    // Previously, multiplying by 0.5 made the exposure requirement SMALLER, 
-    // which actually made front tackles HARDER to trigger! 
-    // We want front tackles to trigger easily (high required exposure), and behind tackles to require a completely loose ball (low exposure).
     if (isTackleFromFront) {
         requiredExposureOppHalf *= 2.0f;
         requiredExposureOpen *= 2.5f;
@@ -413,7 +395,6 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
     if (inOpponentHalf) {
         if (isTackleFromBehind) safeToTackle = false;
         else if (ballExposedDist < requiredExposureOppHalf) {
-            // Front tackles need almost no aggression to trigger here now
             float aggThreshold = isTackleFromFront ? 15.f : 60.f;
             if (effectiveAggression < aggThreshold) safeToTackle = false;
         }
@@ -429,7 +410,7 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
         }
         else safeToTackle = false;
     }
-    else { // Open Play
+    else {
         if (isTackleFromBehind) {
             if ((rand() % 100) > (effectiveAggression * 0.7f)) safeToTackle = false;
         }
@@ -445,9 +426,6 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
         if (isTackleFromBehind || (rand() % 100) < (yellowFear - (effectiveAggression * 0.2f))) safeToTackle = false;
     }
 
-    // ==========================================
-    // --- THE FIX 2: TACTICAL BARGING ---
-    // ==========================================
     if (npc.getBargeCooldown() <= 0.0f) {
         float distToAttacker = std::sqrt(toAttacker.x * toAttacker.x + toAttacker.y * toAttacker.y);
         if (distToAttacker < 150.f) {
@@ -461,7 +439,6 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
             }
 
             if (shoulderToShoulder || distToAttacker < 80.f || (attackerSpeed > 250.f && !isTackleFromBehind)) {
-
                 float bargeChance = effectiveAggression;
                 PositionRole role = npc.getPositionRole();
                 bool isDefenderOrMid = (role == PositionRole::CenterBack || role == PositionRole::LeftBack ||
@@ -469,10 +446,7 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
                     role == PositionRole::RightWingBack || role == PositionRole::DefensiveMid ||
                     role == PositionRole::CenterMid);
 
-                // Defenders and Mids love a physical battle.
                 if (isDefenderOrMid) bargeChance += 40.0f;
-
-                // If they are running side-by-side, it's virtually never a foul. Do it constantly!
                 if (shoulderToShoulder) bargeChance += 30.0f;
 
                 if ((rand() % 100) < bargeChance) {
@@ -482,18 +456,16 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, Ball& ball, const st
         }
     }
 
-    // TACKLE TRIGGER
-    // Lunging from the front is safer and covers more ground, so we increase the trigger radius slightly!
     float triggerDist = isTackleFromFront ? 180.f : 140.f;
-    if (safeToTackle && PlayerAI::dist(npcPos, ball.getPosition()) < triggerDist) {
-        sf::Vector2f futureBallPos = ball.getPosition() + (ball.getVelocity() * 0.24f);
+    if (safeToTackle && PlayerAI::dist(npcPos, env.ball->getPosition()) < triggerDist) {
+        sf::Vector2f futureBallPos = env.ball->getPosition() + (env.ball->getVelocity() * 0.24f);
         npc.startTackle(PlayerAI::normalize(futureBallPos - npcPos));
     }
 }
 
 void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionInput, bool isSprinting,
-    float dt, float distToTarget, Ball& ball, Player* firstResponder,
-    const Pitch& pitch, bool keeperBall, TacticalContext ctx)
+    float dt, float distToTarget, Player* firstResponder,
+    bool keeperBall, TacticalContext ctx, MatchEnvironment& env)
 {
     if (npc.getCurrentStamina() < 2.0f) {
         isSprinting = false;
@@ -515,13 +487,13 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
     float slowingRadius = 150.f;
     float stopRadius = 30.f;
 
-    float dx = npcPos.x - ball.getPosition().x;
-    float dy = npcPos.y - ball.getPosition().y;
+    float dx = npcPos.x - env.ball->getPosition().x;
+    float dy = npcPos.y - env.ball->getPosition().y;
     float distToBall = std::sqrt(dx * dx + dy * dy);
 
-    bool hasBall = (ball.getOwner() == &npc);
+    bool hasBall = (env.ball->getOwner() == &npc);
     bool isChasingBall = !hasBall && !keeperBall && ctx.ballInfluence > 0.0f &&
-        (!ball.hasOwner() || ball.getOwner()->getTeam() != npc.getTeam()) &&
+        (!env.ball->hasOwner() || env.ball->getOwner()->getTeam() != npc.getTeam()) &&
         (&npc == firstResponder || (distToTarget < 450.f && distToBall < 300.f && npc.getState() != PlayerState::Tackling));
 
     if (hasBall) {
@@ -542,26 +514,15 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
             sf::Vector2f ballDir = { dx / distToBall, dy / distToBall };
             ballDir = -ballDir;
 
-            // Stiffer damping so they don't over-run the trajectory
             PhysicsEngine::applyTangentialVelocityDamping(npc, ballDir, 8.0f, dt);
 
-            // ==========================================
-            // --- THE FIX 5: THE FINAL STEP ---
-            // ==========================================
             if (distToBall < 120.f) {
-                // If they are within 1.2m, completely abandon the tactical curve and STEP ON IT
                 directionInput = ballDir;
             }
             else {
-                // ==========================================
-                // --- THE FIX 4: INTERCEPT, DON'T CHASE ---
-                // ==========================================
-                bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
+                bool isTeammatePass = (!env.ball->hasOwner() && env.ball->getLastOwner() && env.ball->getLastOwner()->getTeam() == npc.getTeam());
                 bool isTargetReceiver = (isTeammatePass && &npc == firstResponder);
 
-                // If we are just chasing a loose ball or pressing, we curve our run towards the ball's current shadow.
-                // But if we are the designated receiver of a PASS, 'directionInput' already points perfectly 
-                // at the mathematically calculated drop zone. DO NOT blend it!
                 if (!isTargetReceiver) {
                     float pullStrength = 0.75f * ctx.ballInfluence;
                     directionInput = PlayerAI::normalize((directionInput * (1.0f - pullStrength)) + (ballDir * pullStrength));
@@ -596,7 +557,7 @@ void NPCController::applyMovementPhysics(NPCPlayer& npc, sf::Vector2f directionI
         PhysicsEngine::applyPlayerIdleFriction(npc, dt);
     }
 
-    PhysicsEngine::resolvePlayerPitchBoundaries(npc, pitch);
+    PhysicsEngine::resolvePlayerPitchBoundaries(npc, *(env.pitch));
 
     vel = npc.getVelocity();
     float currentSpeed = std::sqrt(vel.x * vel.x + vel.y * vel.y);

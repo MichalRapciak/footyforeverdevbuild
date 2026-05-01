@@ -1,4 +1,4 @@
-#include "GamePlay.h"
+#include "MatchEngine.h"
 #include "Game.h"
 #include "imgui-1.92.6/imgui.h"
 #include "GlobalSettings.h"
@@ -6,11 +6,11 @@
 #include "PlayerAI.h"
 #include "PositioningAI.h"
 
-GamePlay::GamePlay() : m_pauseText(m_font), m_gameOverText(m_font), m_gameWonText(m_font)
+MatchEngine::MatchEngine() :  m_gameOverText(m_font), m_gameWonText(m_font), m_warningText(m_font)
 {
 }
 
-GamePlay::~GamePlay()
+MatchEngine::~MatchEngine()
 {
 }
 
@@ -18,18 +18,11 @@ GamePlay::~GamePlay()
 /// Initialise text
 /// </summary>
 /// <param name="t_font"></param>
-void GamePlay::initialise(sf::Font& t_font)
+void MatchEngine::initialise(sf::Font& t_font)
 {
 	m_font = t_font;
-	m_pauseText.setFont(m_font); // Text seen on the screen
-	m_pauseText.setString("Game Paused\nPress Esc to Unpause\n Press Space to return to Main Menu");
-	m_pauseText.setCharacterSize(42);
-	m_pauseText.setFillColor(sf::Color::Red);
-	m_pauseText.setStyle(sf::Text::Bold);
-
-	sf::FloatRect textSize = m_pauseText.getGlobalBounds(); // will be used to put the text in the middle
+	sf::FloatRect textSize;
 	float xpos = (1920 / 2) - (textSize.size.x / 2);
-	m_pauseText.setPosition({ xpos, 1080 * 0.5f });
 
 	m_gameOverText.setFont(m_font); // Text seen on the screen
 	m_gameOverText.setString("");
@@ -39,6 +32,11 @@ void GamePlay::initialise(sf::Font& t_font)
 	textSize = m_gameOverText.getGlobalBounds(); // will be used to put the text in the middle
 	xpos = (1920 / 2) - (textSize.size.x / 2);
 	m_gameOverText.setPosition({ xpos, 1080 * 0.5f });
+
+	m_warningText.setFont(m_font);
+	m_warningText.setString("Warning: Match progress will not be saved if you leave now!");
+	m_warningText.setCharacterSize(24);
+	m_warningText.setFillColor(sf::Color(255, 100, 100)); // Light red
 
 	m_gameWonText.setFont(m_font); // Text seen on the screen
 	m_gameWonText.setString("");
@@ -66,7 +64,7 @@ void GamePlay::initialise(sf::Font& t_font)
 /// handle user and system events / inputs
 /// get key pressed, mouse moves etc. from OS
 /// </summary>
-void GamePlay::processEvents(sf::Event& t_event, sf::RenderWindow& t_window)
+void MatchEngine::processEvents(sf::Event& t_event, sf::RenderWindow& t_window)
 {
 	if (const auto resized = t_event.getIf<sf::Event::Resized>()) //debugging to see if window resizing works
 	{
@@ -101,19 +99,22 @@ void GamePlay::processEvents(sf::Event& t_event, sf::RenderWindow& t_window)
 /// This function processes all keyboard presses and performs the correct action
 /// </summary>
 /// <param name="t_event">key press event</param>
-void GamePlay::processKeys(sf::Event t_event)
+void MatchEngine::processKeys(sf::Event t_event)
 {
-	if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Escape))
-	{
-		if (!m_pause && !m_gameOver)
-		{
-			m_pause = true;
-		}
-		else if (m_pause)
-		{
-			m_pause = false;
-		}
-	}
+if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Escape))
+    {
+        if (!m_pause && !m_gameOver) m_pause = true;
+        else if (m_pause) m_pause = false;
+    }
+
+    // THE FIX: Trigger the exit flag instead of directly changing Game::currentState
+    if (m_pause || m_gameOver || m_gameWon)
+    {
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space))
+        {
+            m_exitRequested = true;
+        }
+    }
 	if (m_pause)
 	{
 	}
@@ -144,7 +145,7 @@ void GamePlay::processKeys(sf::Event t_event)
 /// Updates the Game World
 /// </summary>
 /// <param name="t_deltaTime">time interval per frame</param>
-void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
+void MatchEngine::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 {
 	float dt = t_deltaTime.asSeconds();
 
@@ -209,51 +210,79 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		m_referee.resumeFromReplay(*m_ball, m_pitch, allPlayers, m_soundManager);
 	}
 
-    // 1. Gather all players
+	// 1. Gather all players
 	std::vector<Player*> homeFriends;
-	if (m_userPlayer)
-	{
-		homeFriends.push_back(m_userPlayer.get());
-	}
+	if (m_userPlayer->getTeam() == Team::Home) homeFriends.push_back(m_userPlayer.get());
 	for (auto& npc : m_homeside) homeFriends.push_back(npc.get());
 
 	std::vector<Player*> homeEnemies;
+	if (m_userPlayer->getTeam() == Team::Away) homeEnemies.push_back(m_userPlayer.get());
 	for (auto& opp : m_awayside) homeEnemies.push_back(opp.get());
-	
-    std::vector<Player*> allPlayers = homeFriends;
+
+	std::vector<Player*> allPlayers = homeFriends;
 	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
 
-	m_homeTeamAI->update(homeEnemies, *m_ball, m_pitch, dt, m_referee);
-	m_awayTeamAI->update(homeFriends, *m_ball, m_pitch, dt, m_referee);
+	// ==========================================
+	// --- THE FIX: PACK THE ENVIRONMENT ---
+	// ==========================================
+	MatchEnvironment env;
+	env.ball = m_ball.get();
+	env.pitch = &m_pitch;
+	env.homeGoal = &m_homeGoal;
+	env.awayGoal = &m_awayGoal;
+	env.sound = &m_soundManager;
+	env.stats = &m_matchStats;
+	env.info = &m_matchInfo;
+	env.referee = &m_referee;
+	env.grid = &m_spatialGrid;
+	env.allPlayers = &allPlayers;
+
+	// Team AI Updates (Just swap the opposition pointer!)
+	env.opposition = &homeEnemies;
+	m_homeTeamAI->update(dt, env);
+
+	env.opposition = &homeFriends;
+	m_awayTeamAI->update(dt, env);
 
 	if (!m_pause && !m_gameOver)
 	{
-		// ==========================================
-		// --- GLOBAL MATCH STATS TRACKER ---
-		// ==========================================
 		if (m_ball->getOwner()) {
 			m_matchStats.updatePossession(m_ball->getOwner()->getTeam(), dt);
 		}
 
-		// THE FIX 1: Consume the Pass Event triggered by the Ball physics!
 		if (m_ball->passCompletedEvent && m_ball->getOwner()) {
 			m_matchStats.recordPassComplete(m_ball->getOwner()->getTeam());
-			m_ball->passCompletedEvent = false; // Reset the flag until the next pass!
+			m_ball->passCompletedEvent = false;
 		}
+
 		// 2. THE REFEREE UPDATES THE CONTEXTS FIRST
-		m_referee.update(*m_ball, m_pitch, allPlayers, dt, m_homeGoal, m_awayGoal, m_soundManager, m_matchStats);
+		m_referee.update(dt, env); // <--- Beautiful!
 		handleAISubstitutions();
-		m_referee.checkOffsideLogic(*m_ball, allPlayers, m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), m_pitch, m_soundManager);
+		m_referee.checkOffsideLogic(m_homeTeamAI->getOffsideLineX(), m_awayTeamAI->getOffsideLineX(), env); // <--- Beautiful!
+
 		// 3. RUN THE SIMULATION
-        // This handles InPlay, ThrowIns, Corners, AND Celebrations automatically now!
-        runStandardSystems(dt, t_window);
+		runStandardSystems(dt, t_window);
 
 		// 4. Update visuals
 		updateCamera(t_window);
-		if ( m_userPlayer)
-		{
-			powerBarUpdate();
+		if (m_userPlayer) powerBarUpdate();
+	}
+
+	// Inside MatchEngine::update, after the referee updates...
+	if (m_referee.getMatchState() == MatchState::FullTime && !m_matchLogged) {
+
+		int finalMinute = static_cast<int>(m_referee.getMatchMinute());
+
+		// Cap off all active players!
+		for (Player* p : homeFriends) {
+			m_matchInfo.recordAppearanceEnd(p->getId(), finalMinute);
 		}
+		for (Player* p : homeEnemies) {
+			m_matchInfo.recordAppearanceEnd(p->getId(), finalMinute);
+		}
+
+		m_matchLogged = true;
+		std::cout << "MATCH LOGGED! Final Score: " << m_matchInfo.getHomeScore() << " - " << m_matchInfo.getAwayScore() << "\n";
 	}
 
 	// ==========================================
@@ -287,7 +316,7 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 /// <summary>
 /// Draw Frames and Switch Buffers
 /// </summary>
-void GamePlay::render(sf::RenderWindow& t_window)
+void MatchEngine::render(sf::RenderWindow& t_window)
 {
 	// ==========================================
 	// 1. SET THE CORRECT WORLD CAMERA
@@ -422,28 +451,32 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	t_window.setView(t_window.getDefaultView());
 
 	if (m_pause || m_referee.getMatchState() == MatchState::FullTime || m_referee.getMatchState() == MatchState::HalfTime)
-	{
-		// 1. Draw the Dark Overlay
-		sf::RectangleShape overlay(sf::Vector2f(t_window.getSize()));
-		overlay.setFillColor(sf::Color(20, 20, 20, 200));
-		t_window.draw(overlay);
+    {
+        sf::RectangleShape overlay(sf::Vector2f(t_window.getSize()));
+        overlay.setFillColor(sf::Color(20, 20, 20, 200));
+        t_window.draw(overlay);
 
-		if (m_showGamePlan) {
-			// Do Gameplan render logic here
-		}
-		else {
-			// 3. Draw Stats Board and SFML Buttons
-			drawMatchStats(t_window);
+        if (m_showGamePlan) {
+            // Do Gameplan render logic here
+        }
+        else {
+            drawMatchStats(t_window);
 
-			for (int i = 0; i < 2; i++) {
-				t_window.draw(m_pauseButtons[i]);
-				t_window.draw(m_pauseTexts[i]);
-			}
-		}
-	}
+            // THE FIX: Respect the dynamic hiding of buttons and draw the warning
+            for (int i = 0; i < 2; i++) {
+                if (m_referee.getMatchState() == MatchState::FullTime && i == 0) continue;
+                t_window.draw(m_pauseButtons[i]);
+                t_window.draw(m_pauseTexts[i]);
+            }
+            
+            if (m_showWarning && m_referee.getMatchState() != MatchState::FullTime) {
+                t_window.draw(m_warningText);
+            }
+        }
+    }
 }
 
-void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
+void MatchEngine::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 {
 	// 1. Get the actual ground position and Z height
 	sf::Vector2f groundPos = entity->getPosition();
@@ -613,7 +646,7 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 	}
 }
 
-void GamePlay::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId)
+void MatchEngine::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId)
 {
 	m_db = &db;
 	TeamData* homeTeam = db.getTeam(homeTeamId);
@@ -689,7 +722,7 @@ void GamePlay::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, 
 	m_loadingIndex = 0;
 }
 
-float GamePlay::loadNextPlayer()
+float MatchEngine::loadNextPlayer()
 {
 	if (m_loadingPhase == 0 || m_loadingPhase > 2) return 1.0f; // Finished
 
@@ -798,7 +831,7 @@ float GamePlay::loadNextPlayer()
 	return currentLoaded / totalPlayers;
 }
 
-void GamePlay::finalizeMatchSetup()
+void MatchEngine::finalizeMatchSetup()
 {
 	m_ball->setPosition(m_pitch.centerSpot);
 
@@ -826,9 +859,16 @@ void GamePlay::finalizeMatchSetup()
 	m_soundManager.playCrowd("ASSETS/SOUNDS/CROWD/stadium_noise.ogg", 80.f);
 
 	m_referee.startMatch(*m_ball, m_pitch, allPlayers, m_soundManager);
+
+	for (Player* p : m_homeTeam) {
+		m_matchInfo.recordAppearanceStart(p->getId(), m_matchInfo.getHomeTeamId(), 0);
+	}
+	for (Player* p : m_awayTeam) {
+		m_matchInfo.recordAppearanceStart(p->getId(), m_matchInfo.getAwayTeamId(), 0);
+	}
 }
 
-void GamePlay::updateCamera(sf::RenderWindow& t_window)
+void MatchEngine::updateCamera(sf::RenderWindow& t_window)
 {
 	sf::Vector2f ballPos = m_ball->getPosition();
 	sf::Vector2f targetCenter;
@@ -902,129 +942,87 @@ void GamePlay::updateCamera(sf::RenderWindow& t_window)
 	t_window.setView(m_playerCam);
 }
 
-void GamePlay::powerBarUpdate()
+void MatchEngine::runStandardSystems(float dt, sf::RenderWindow& t_window)
 {
-	// 1. Get the current power (0.0 to 1.0)
-	float power = m_userController->getKickStrength();
-
-	// 2. Scale the width based on the power
-	// If power is 0.5, the width becomes 100px (half of 200px)
-	barFill.setSize(sf::Vector2f(barSize.x * power, barSize.y));
-
-	// 3. Optional: Dynamic Color (Green -> Red)
-	// As power increases, the bar gets "hotter"
-	int red = static_cast<int>(255 * power);
-	int green = static_cast<int>(255 * (1.0f - power));
-	barFill.setFillColor(sf::Color(red, green, 0));
-}
-
-void GamePlay::powerBarDraw(sf::RenderWindow& t_window)
-{
-	t_window.setView(t_window.getDefaultView());
-
-	// Position the bar (e.g., bottom center)
-	sf::Vector2f uiPos(t_window.getSize().x / 2.f - barSize.x / 2.f,
-		t_window.getSize().y - 75.f);
-	barBackground.setPosition(uiPos);
-	barFill.setPosition(uiPos);
-
-	t_window.draw(barBackground);
-	t_window.draw(barFill);
-}
-
-float GamePlay::distance(sf::Vector2f a, sf::Vector2f b)
-{
-	sf::Vector2f d = a - b;
-	return std::sqrt(d.x * d.x + d.y * d.y);
-}
-
-// Helper: Normalize
-sf::Vector2f GamePlay::normalize(sf::Vector2f source) {
-	float length = std::sqrt(source.x * source.x + source.y * source.y);
-	if (length != 0) return source / length;
-	return source;
-}
-
-void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
-{
-	// ==========================================
-	// --- 1. DETERMINE EFFECTIVE POSSESSION ---
-	// ==========================================
 	Player* effectiveOwner = m_ball->getOwner();
-	if (effectiveOwner == nullptr) {
-		effectiveOwner = m_ball->getLastOwner(); // The magic fix for passes!
-	}
+	if (effectiveOwner == nullptr) effectiveOwner = m_ball->getLastOwner();
 
-	// --- 2. UPDATE HUMAN USER ---
-	if (m_userController) {
-		m_userController->update(dt, *this);
-		m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
-	}
-	if (m_userPlayer)
-	{
-		m_userPlayer->update(dt);
-	}
-
-	// ==========================================
-	// --- 3. GATHER TEAM-AGNOSTIC ACTIVE LISTS ---
-	// ==========================================
 	std::vector<Player*> homeTeamActive;
 	std::vector<Player*> awayTeamActive;
 
 	for (auto& npc : m_homeside) {
 		if (!npc->isSentOff()) homeTeamActive.push_back(npc.get());
 	}
-
 	for (auto& opp : m_awayside) {
 		if (!opp->isSentOff()) awayTeamActive.push_back(opp.get());
 	}
 
-	// THE FIX: Dynamically sort the User Player into the correct active array!
 	if (m_userPlayer && !m_userPlayer->isSentOff()) {
-		if (m_userPlayer->getTeam() == Team::Home) {
-			homeTeamActive.push_back(m_userPlayer.get());
-		}
-		else {
-			awayTeamActive.push_back(m_userPlayer.get());
-		}
+		if (m_userPlayer->getTeam() == Team::Home) homeTeamActive.push_back(m_userPlayer.get());
+		else awayTeamActive.push_back(m_userPlayer.get());
 	}
 
-	// --- ABANDONMENT CHECK (LESS THAN 7 PLAYERS) ---
 	if (!m_gameOver) {
-		if (homeTeamActive.size() < 7) {
-			triggerForfeit(true);  // Home forfeits
-			return; // Stop processing physics for this frame!
-		}
-		else if (awayTeamActive.size() < 7) {
-			triggerForfeit(false); // Away forfeits
-			return;
-		}
+		if (homeTeamActive.size() < 7) { triggerForfeit(true); return; }
+		else if (awayTeamActive.size() < 7) { triggerForfeit(false); return; }
 	}
 
 	Player* homeFirstResponder = findFirstResponder(homeTeamActive);
 	Player* awayFirstResponder = findFirstResponder(awayTeamActive);
 
-	// ==========================================
-	// --- 4. UPDATE SPATIAL GRID (PITCH CONTROL) ---
-	// ==========================================
+	std::vector<Player*> allPlayers = homeTeamActive;
+	allPlayers.insert(allPlayers.end(), awayTeamActive.begin(), awayTeamActive.end());
+
 	m_spatialGrid.update(homeTeamActive, awayTeamActive, *m_ball, m_pitch);
+
+	// ==========================================
+	// --- THE FIX: BUILD THE CONTEXTS ---
+	// ==========================================
+	MatchEnvironment baseEnv;
+	baseEnv.ball = m_ball.get();
+	baseEnv.pitch = &m_pitch;
+	baseEnv.homeGoal = &m_homeGoal;
+	baseEnv.awayGoal = &m_awayGoal;
+	baseEnv.sound = &m_soundManager;
+	baseEnv.stats = &m_matchStats;
+	baseEnv.info = &m_matchInfo;
+	baseEnv.referee = &m_referee;
+	baseEnv.grid = &m_spatialGrid;
+	baseEnv.allPlayers = &allPlayers;
+
+	MatchEnvironment homeEnv = baseEnv;
+	homeEnv.teammates = &homeTeamActive;
+	homeEnv.opposition = &awayTeamActive;
+
+	MatchEnvironment awayEnv = baseEnv;
+	awayEnv.teammates = &awayTeamActive;
+	awayEnv.opposition = &homeTeamActive;
 
 	// ==========================================
 	// --- 5. UPDATE AI BRAINS ---
 	// ==========================================
+	if (m_userController) {
+		if (m_userPlayer->getTeam() == Team::Home)
+		{
+			m_userController->update(dt, homeEnv);
+		}
+		else
+		{
+			m_userController->update(dt, awayEnv);
+		}
+		m_userController->mouseAiming(mouseWorld, t_window, m_playerCam);
+	}
+	if (m_userPlayer) m_userPlayer->update(dt);
+
 	for (auto& npc : m_homeside) {
 		if (npc->isSentOff()) continue;
-
-		// THE FIX: Pass m_spatialGrid as the final parameter so the AI can read the map!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeTeamActive, awayTeamActive, m_pitch, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		m_npcController->update(*npc, m_userPlayer.get(), dt, homeFirstResponder, *m_homeTeamAI, homeEnv);
 		npc->update(dt);
 	}
 
 	for (auto& npc : m_awayside) {
 		if (npc->isSentOff()) continue;
-
-		// THE FIX: Note that awayTeamActive is passed first here so it acts as "teammates"!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, awayTeamActive, homeTeamActive, m_pitch, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		m_npcController->update(*npc, m_userPlayer.get(), dt, awayFirstResponder, *m_awayTeamAI, awayEnv);
 		npc->update(dt);
 	}
 
@@ -1033,31 +1031,24 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 	// ==========================================
 	m_ball->update(dt);
 
-	// Collect everyone for collisions
-	std::vector<Player*> allPlayers = homeTeamActive;
-	allPlayers.insert(allPlayers.end(), awayTeamActive.begin(), awayTeamActive.end());
+	// Look at how much cleaner the Physics Engine becomes!
+	PhysicsEngine::resolvePlayerPlayerCollisions(baseEnv);
 
-	// 1. Resolve Player-Player
-	PhysicsEngine::resolvePlayerPlayerCollisions(allPlayers, *m_ball, m_referee, m_pitch, m_soundManager, m_matchStats);
-
-	// 2. Resolve Player-World
 	for (Player* p : allPlayers) {
-		PhysicsEngine::resolvePlayerPitchBoundaries(*p, m_pitch);
-		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_homeGoal);
-		PhysicsEngine::resolvePlayerGoalCollisions(*p, m_awayGoal);
+		PhysicsEngine::resolvePlayerPitchBoundaries(*p, *baseEnv.pitch);
+		PhysicsEngine::resolvePlayerGoalCollisions(*p, *baseEnv.homeGoal);
+		PhysicsEngine::resolvePlayerGoalCollisions(*p, *baseEnv.awayGoal);
 	}
 
-	// 3. Resolve Ball-World
-	PhysicsEngine::resolveBallPitchBoundaries(*m_ball, m_pitch, m_soundManager);
-	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_homeGoal, m_soundManager);
-	PhysicsEngine::resolveBallGoalCollisions(*m_ball, m_awayGoal, m_soundManager);
+	PhysicsEngine::resolveBallPitchBoundaries(baseEnv);
+	PhysicsEngine::resolveBallGoalCollisions(*baseEnv.ball, *baseEnv.homeGoal, *baseEnv.sound);
+	PhysicsEngine::resolveBallGoalCollisions(*baseEnv.ball, *baseEnv.awayGoal, *baseEnv.sound);
 
-	// 4. Resolve Ball-Player
-	PhysicsEngine::resolveGoalkeeperBallCollisions(*m_ball, allPlayers);
-	PhysicsEngine::resolveBallPlayerCollisions(*m_ball, allPlayers);
+	PhysicsEngine::resolveGoalkeeperBallCollisions(baseEnv);
+	PhysicsEngine::resolveBallPlayerCollisions(baseEnv);
 }
 
-Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
+Player* MatchEngine::findFirstResponder(const std::vector<Player*>& t_team) {
 	if (t_team.empty()) return nullptr;
 
 	Player* bestResponder = nullptr;
@@ -1100,7 +1091,7 @@ Player* GamePlay::findFirstResponder(const std::vector<Player*>& t_team) {
 	return bestResponder;
 }
 
-void GamePlay::drawUI(sf::RenderWindow& t_window)
+void MatchEngine::drawUI(sf::RenderWindow& t_window)
 {
 	// ==========================================
 	// 1. WORLD-SPACE UI (Player Indicator)
@@ -1599,7 +1590,7 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 	t_window.setView(worldView);
 }
 
-void GamePlay::triggerForfeit(bool isHomeForfeit)
+void MatchEngine::triggerForfeit(bool isHomeForfeit)
 {
 	m_gameOver = true;
 	m_referee.applyForfeitScore(isHomeForfeit);
@@ -1616,86 +1607,7 @@ void GamePlay::triggerForfeit(bool isHomeForfeit)
 	m_gameOverText.setPosition({ xpos, 1080.f * 0.4f });
 }
 
-void GamePlay::drawDebugOffsideLines(sf::RenderWindow& window) {
-	// We make them semi-transparent (150 alpha) so they don't blind you
-	// Note: SFML 3 allows initializing colors with sf::Color(rgba) or sf::Color(r,g,b,a)
-	sf::Color homeColor(0, 255, 0, 150); // Green for Home
-	sf::Color awayColor(255, 0, 0, 150); // Red for Away
-
-	// ==========================================
-	// 1. HOME TEAM OFFSIDE LINE 
-	// (The line the Away Strikers must stay behind)
-	// ==========================================
-	float homeLineX = m_homeTeamAI->getOffsideLineX();
-
-	// FIX: Using sf::PrimitiveType::Lines for SFML 3
-	sf::VertexArray homeLine(sf::PrimitiveType::Lines, 2);
-	homeLine[0].position = sf::Vector2f(homeLineX, m_pitch.margin);
-	homeLine[1].position = sf::Vector2f(homeLineX, m_pitch.totalHeight - m_pitch.margin);
-	homeLine[0].color = homeColor;
-	homeLine[1].color = homeColor;
-
-	window.draw(homeLine);
-
-	// ==========================================
-	// 2. AWAY TEAM OFFSIDE LINE 
-	// (The line the Home Strikers must stay behind)
-	// ==========================================
-	float awayLineX = m_awayTeamAI->getOffsideLineX();
-
-	// FIX: Using sf::PrimitiveType::Lines for SFML 3
-	sf::VertexArray awayLine(sf::PrimitiveType::Lines, 2);
-	awayLine[0].position = sf::Vector2f(awayLineX, m_pitch.margin);
-	awayLine[1].position = sf::Vector2f(awayLineX, m_pitch.totalHeight - m_pitch.margin);
-	awayLine[0].color = awayColor;
-	awayLine[1].color = awayColor;
-
-	window.draw(awayLine);
-}
-
-void GamePlay::drawDebugNames(sf::RenderWindow& window, const sf::Font& font) {
-	// 1. Setup the Text Object
-	// In SFML 3, the constructor takes the font directly
-	sf::Text nameText(font);
-	nameText.setCharacterSize(32); // Keep it small so the screen doesn't get cluttered
-	nameText.setFillColor(sf::Color::White);
-
-	// Add a black outline so the names are readable against the green grass
-	nameText.setOutlineColor(sf::Color::Black);
-	nameText.setOutlineThickness(1.5f);
-
-	// 2. Gather all players
-	std::vector<Player*> allPlayers;
-	if (m_userPlayer)
-	{
-		allPlayers.push_back(m_userPlayer.get());
-	}
-	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
-	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
-
-	// 3. Draw names above their heads
-	for (Player* p : allPlayers) {
-		// Skip players who are sent off (if they are teleported off-screen)
-		if (p->isSentOff()) continue;
-
-		nameText.setString(p->getName());
-
-		// SFML 3 RECTANGLE SYNTAX: Center the text perfectly
-		sf::FloatRect bounds = nameText.getLocalBounds();
-		nameText.setOrigin({
-			bounds.position.x + (bounds.size.x / 2.0f),
-			bounds.position.y + bounds.size.y
-			});
-		nameText.setRotation(sf::degrees(90.f));
-		// Position it just above the player's coordinates. 
-		// You might need to tweak the -60.f depending on how tall your sprites are!
-		nameText.setPosition(p->getPosition() + sf::Vector2f(100.f, 0.f));
-
-		window.draw(nameText);
-	}
-}
-
-void GamePlay::executePlayerSwitch(Player* targetNPC) 
+void MatchEngine::executePlayerSwitch(Player* targetNPC) 
 {
 	// Safety checks
 	if (!targetNPC || targetNPC == m_userPlayer.get() || targetNPC->getTeam() != m_userPlayer->getTeam()) return;
@@ -1718,58 +1630,37 @@ void GamePlay::executePlayerSwitch(Player* targetNPC)
 	}
 }
 
-void GamePlay::drawDebugHitboxes(sf::RenderWindow& window) {
-	// 1. Gather all active players
-	std::vector<Player*> allPlayers;
-	allPlayers.push_back(m_userPlayer.get());
-	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
-	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
+void MatchEngine::powerBarUpdate()
+{
+	// 1. Get the current power (0.0 to 1.0)
+	float power = m_userController->getKickStrength();
 
-	for (Player* p : allPlayers) {
-		if (p->isSentOff()) continue;
+	// 2. Scale the width based on the power
+	// If power is 0.5, the width becomes 100px (half of 200px)
+	barFill.setSize(sf::Vector2f(barSize.x * power, barSize.y));
 
-		// ==========================================
-		// 1. CORE BOUNDING BOX (Yellow)
-		// ==========================================
-		sf::FloatRect bounds = p->getBoundingBox();
-
-		sf::RectangleShape boundingBoxShape(bounds.size);
-		boundingBoxShape.setPosition(bounds.position);
-		boundingBoxShape.setFillColor(sf::Color::Transparent);
-		boundingBoxShape.setOutlineThickness(2.0f);
-
-		// Make Goalkeeper hitboxes Cyan when diving so you can see them expand!
-		if (p->getPositionRole() == PositionRole::Goalkeeper && p->getState() == PlayerState::Diving) {
-			boundingBoxShape.setOutlineColor(sf::Color::Cyan);
-		}
-		else {
-			boundingBoxShape.setOutlineColor(sf::Color::Yellow);
-		}
-
-		window.draw(boundingBoxShape);
-
-		// ==========================================
-		// 2. TACKLE REACH BOX (Red)
-		// ==========================================
-		// We only draw the tackle box if they are actively tackling, 
-		// otherwise the screen will be covered in red squares!
-		if (p->getState() == PlayerState::Tackling) {
-			sf::FloatRect tackleBounds = p->getTackleHitbox();
-
-			sf::RectangleShape tackleBoxShape(tackleBounds.size);
-			tackleBoxShape.setPosition(tackleBounds.position);
-
-			// Fill it with a very faint red so you can see the active threat area
-			tackleBoxShape.setFillColor(sf::Color(255, 0, 0, 80));
-			tackleBoxShape.setOutlineThickness(2.0f);
-			tackleBoxShape.setOutlineColor(sf::Color::Red);
-
-			window.draw(tackleBoxShape);
-		}
-	}
+	// 3. Optional: Dynamic Color (Green -> Red)
+	// As power increases, the bar gets "hotter"
+	int red = static_cast<int>(255 * power);
+	int green = static_cast<int>(255 * (1.0f - power));
+	barFill.setFillColor(sf::Color(red, green, 0));
 }
 
-void GamePlay::drawMatchStats(sf::RenderWindow& t_window)
+void MatchEngine::powerBarDraw(sf::RenderWindow& t_window)
+{
+	t_window.setView(t_window.getDefaultView());
+
+	// Position the bar (e.g., bottom center)
+	sf::Vector2f uiPos(t_window.getSize().x / 2.f - barSize.x / 2.f,
+		t_window.getSize().y - 75.f);
+	barBackground.setPosition(uiPos);
+	barFill.setPosition(uiPos);
+
+	t_window.draw(barBackground);
+	t_window.draw(barFill);
+}
+
+void MatchEngine::drawMatchStats(sf::RenderWindow& t_window)
 {
 	// 1. Setup the semi-transparent background panel
 	sf::Vector2u winSize = t_window.getSize();
@@ -1894,13 +1785,13 @@ void GamePlay::drawMatchStats(sf::RenderWindow& t_window)
 	drawStatRow("Fouls", std::to_string(m_matchStats.home.fouls), std::to_string(m_matchStats.away.fouls));
 }
 
-void GamePlay::initPauseMenuButtons()
+void MatchEngine::initPauseMenuButtons()
 {
 	if (!m_buttonTxt.loadFromFile("ASSETS/IMAGES/button.png")) {
 		std::cout << "Can't load button texture in GamePlay\n";
 	}
 
-	sf::String btnStrings[] = { "Game Plan", "Main Menu" };
+	sf::String btnStrings[] = { "Game Plan", "Return to Menu" };
 	sf::IntRect txtRect({ 0, 0 }, { static_cast<int>(m_buttonTxt.getSize().x), static_cast<int>(m_buttonTxt.getSize().y) });
 
 	for (int i = 0; i < 2; i++) {
@@ -1916,61 +1807,66 @@ void GamePlay::initPauseMenuButtons()
 	}
 }
 
-void GamePlay::updatePauseMenu(sf::RenderWindow& t_window)
+void MatchEngine::updatePauseMenu(sf::RenderWindow& t_window)
 {
-	// Don't update SFML buttons if the ImGui menu is open!
 	if (m_showGamePlan) return;
 
 	sf::Vector2i mousePixel = sf::Mouse::getPosition(t_window);
 	sf::Vector2f mouseLocation = t_window.mapPixelToCoords(mousePixel, t_window.getDefaultView());
 
-	// Calculate dynamic positioning based on the current window size
 	sf::Vector2u winSize = t_window.getSize();
 	float xOffset = (winSize.x / 2.f) - (m_btnWidth / 2.f);
-
-	// Position them below the 600px tall stats board
 	float statsBoardBottom = ((winSize.y) / 4.f) + 450.f;
 	float yOffset = statsBoardBottom + 20.f;
 
-	// Update Button Logic
+	bool isFullTime = (m_referee.getMatchState() == MatchState::FullTime);
+	m_showWarning = false; // Reset warning flag every frame
+
 	for (int i = 0; i < 2; i++)
 	{
-		// 1. Position the elements
-		m_pauseButtons[i].setPosition({ xOffset, yOffset + (m_btnSpacing * i) });
+		// 1. Hide Game Plan at Full Time
+		if (isFullTime && i == 0) continue;
 
-		sf::FloatRect textSize = m_pauseTexts[i].getGlobalBounds();
+		// 2. Position the elements
+		float currentY = yOffset + (m_btnSpacing * i);
+
+		// If it's Full Time, slide the "Return" button up to the top slot!
+		if (isFullTime && i == 1) currentY = yOffset;
+
+		m_pauseButtons[i].setPosition({ xOffset, currentY });
+
+		sf::FloatRect textSize = m_pauseTexts[i].getLocalBounds();
 		float textXOffset = (m_btnWidth - textSize.size.x) / 2.f;
-		m_pauseTexts[i].setPosition({ xOffset + textXOffset, yOffset + (m_btnSpacing * i) + 15.f }); // 15f drop offset
+		m_pauseTexts[i].setPosition({ xOffset + textXOffset, currentY + 15.f });
 
-		// 2. Default state
 		m_pauseButtons[i].setColor(sf::Color{ 0, 100, 0, 255 });
 		m_pauseTexts[i].setFillColor(sf::Color::White);
 
 		// 3. Hover & Click Logic
-		if (mouseLocation.x > xOffset && mouseLocation.x < xOffset + m_btnWidth)
+		if (mouseLocation.x > xOffset && mouseLocation.x < xOffset + m_btnWidth &&
+			mouseLocation.y > currentY && mouseLocation.y < currentY + m_btnHeight)
 		{
-			float btnTop = yOffset + (m_btnSpacing * i);
-			if (mouseLocation.y > btnTop && mouseLocation.y < btnTop + m_btnHeight)
-			{
-				m_pauseButtons[i].setColor(sf::Color{ 0, 50, 0, 255 }); // Hover tint
+			m_pauseButtons[i].setColor(sf::Color{ 0, 50, 0, 255 });
 
-				if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
-				{
-					if (i == 0) {
-						if (m_referee.getMatchState() != MatchState::FullTime && m_userPlayer)
-						m_showGamePlan = true; // Open Game Plan
-					}
-					else if (i == 1) {
-						// Exit to Main Menu
-						Game::currentState = GameState::MainMenu;
-					}
-				}
+			// THE FIX: Show warning if hovering over "Return" while match is active
+			if (i == 1 && !isFullTime) {
+				m_showWarning = true;
+
+				// Center the warning text directly below the button
+				sf::FloatRect warnBounds = m_warningText.getLocalBounds();
+				m_warningText.setPosition({ (winSize.x - warnBounds.size.x) / 2.f, currentY + m_btnHeight + 20.f });
+			}
+
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			{
+				if (i == 0) m_showGamePlan = true;
+				if (i == 1) m_exitRequested = true; // Raise the flag!
 			}
 		}
 	}
 }
 
-void GamePlay::drawGamePlan(sf::RenderWindow& t_window)
+void MatchEngine::drawGamePlan(sf::RenderWindow& t_window)
 {
 	if (!m_showGamePlan || !m_userPlayer) return;
 
@@ -2168,7 +2064,7 @@ void GamePlay::drawGamePlan(sf::RenderWindow& t_window)
 	ImGui::End();
 }
 
-void GamePlay::performSubstitution(Team team, int pitchIndex, int benchIndex)
+void MatchEngine::performSubstitution(Team team, int pitchIndex, int benchIndex)
 {
 	std::vector<Player*>& liveTeam = (team == Team::Home) ? m_homeTeam : m_awayTeam;
 	TeamData& teamData = (team == Team::Home) ? m_homeTeamData : m_awayTeamData;
@@ -2231,7 +2127,7 @@ void GamePlay::performSubstitution(Team team, int pitchIndex, int benchIndex)
 	subsUsed++;
 }
 
-void GamePlay::handleAISubstitutions()
+void MatchEngine::handleAISubstitutions()
 {
 	// ==========================================
 	// --- 1. WAIT FOR DEAD BALL ---
@@ -2341,7 +2237,7 @@ void GamePlay::handleAISubstitutions()
 	}
 }
 
-void GamePlay::queueSubstitution(Team team, int pitchIndex, int benchIndex) {
+void MatchEngine::queueSubstitution(Team team, int pitchIndex, int benchIndex) {
 	// Prevent duplicates! If the user changes their mind and queues a different sub 
 	// for the same spot, we remove the old request so the arrays don't get corrupted.
 	m_pendingSubsQueue.erase(std::remove_if(m_pendingSubsQueue.begin(), m_pendingSubsQueue.end(),
@@ -2353,86 +2249,145 @@ void GamePlay::queueSubstitution(Team team, int pitchIndex, int benchIndex) {
 	m_pendingSubsQueue.push_back({ team, pitchIndex, benchIndex });
 }
 
-void GamePlay::drawPassDebug(sf::RenderWindow& t_window)
-{
-	// Only draw if the ball is moving freely
-	if (m_ball->hasOwner() || m_ball->getVelocity() == sf::Vector2f(0.f, 0.f)) return;
+void MatchEngine::drawDebugHitboxes(sf::RenderWindow& window) {
+	// 1. Gather all active players
+	std::vector<Player*> allPlayers;
+	allPlayers.push_back(m_userPlayer.get());
+	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
-	Player* lastOwner = m_ball->getLastOwner();
-	if (!lastOwner) return;
+	for (Player* p : allPlayers) {
+		if (p->isSentOff()) continue;
 
-	// Get the team of the player who passed the ball
-	const std::vector<Player*>& attackingTeam = (lastOwner->getTeam() == Team::Home) ? m_homeTeam : m_awayTeam;
+		// ==========================================
+		// 1. CORE BOUNDING BOX (Yellow)
+		// ==========================================
+		sf::FloatRect bounds = p->getBoundingBox();
 
-	sf::Vector2f ballPos = m_ball->getPosition();
-	sf::Vector2f ballVel = m_ball->getVelocity();
-	float speed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+		sf::RectangleShape boundingBoxShape(bounds.size);
+		boundingBoxShape.setPosition(bounds.position);
+		boundingBoxShape.setFillColor(sf::Color::Transparent);
+		boundingBoxShape.setOutlineThickness(2.0f);
 
-	if (speed < 10.f) return;
+		// Make Goalkeeper hitboxes Cyan when diving so you can see them expand!
+		if (p->getPositionRole() == PositionRole::Goalkeeper && p->getState() == PlayerState::Diving) {
+			boundingBoxShape.setOutlineColor(sf::Color::Cyan);
+		}
+		else {
+			boundingBoxShape.setOutlineColor(sf::Color::Yellow);
+		}
 
-	// ==========================================
-	// 1. CALCULATE INTENDED TARGET (Physics Projection)
-	// ==========================================
-	float restingDist = (speed * speed) / (2.f * m_ball->friction);
-	restingDist = std::min(restingDist, 4000.f);
+		window.draw(boundingBoxShape);
 
-	sf::Vector2f restingPoint = ballPos + (PlayerAI::normalize(ballVel) * restingDist);
+		// ==========================================
+		// 2. TACKLE REACH BOX (Red)
+		// ==========================================
+		// We only draw the tackle box if they are actively tackling, 
+		// otherwise the screen will be covered in red squares!
+		if (p->getState() == PlayerState::Tackling) {
+			sf::FloatRect tackleBounds = p->getTackleHitbox();
 
-	Player* intendedTarget = nullptr;
-	float minDistToRest = 99999.f;
+			sf::RectangleShape tackleBoxShape(tackleBounds.size);
+			tackleBoxShape.setPosition(tackleBounds.position);
 
-	for (Player* p : attackingTeam) {
-		if (p == lastOwner || p->getPositionRole() == PositionRole::Goalkeeper || p->isSentOff()) continue;
+			// Fill it with a very faint red so you can see the active threat area
+			tackleBoxShape.setFillColor(sf::Color(255, 0, 0, 80));
+			tackleBoxShape.setOutlineThickness(2.0f);
+			tackleBoxShape.setOutlineColor(sf::Color::Red);
 
-		float d = PlayerAI::dist(p->getPosition(), restingPoint);
-		if (d < minDistToRest) {
-			minDistToRest = d;
-			intendedTarget = p;
+			window.draw(tackleBoxShape);
 		}
 	}
+}
+
+void MatchEngine::drawDebugOffsideLines(sf::RenderWindow& window) {
+	// We make them semi-transparent (150 alpha) so they don't blind you
+	// Note: SFML 3 allows initializing colors with sf::Color(rgba) or sf::Color(r,g,b,a)
+	sf::Color homeColor(0, 255, 0, 150); // Green for Home
+	sf::Color awayColor(255, 0, 0, 150); // Red for Away
 
 	// ==========================================
-	// 2. CALCULATE ACTUAL RECEIVER (AI Brain)
+	// 1. HOME TEAM OFFSIDE LINE 
+	// (The line the Away Strikers must stay behind)
 	// ==========================================
-	Player* actualReceiver = PositioningAI::identifyTargetReceiver(*m_ball, attackingTeam, m_pitch);
+	float homeLineX = m_homeTeamAI->getOffsideLineX();
+
+	// FIX: Using sf::PrimitiveType::Lines for SFML 3
+	sf::VertexArray homeLine(sf::PrimitiveType::Lines, 2);
+	homeLine[0].position = sf::Vector2f(homeLineX, m_pitch.margin);
+	homeLine[1].position = sf::Vector2f(homeLineX, m_pitch.totalHeight - m_pitch.margin);
+	homeLine[0].color = homeColor;
+	homeLine[1].color = homeColor;
+
+	window.draw(homeLine);
 
 	// ==========================================
-	// 3. SFML 3 DRAWING
+	// 2. AWAY TEAM OFFSIDE LINE 
+	// (The line the Home Strikers must stay behind)
 	// ==========================================
+	float awayLineX = m_awayTeamAI->getOffsideLineX();
 
-	// Draw Intended Target (Yellow - The physics trajectory)
-	if (intendedTarget) {
-		// SFML 3 specific line drawing
-		std::array<sf::Vertex, 2> intendedLine = {
-			sf::Vertex{ballPos, sf::Color(255, 255, 0, 150)},
-			sf::Vertex{intendedTarget->getPosition(), sf::Color(255, 255, 0, 150)}
-		};
-		t_window.draw(intendedLine.data(), intendedLine.size(), sf::PrimitiveType::Lines);
+	// FIX: Using sf::PrimitiveType::Lines for SFML 3
+	sf::VertexArray awayLine(sf::PrimitiveType::Lines, 2);
+	awayLine[0].position = sf::Vector2f(awayLineX, m_pitch.margin);
+	awayLine[1].position = sf::Vector2f(awayLineX, m_pitch.totalHeight - m_pitch.margin);
+	awayLine[0].color = awayColor;
+	awayLine[1].color = awayColor;
 
-		sf::CircleShape intendedCircle(30.f);
-		intendedCircle.setOrigin({ 30.f, 30.f }); // SFML 3 brace init
-		intendedCircle.setPosition(intendedTarget->getPosition());
-		intendedCircle.setFillColor(sf::Color::Transparent);
-		intendedCircle.setOutlineColor(sf::Color::Yellow);
-		intendedCircle.setOutlineThickness(3.f);
-		t_window.draw(intendedCircle);
+	window.draw(awayLine);
+}
+
+void MatchEngine::drawDebugNames(sf::RenderWindow& window, const sf::Font& font) {
+	// 1. Setup the Text Object
+	// In SFML 3, the constructor takes the font directly
+	sf::Text nameText(font);
+	nameText.setCharacterSize(32); // Keep it small so the screen doesn't get cluttered
+	nameText.setFillColor(sf::Color::White);
+
+	// Add a black outline so the names are readable against the green grass
+	nameText.setOutlineColor(sf::Color::Black);
+	nameText.setOutlineThickness(1.5f);
+
+	// 2. Gather all players
+	std::vector<Player*> allPlayers;
+	if (m_userPlayer)
+	{
+		allPlayers.push_back(m_userPlayer.get());
 	}
+	for (auto& tm : m_homeside) allPlayers.push_back(tm.get());
+	for (auto& opp : m_awayside) allPlayers.push_back(opp.get());
 
-	// Draw Actual Receiver (Cyan - Who the AI assigned to get it)
-	if (actualReceiver) {
-		// SFML 3 specific line drawing
-		std::array<sf::Vertex, 2> actualLine = {
-			sf::Vertex{ballPos, sf::Color(0, 255, 255, 200)},
-			sf::Vertex{actualReceiver->getPosition(), sf::Color(0, 255, 255, 200)}
-		};
-		t_window.draw(actualLine.data(), actualLine.size(), sf::PrimitiveType::Lines);
+	// 3. Draw names above their heads
+	for (Player* p : allPlayers) {
+		// Skip players who are sent off (if they are teleported off-screen)
+		if (p->isSentOff()) continue;
 
-		sf::CircleShape actualCircle(45.f);
-		actualCircle.setOrigin({ 45.f, 45.f }); // SFML 3 brace init
-		actualCircle.setPosition(actualReceiver->getPosition());
-		actualCircle.setFillColor(sf::Color::Transparent);
-		actualCircle.setOutlineColor(sf::Color::Cyan);
-		actualCircle.setOutlineThickness(5.f);
-		t_window.draw(actualCircle);
+		nameText.setString(p->getName());
+
+		// SFML 3 RECTANGLE SYNTAX: Center the text perfectly
+		sf::FloatRect bounds = nameText.getLocalBounds();
+		nameText.setOrigin({
+			bounds.position.x + (bounds.size.x / 2.0f),
+			bounds.position.y + bounds.size.y
+			});
+		nameText.setRotation(sf::degrees(90.f));
+		// Position it just above the player's coordinates. 
+		// You might need to tweak the -60.f depending on how tall your sprites are!
+		nameText.setPosition(p->getPosition() + sf::Vector2f(100.f, 0.f));
+
+		window.draw(nameText);
 	}
+}
+
+float MatchEngine::distance(sf::Vector2f a, sf::Vector2f b)
+{
+	sf::Vector2f d = a - b;
+	return std::sqrt(d.x * d.x + d.y * d.y);
+}
+
+// Helper: Normalize
+sf::Vector2f MatchEngine::normalize(sf::Vector2f source) {
+	float length = std::sqrt(source.x * source.x + source.y * source.y);
+	if (length != 0) return source / length;
+	return source;
 }

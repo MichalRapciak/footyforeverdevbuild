@@ -9,7 +9,7 @@ public:
     ~MatchDayScreen();
 
     // UPDATED: Added userTeamId so we know which side to unlock!
-    void init(sf::Font& font, GameDatabase& database, std::string homeId = "", std::string awayId = "", std::string userTeamId = "", bool isTournament = false);
+    void init(sf::Font& font, GameDatabase& db, const std::string& homeId = "", const std::string& awayId = "", const std::string& userId = "", bool isTournament = false);
     void update(sf::Time dt, sf::RenderWindow& window);
     void render(sf::RenderWindow& window);
 
@@ -17,6 +17,8 @@ public:
     std::string getHomeTeamId() const { return m_homeTeamId; }
     std::string getAwayTeamId() const { return m_awayTeamId; }
     std::string getUserPlayerId() const { return m_userPlayerId; }
+
+    bool isTournamentMode() const { return m_isTournamentMode; }
 
 private:
     sf::Font m_font;

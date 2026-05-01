@@ -3,26 +3,24 @@
 #include <vector>
 #include "NPCPlayer.h"
 #include "UserPlayer.h"
-#include "MatchContext.h"
-#include "Ball.h"
-#include "Pitch.h"
+#include "MatchEnvironment.h"
 #include "TeamAI.h"
-#include "SoundManager.h"
 
-class MatchStatistics;
+enum class MatchState;
 
 class PossessionAI {
 public:
-    static sf::Vector2f handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer* user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI, SoundManager& soundManager, MatchStatistics& stats);
+    static sf::Vector2f handlePossession(NPCPlayer& npc, UserPlayer* user, float dt, MatchState matchstate, const TeamAI& teamAI, MatchEnvironment& env);
 
-    static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer* user, const TeamAI& teamAI, const Pitch& pitch);
-    static sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI);
+    static Player* findBestPassOption(NPCPlayer& npc, UserPlayer* user, const TeamAI& teamAI, MatchEnvironment& env);
+    static sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const TeamAI& teamAI, MatchEnvironment& env);
 
-    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI);
-    static void executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt, SoundManager& soundManager, MatchStatistics& stats);
-    static void executeThrowIn(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates);
+    static void executePass(NPCPlayer& npc, Player* target, const TeamAI& teamAI, MatchEnvironment& env);
+    static void executeShot(NPCPlayer& npc, sf::Vector2f goalPos, float dt, const TeamAI& teamAI, MatchEnvironment& env);
+    static void executeThrowIn(NPCPlayer& npc, MatchEnvironment& env);
 
+    // Kept Ball& since it's a pure math/physics check that doesn't need the environment!
     static void handleNPCJumpLogic(NPCPlayer& npc, Ball& ball);
-    static bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager, MatchStatistics& stats, const Pitch& pitch);
-    static void executeSetPiece(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, MatchState state, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI);
+    static bool tryNPCAerialStrike(NPCPlayer& npc, sf::Vector2f aimDir, bool isShot, MatchEnvironment& env);
+    static void executeSetPiece(NPCPlayer& npc, MatchState state, const TeamAI& teamAI, MatchEnvironment& env);
 };

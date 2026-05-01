@@ -140,13 +140,63 @@ struct TeamData {
     float teamChemistry = 100.f;
 };
 
+// ==========================================
+// --- COMPETITION & TOURNAMENT STRUCTS ---
+// ==========================================
+
+struct PlayerCompStats {
+    int goals = 0;
+    int assists = 0;
+    int yellowCards = 0;
+    int redCards = 0;
+    int appearances = 0;
+    int minutesPlayed = 0;
+};
+
+struct Fixture {
+    std::string matchId;
+    std::string homeTeamId;
+    std::string awayTeamId;
+    int homeScore = 0;
+    int awayScore = 0;
+    bool isPlayed = false;
+    int roundNumber = 0; // e.g., 16 = Round of 16, 8 = Quarter Final, 1 = Final
+};
+
+struct CompetitionData {
+    std::string id;
+    std::string name;
+    std::string type; // "CUP" or "LEAGUE"
+    std::vector<std::string> participantTeamIds;
+    std::vector<Fixture> fixtures;
+    Country country;
+
+    // Tracks stats specifically for this competition (Golden Boot, etc.)
+    std::map<std::string, PlayerCompStats> playerStats;
+};
+
+struct CupTournamentData {
+    std::string id;
+    std::string name;
+    std::string competitionId; // Links to the CompetitionData
+    std::string userTeamId;    // The team the player is controlling
+    int currentRound = 0;
+    bool isComplete = false;
+};
+
+// ==========================================
 // --- THE DATABASE MANAGER ---
+// ==========================================
+class MatchInfo; // Forward declaration so we can pass it in
 
 class GameDatabase {
 public:
     std::map<std::string, PlayerData> players;
     std::map<std::string, TeamData> teams;
     std::map<std::string, Country> countries;
+
+    std::map<std::string, CompetitionData> competitions;
+    std::map<std::string, CupTournamentData> cupTournaments;
 
     // --- NEW: Directory-based Loading & Saving ---
     void loadDatabase(const std::string& baseDir);
@@ -156,11 +206,14 @@ public:
     void saveTeam(const std::string& id, const std::string& baseDir);
     void deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId);
     void initializeDefaultCountries();
+    void processMatchResult(const MatchInfo& info, const std::string& compId = "");
 
     // Helper getters
     PlayerData* getPlayer(const std::string& id);
     TeamData* getTeam(const std::string& id);
-    Country* getCountry(const std::string& code); // <-- NEW Helper
+    Country* getCountry(const std::string& code);
+    CompetitionData* getCompetition(const std::string& id);
+    CupTournamentData* getCupTournament(const std::string& id);
 };
 
 std::string roleToString(PositionRole role);

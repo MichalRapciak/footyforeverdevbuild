@@ -11,6 +11,7 @@ class Player;
 class Ball;
 struct Pitch;
 class MatchReferee;
+struct MatchEnvironment;
 
 // ==========================================
 // --- NEW: MANAGER COMMANDS ---
@@ -27,7 +28,7 @@ class TeamAI {
 public:
     TeamAI(bool isHomeTeam, const TeamTactics& tactics);
 
-    void update(const std::vector<Player*>& opposition, const Ball& ball, const Pitch& pitch, float dt, const MatchReferee& referee);
+    void update(float dt, MatchEnvironment& env);
 
     float getOffsideLineX() const { return m_offsideLineX; }
     float getBallProgress() const { return m_ballProgress; }

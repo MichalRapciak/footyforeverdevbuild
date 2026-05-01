@@ -180,7 +180,7 @@
     <ClCompile Include="TournamentSetup.cpp">
       <Filter>Resource Files\Menus\MainMenus</Filter>
     </ClCompile>
-    <ClCompile Include="GamePlay.cpp">
+    <ClCompile Include="MatchEngine.cpp">
       <Filter>Resource Files\Menus\GameplayMenus</Filter>
     </ClCompile>
     <ClCompile Include="MatchDayScreen.cpp">
@@ -362,7 +362,7 @@
     <ClInclude Include="TournamentSetup.h">
       <Filter>Header Files\Menus\MainMenus</Filter>
     </ClInclude>
-    <ClInclude Include="GamePlay.h">
+    <ClInclude Include="MatchEngine.h">
       <Filter>Header Files\Menus\GameplayMenus</Filter>
     </ClInclude>
     <ClInclude Include="MatchDayScreen.h">
@@ -375,6 +375,9 @@
       <Filter>Header Files\InfoDump</Filter>
     </ClInclude>
     <ClInclude Include="GameDatabase.h">
+      <Filter>Header Files\InfoDump</Filter>
+    </ClInclude>
+    <ClInclude Include="MatchEnvironment.h">
       <Filter>Header Files\InfoDump</Filter>
     </ClInclude>
   </ItemGroup>

@@ -117,9 +117,9 @@ void Game::processEvents()
 		case GameState::TournamentHub:
 			ImGui::SFML::ProcessEvent(m_window, *event);
 			break;
-		case GameState::GamePlay:
+		case GameState::MatchEngine:
 			ImGui::SFML::ProcessEvent(m_window, *event);
-			m_gamingScreen->processEvents(*event, m_window);
+			m_matchEngineScreen->processEvents(*event, m_window);
 			break;
 		case GameState::Editor:
 			ImGui::SFML::ProcessEvent(m_window, *event);
@@ -215,9 +215,38 @@ void Game::update(sf::Time t_deltaTime)
 			);
 		}
 		break;
-	case GameState::GamePlay:
+	case GameState::MatchEngine:
 		ImGui::SFML::Update(m_window, t_deltaTime);
-		m_gamingScreen->update(t_deltaTime, m_window);
+		m_matchEngineScreen->update(t_deltaTime, m_window);
+
+		if (m_matchEngineScreen->isExitRequested())
+		{
+			if (m_matchEngineScreen->isMatchFinished())
+			{
+				MatchInfo result = m_matchEngineScreen->getMatchInfo();
+
+				if (m_matchDayScreen.isTournamentMode()) {
+					// 1. Log the stats to the transient tournament DB
+					m_database.processMatchResult(result, m_tourHubScreen.getActiveCompId());
+
+					// 2. Advance the bracket and auto-simulate AI games
+					m_tourHubScreen.advanceTournament(result);
+
+					currentState = GameState::TournamentHub;
+				}
+				else {
+					// Standard matchday, don't pass a comp ID
+					m_database.processMatchResult(result);
+					currentState = GameState::MainMenu;
+				}
+			}
+			else
+			{
+				// Match Aborted
+				if (m_matchDayScreen.isTournamentMode()) currentState = GameState::TournamentHub;
+				else currentState = GameState::MatchDay;
+			}
+		}
 		break;
 	case GameState::Editor:
 		if (currentState == GameState::MainMenu)
@@ -237,11 +266,11 @@ void Game::update(sf::Time t_deltaTime)
 
 		if (currentState == GameState::MatchIntro)
 		{
-			m_gamingScreen.reset();
-			m_gamingScreen = std::make_unique<GamePlay>();
-			m_gamingScreen->initialise(m_font);
+			m_matchEngineScreen.reset();
+			m_matchEngineScreen = std::make_unique<MatchEngine>();
+			m_matchEngineScreen->initialise(m_font);
 
-			m_gamingScreen->beginMatchSetup(m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
+			m_matchEngineScreen->beginMatchSetup(m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
 			m_matchIntroScreen.init(m_font, m_database, m_matchDayScreen.getHomeTeamId(), m_matchDayScreen.getAwayTeamId(), m_matchDayScreen.getUserPlayerId());
 
 			// Reset our locks for the new match!
@@ -254,7 +283,7 @@ void Game::update(sf::Time t_deltaTime)
 	{
 		// 1. Only process a heavy load if the Render loop gave us permission!
 		if (m_introReadyToLoad) {
-			m_introProgress = m_gamingScreen->loadNextPlayer();
+			m_introProgress = m_matchEngineScreen->loadNextPlayer();
 
 			// Lock the door! No more players can be loaded until the screen draws.
 			m_introReadyToLoad = false;
@@ -266,8 +295,8 @@ void Game::update(sf::Time t_deltaTime)
 		// 3. Transition when complete
 		if (m_introProgress >= 1.0f)
 		{
-			m_gamingScreen->finalizeMatchSetup();
-			currentState = GameState::GamePlay;
+			m_matchEngineScreen->finalizeMatchSetup();
+			currentState = GameState::MatchEngine;
 		}
 		break;
 	}
@@ -314,8 +343,8 @@ void Game::render()
 		m_tourHubScreen.render(m_window);
 		ImGui::SFML::Render(m_window);
 		break;
-	case GameState::GamePlay:
-		m_gamingScreen->render(m_window);
+	case GameState::MatchEngine:
+		m_matchEngineScreen->render(m_window);
 		ImGui::SFML::Render(m_window);
 		break;
 	case GameState::Editor:
@@ -365,8 +394,6 @@ void Game::initialiseStates()
 	m_mainMenuScreen.initialise(m_font);
 	m_tourSetupScreen.init(m_font, m_database);
 	m_gamemodeSelectScreen.initialise(m_font);
-	m_gamingScreen = std::make_unique<GamePlay>();
-	m_gamingScreen->initialise(m_font);
 	m_settingsScreen.init(m_window);
 }
 

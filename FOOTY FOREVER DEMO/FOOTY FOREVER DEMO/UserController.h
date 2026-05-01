@@ -3,8 +3,9 @@
 #include "MatchState.h"
 
 class UserPlayer; // I call this class here so the PlayerController knows to expect a player when it's loaded, without having to load the class here.
-class GamePlay;
+class MatchEngine;
 class Ball;
+struct MatchEnvironment;
 class Player;
 struct Pitch;
 
@@ -18,24 +19,26 @@ public:
 	~UserController();
 
 	void inputHandler(const sf::Event t_event);
-	void update(float dt, GamePlay& game);
+	void update(float dt, MatchEnvironment& env);
 	void draw(sf::RenderWindow& window);
 	void mouseAiming(sf::Vector2f t_mouseWorld, sf::RenderWindow& t_window, sf::View t_view);
-	void playerMovement(float dt, GamePlay& game);
-	void playerShooting(float dt, GamePlay& game);
+	void playerMovement(float dt, MatchEnvironment& env);
+	void playerShooting(float dt, MatchEnvironment& env);
 	float getKickStrength() const { return kickStrength; }
-	void updateTargetScanning(GamePlay& game);
+	void updateTargetScanning(MatchEnvironment& env);
 
 	Player* findBestDefensiveSwitch(Player& currentPlayer, const std::vector<Player*>& team, Ball& ball, const Pitch& pitch);
 
 
 
 private:
-	void executeKickRelease(GamePlay& game);
-	bool calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
+	static float dist(sf::Vector2f p1, sf::Vector2f p2);
+	static sf::Vector2f normalize(sf::Vector2f source);
+
+	void executeKickRelease(MatchEnvironment& env);
+	bool calculateAerialKick(MatchEnvironment& env, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
 	void calculateGroundKick(float basePower, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin);
-	void attemptSave(float dt, GamePlay& game);
-	float dist(sf::Vector2f p1, sf::Vector2f p2);
+	void attemptSave(float dt, MatchEnvironment& env);
 
 	UserPlayer& m_userPlayer;
 	sf::Vector2f m_speedVector{ 0,0 }; // Current speed vector

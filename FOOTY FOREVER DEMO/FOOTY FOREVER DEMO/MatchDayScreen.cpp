@@ -8,11 +8,11 @@
 MatchDayScreen::MatchDayScreen() : m_db(nullptr), bg_s(bg_txt) {}
 MatchDayScreen::~MatchDayScreen() {}
 
-void MatchDayScreen::init(sf::Font& font, GameDatabase& database, std::string homeId, std::string awayId, std::string userTeamId, bool isTournament) {
+void MatchDayScreen::init(sf::Font& font, GameDatabase& db, const std::string& homeId, const std::string& awayId, const std::string& userId, bool isTournament) {
     m_font = font;
-    m_db = &database;
+    m_db = &db;
     m_isTournamentMode = isTournament;
-    m_tournamentUserTeamId = userTeamId;
+    m_tournamentUserTeamId = userId;
 
     if (!bg_txt.loadFromFile("ASSETS/IMAGES/help.png"))
     {

@@ -2,7 +2,7 @@
 #include "SFML/Graphics.hpp"
 #include <math.h>
 
-class GamePlay;
+class MatchEngine;
 
 /// <summary>
 /// Class in charge of the Level, Tilemap etc.
@@ -14,7 +14,7 @@ public:
 	~Stadium();
 
 	void initialiseStadium();
-	void update(GamePlay& game);
+	void update(MatchEngine& game);
 
 	void draw(sf::RenderWindow& window) const;
 

@@ -9,6 +9,7 @@
 #include "AnimationServer.h"
 #include "SoundManager.h"
 #include "MatchStatistics.h"
+#include "MatchEnvironment.h"
 
 // ==========================================
 // 1. BALL PHYSICS
@@ -557,10 +558,10 @@ void PhysicsEngine::applyKeeperDiveFriction(Player& keeper, float dt) {
     }
 }
 
-void PhysicsEngine::resolveGoalkeeperBallCollisions(Ball& ball, std::vector<Player*>& players) {
-    if (ball.getOwner() != nullptr) return;
+void PhysicsEngine::resolveGoalkeeperBallCollisions(MatchEnvironment& env) {
+    if (env.ball->getOwner() != nullptr) return;
 
-    for (Player* p : players) {
+    for (Player* p : *env.allPlayers) {
         if (p->getPositionRole() == PositionRole::Goalkeeper && p->getState() == PlayerState::Diving) {
 
             sf::FloatRect gkBox = p->getBoundingBox();
@@ -611,13 +612,13 @@ void PhysicsEngine::resolveGoalkeeperBallCollisions(Ball& ball, std::vector<Play
                 zMax = p->z + 240.f;
             }
 
-            bool zOverlap = (ball.z >= zMin) && (ball.z <= zMax);
+            bool zOverlap = (env.ball->z >= zMin) && (env.ball->z <= zMax);
 
             // SFML 3 .contains() still works the same way!
-            if (gkBox.contains(ball.getPosition()) && zOverlap) {
-                ball.lastTouch = p;
+            if (gkBox.contains(env.ball->getPosition()) && zOverlap) {
+                env.ball->lastTouch = p;
 
-                resolveGoalkeeperSave(*p, ball, diveAnim);
+                resolveGoalkeeperSave(*p, *env.ball, diveAnim);
                 return;
             }
         }
@@ -696,7 +697,7 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball, const std:
 // 3. COLLISION PHYSICS
 // ==========================================
 
-void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players, Ball& ball, MatchReferee& referee, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats)
+void PhysicsEngine::resolvePlayerPlayerCollisions(MatchEnvironment& env)
 {
     // Quick helper lambda for normalization
     auto normalize = [](sf::Vector2f v) {
@@ -707,12 +708,12 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
     // ==========================================
     // --- PLAYER-TO-PLAYER MATRIX ---
     // ==========================================
-    for (size_t i = 0; i < players.size(); ++i)
+    for (size_t i = 0; i < env.allPlayers->size(); ++i)
     {
-        for (size_t j = i + 1; j < players.size(); ++j)
+        for (size_t j = i + 1; j < env.allPlayers->size(); ++j)
         {
-            Player* p1 = players[i];
-            Player* p2 = players[j];
+            Player* p1 = (*env.allPlayers)[i];
+            Player* p2 = (*env.allPlayers)[j];
 
             bool isSameTeam = (p1->getTeam() == p2->getTeam());
 
@@ -725,8 +726,8 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
 
                     if (tackler->getTackleHitbox().findIntersection(victim->getBoundingBox()))
                     {
-                        if (ball.getOwner() == victim) {
-                            sf::Vector2f toBall = ball.getPosition() - tackler->getPosition();
+                        if (env.ball->getOwner() == victim) {
+                            sf::Vector2f toBall = env.ball->getPosition() - tackler->getPosition();
                             float distToBall = std::sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
 
                             if (distToBall > 110.f) {
@@ -748,7 +749,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                     // 1. Calculate Victim's Facing Direction
                                     sf::Vector2f vVel = victim->getVelocity();
                                     float vSpeed = std::sqrt(vVel.x * vVel.x + vVel.y * vVel.y);
-                                    sf::Vector2f vFacing = (vSpeed > 10.f) ? (vVel / vSpeed) : normalize(ball.getPosition() - victim->getPosition());
+                                    sf::Vector2f vFacing = (vSpeed > 10.f) ? (vVel / vSpeed) : normalize(env.ball->getPosition() - victim->getPosition());
                                     if (vFacing.x == 0.f && vFacing.y == 0.f) vFacing = { 1.f, 0.f };
 
                                     // 2. Calculate Tackler's Approach Angle
@@ -786,7 +787,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                         foul.location = victim->getPosition();
                                         foul.offender = tackler;
                                         foul.type = fType;
-                                        referee.awardFoul(foul, pitch, ball, players, victim, soundManager, stats);
+                                        env.referee->awardFoul(foul, victim, env);
                                     }
                                 }
                                 else {
@@ -798,12 +799,12 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
                                 victim->setStumbled(0.8f);
 
                                 // 1. Force the victim to drop the ball!
-                                ball.release();
+                                env.ball->release();
 
                                 // 2. Knock the ball away based on the tackler's momentum
                                 sf::Vector2f tackleImpulse = tackler->getVelocity() * 1.2f;
-                                ball.applyImpulse(tackleImpulse);
-                                ball.lastTouch = tackler;
+                                env.ball->applyImpulse(tackleImpulse);
+                                env.ball->lastTouch = tackler;
                                 // 3. Slow the tackler down so they don't slide forever
                                 tackler->setVelocity(tackler->getVelocity() * 0.5f);
 
@@ -890,22 +891,22 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(std::vector<Player*>& players,
     }
 }
 
-void PhysicsEngine::resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch, SoundManager& soundManager) {
-    sf::Vector2f pos = ball.getPosition();
-    sf::Vector2f vel = ball.getVelocity();
+void PhysicsEngine::resolveBallPitchBoundaries(MatchEnvironment& env) {
+    sf::Vector2f pos = env.ball->getPosition();
+    sf::Vector2f vel = env.ball->getVelocity();
     bool bounced = false;
 
     // Bounce off left/right invisible walls
     if (pos.x < 0.f) { pos.x = 0.f; vel.x = -vel.x * 0.8f; bounced = true; }
-    if (pos.x > pitch.totalWidth) { pos.x = pitch.totalWidth; vel.x = -vel.x * 0.8f; bounced = true; }
+    if (pos.x > env.pitch->totalWidth) { pos.x = env.pitch->totalWidth; vel.x = -vel.x * 0.8f; bounced = true; }
 
     // Bounce off top/bottom invisible walls
     if (pos.y < 0.f) { pos.y = 0.f; vel.y = -vel.y * 0.8f; bounced = true; }
-    if (pos.y > pitch.totalHeight) { pos.y = pitch.totalHeight; vel.y = -vel.y * 0.8f; bounced = true; }
+    if (pos.y > env.pitch->totalHeight) { pos.y = env.pitch->totalHeight; vel.y = -vel.y * 0.8f; bounced = true; }
 
     if (bounced) {
-        ball.setPosition(pos);
-        ball.setVelocity(vel);
+        env.ball->setPosition(pos);
+        env.ball->setVelocity(vel);
     }
 
     // ==========================================
@@ -913,21 +914,21 @@ void PhysicsEngine::resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch, S
     // ==========================================
     // Raised threshold from -50.f to -150.f to prevent micro-bounces from 
     // constantly triggering and stealing audio channels.
-    if (ball.z <= 0.0f && ball.vz < -150.f) {
-        float bounceVol = std::min(100.f, std::abs(ball.vz) / 10.f);
-        soundManager.playSound("ball_bounce", bounceVol, 0.1f);
+    if (env.ball->z <= 0.0f && env.ball->vz < -150.f) {
+        float bounceVol = std::min(100.f, std::abs(env.ball->vz) / 10.f);
+        env.sound->playSound("ball_bounce", bounceVol, 0.1f);
     }
 }
 
-void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>& players) {
+void PhysicsEngine::resolveBallPlayerCollisions(MatchEnvironment& env) {
     // Only check outfield collisions if the ball is low enough
-    if (ball.z >= 80.f) return;
+    if (env.ball->z >= 80.f) return;
 
-    for (Player* p : players) {
+    for (Player* p : *env.allPlayers) {
         if (p->getBallPossession()) continue;
 
-        if (std::abs(p->z - ball.z) < p->height) {
-            sf::Vector2f ballPos = ball.shape.getPosition();
+        if (std::abs(p->z - env.ball->z) < p->height) {
+            sf::Vector2f ballPos = env.ball->shape.getPosition();
             sf::Vector2f playerPos = p->getPosition();
             sf::Vector2f delta = ballPos - playerPos;
 
@@ -941,7 +942,7 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
                 // --- THE FIX 3: KICKER IMMUNITY ---
                 // ==========================================
                 // Safely cast to NPCPlayer to check the kick cooldown!
-                if (p == ball.lastTouch) {
+                if (p == env.ball->lastTouch) {
                     if (NPCPlayer* npc = dynamic_cast<NPCPlayer*>(p)) {
                         if (npc->getKickCooldown() > 0.0f) {
                             continue; // Phase cleanly through their body!
@@ -954,17 +955,17 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
 
                 // --- 1. OVERLAP RESOLUTION ---
                 float overlap = combineRadius - distance;
-                ball.shape.setPosition(ballPos + normal * (overlap + 1.0f));
+                env.ball->shape.setPosition(ballPos + normal * (overlap + 1.0f));
 
                 // --- 2. RELATIVE VELOCITY ---
-                sf::Vector2f currentBallVel = ball.velocity;
+                sf::Vector2f currentBallVel = env.ball->velocity;
                 sf::Vector2f playerVel = p->getVelocity();
                 sf::Vector2f relVel = currentBallVel - playerVel;
 
                 float dot = relVel.x * normal.x + relVel.y * normal.y;
 
                 if (dot < 0) {
-                    ball.lastTouch = p;
+                    env.ball->lastTouch = p;
 
                     // ==========================================
                     // --- THE FIX: HUMAN "SANDBAG" PHYSICS ---
@@ -985,7 +986,7 @@ void PhysicsEngine::resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>
                         finalVel = (finalVel / finalSpeed) * 350.f;
                     }
 
-                    ball.velocity = finalVel;
+                    env.ball->velocity = finalVel;
 
                     // We still stun the player if they took a 2000px/s missile to the chest
                     float originalSpeed = std::sqrt(currentBallVel.x * currentBallVel.x + currentBallVel.y * currentBallVel.y);

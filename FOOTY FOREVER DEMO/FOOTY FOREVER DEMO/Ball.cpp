@@ -387,7 +387,7 @@ void Ball::possess(Player* player)
         // ==========================================
         // --- THE FIX: CLEAN POINTER COMPARISON ---
         // ==========================================
-        if (lastTouch != nullptr && lastTouch != player) {
+        if (lastTouch != nullptr && lastTouch->getName() != player->getName()) {
 
             // If it's a teammate...
             if (lastTouch->getTeam() == player->getTeam()) {
@@ -596,21 +596,15 @@ sf::Vector2f Ball::reflect(const sf::Vector2f& velocity, const sf::Vector2f& nor
 }
 
 void Ball::notifyPlayerSwap(Player* p1, Player* p2) {
-    if (owner == p1) owner = p2;
-    else if (owner == p2) owner = p1;
+    auto swapPointer = [p1, p2](Player*& ptr) {
+        if (ptr == p1) ptr = p2;
+        else if (ptr == p2) ptr = p1; // MUST BE ELSE IF!
+        };
 
-    if (lastOwner == p1) lastOwner = p2;
-    else if (lastOwner == p2) lastOwner = p1;
-
-    if (lastTouch == p1) lastTouch = p2;
-    else if (lastTouch == p2) lastTouch = p1;
-
-    if (assistCandidate == p1) assistCandidate = p2;
-    else if (assistCandidate == p2) assistCandidate = p1;
-
-    if (lastShooter == p1) lastShooter = p2;
-    else if (lastShooter == p2) lastShooter = p1;
-
-    if (lastShooterAssister == p1) lastShooterAssister = p2;
-    else if (lastShooterAssister == p2) lastShooterAssister = p1;
+    swapPointer(owner);
+    swapPointer(lastOwner);
+    swapPointer(lastTouch);
+    swapPointer(lastShooter);
+    swapPointer(lastShooterAssister);
+    swapPointer(assistCandidate);
 }

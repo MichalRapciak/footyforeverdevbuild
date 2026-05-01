@@ -11,6 +11,7 @@ class MatchReferee;
 class AnimationServer;
 class SoundManager;
 class MatchStatistics;
+struct MatchEnvironment;
 
 class PhysicsEngine {
 public:
@@ -53,7 +54,7 @@ public:
 
     // --- GOALKEEPER COLLISIONS ---
     // Checks if the ball intersects with any diving goalkeepers
-    static void resolveGoalkeeperBallCollisions(Ball& ball, std::vector<Player*>& players);
+    static void resolveGoalkeeperBallCollisions(MatchEnvironment& env);
 
     // The mathematical resolution of the ball hitting the keeper's gloves
     static void resolveGoalkeeperSave(Player& keeper, Ball& ball, const std::string& diveAnim);
@@ -62,18 +63,13 @@ public:
     // 3. COLLISION PHYSICS
     // ==========================================
     // Pushes players apart if they overlap
-    static void resolvePlayerPlayerCollisions(
-        std::vector<Player*>& players,
-        Ball& ball,
-        MatchReferee& referee,
-        const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats
-    );
+    static void resolvePlayerPlayerCollisions(MatchEnvironment& env);
 
     // Checks if the ball hits the invisible walls around the pitch/net
-    static void resolveBallPitchBoundaries(Ball& ball, const Pitch& pitch, SoundManager& soundManager);
+    static void resolveBallPitchBoundaries(MatchEnvironment& env);
 
     // Bounces the ball off outfield players, applying player momentum to the deflection
-    static void resolveBallPlayerCollisions(Ball& ball, std::vector<Player*>& players);
+    static void resolveBallPlayerCollisions(MatchEnvironment& env);
 
     // --- GOAL COLLISIONS ---
     // Handles the ball hitting the net, crossbar, and posts

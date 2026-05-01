@@ -11,11 +11,13 @@ struct Pitch;
 class Player;
 struct Goal;
 class SoundManager;
+struct MatchEnvironment;
+class MatchInfo;
 
 // 2. The Referee Class
 class MatchReferee {
 public:
-    void update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
+    void update(float dt, MatchEnvironment& env);
     void prepareRestart(MatchState state, Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
 
     Player* getSetPieceTaker() const { return m_setPieceTaker; }
@@ -30,9 +32,9 @@ public:
 
     MatchState getMatchState() const { return m_matchState; }
     void setMatchState(MatchState newState) { m_matchState = newState; }
-    void checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
-    bool checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats);
-    void awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim, SoundManager& soundManager, MatchStatistics& stats);
+    void checkBoundaries(MatchEnvironment& env);
+    bool checkGoalScored(MatchEnvironment& env);
+    void awardFoul(FoulEvent foul, Player* victim, MatchEnvironment& env);
     float getMatchMinute() const { return m_matchMinute; }
     int getHalf() const { return m_half; }
     float getMatchTimeScale() { return m_timeScale; }
@@ -53,7 +55,7 @@ public:
     // Releases the hold and officially starts the Set Piece
     void resumeFromReplay(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
     void startMatch(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, SoundManager& soundManager);
-    void checkOffsideLogic(Ball& ball, const std::vector<Player*>& players, float homeOffsideLine, float awayOffsideLine, const Pitch& pitch, SoundManager& soundManager);
+    void checkOffsideLogic(float homeOffsideLine, float awayOffsideLine, MatchEnvironment& env);
 
     std::string getLastGoalScorerName() const { return m_lastGoalScorerName; }
     std::string getLastGoalAssistName() const { return m_lastGoalAssistName; }
