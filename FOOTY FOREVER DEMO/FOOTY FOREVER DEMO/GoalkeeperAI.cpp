@@ -112,8 +112,8 @@ void GoalkeeperAI::handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& pi
     }
 
     // ==========================================
-        // --- THE FIX: GK AUTO-PICKUP (HANDS) ---
-        // ==========================================
+    // --- THE FIX: GK AUTO-PICKUP (HANDS) ---
+    // ==========================================
     float dx = npc.getPosition().x - ball.getPosition().x;
     float dy = npc.getPosition().y - ball.getPosition().y;
     float distToBall = std::sqrt(dx * dx + dy * dy);
@@ -129,6 +129,7 @@ void GoalkeeperAI::handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& pi
         if (npc.getState() != PlayerState::Stunned && npc.getState() != PlayerState::FallOver) {
             ball.possess(&npc);
             npc.setVelocity({ 0.f, 0.f }); // Slam the brakes so they don't slide into the net with the ball!
+            npc.setRotation(90.0f);
             return;
         }
     }
@@ -141,22 +142,45 @@ void GoalkeeperAI::handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& pi
     bool ballInBoxX = teamAI.isHome() ? (ball.getPosition().x < pitch.margin + 1650.f) : (ball.getPosition().x > pitch.totalWidth - pitch.margin - 1650.f);
     bool ballInBoxY = (ball.getPosition().y > 3500.f - 2000.f && ball.getPosition().y < 3500.f + 2000.f);
 
-    Player* nearestAttacker = PlayerAI::findNearestOpponent(ball.getPosition(), opposition);
-    float attackerDist = nearestAttacker ? PlayerAI::dist(nearestAttacker->getPosition(), ball.getPosition()) : 9999.f;
-    float keeperTTI = PlayerAI::dist(npc.getPosition(), ball.getPosition()) / (npc.getTopSpeed() * 10.0f > 0 ? npc.getTopSpeed() * 10.0f : 1.0f);
-    float attackerTTI = attackerDist / (nearestAttacker ? nearestAttacker->getTopSpeed() * 10.0f : 1.0f);
-    bool shouldRush = PlayerAI::dist(ball.getPosition(), myGoalCenter) < 800.f && (keeperTTI + (100.0f - npc.getGkAwareness() * 0.05f) < attackerTTI - 0.2f);
+    // ==========================================
+    // --- THE FIX: ACTIVATE GOALKEEPER DNA ---
+    // ==========================================
+    bool shouldRush = GoalkeeperAI::shouldGoalieRush(npc, ball, opposition, pitch, teamAI);
 
-    if (!ball.hasOwner() && ballInBoxX && ballInBoxY && ball.z < 100.f) { targetPos = ball.getPosition(); sprint = true; }
-    else if (shouldRush) { targetPos = ball.getPosition(); sprint = true; }
+    // ==========================================
+    // --- NEW: THE SET PIECE LINE LOCK ---
+    // ==========================================
+    MatchState state = teamAI.getCurrentState().phase == MatchPhase::Defending ?
+        (teamAI.isHome() ? MatchState::Penalty : MatchState::FreeKick) : MatchState::InPlay;
+    // Note: We don't have direct access to referee here, so we use ball speed as the primary trigger!
+
+    sf::Vector2f ballVel = ball.getVelocity();
+    float ballSpeedSq = ballVel.x * ballVel.x + ballVel.y * ballVel.y;
+
+    // If the ball is completely stationary, they MUST stay on their line!
+    if (ballSpeedSq < 10.f && !ball.hasOwner()) {
+        shouldRush = false;
+
+        // Force them to stand perfectly still on their line, tracking the ball's Y-axis slightly
+        float goalLineX = teamAI.isHome() ? pitch.homeGoalCenter.x : pitch.awayGoalCenter.x;
+
+        // Let them shuffle side-to-side slightly on the line to match the ball's angle
+        float yOffset = (ball.getPosition().y - myGoalCenter.y) * 0.15f;
+
+        targetPos = sf::Vector2f(goalLineX, myGoalCenter.y + yOffset);
+        sprint = false;
+    }
+    // Normal Live Play Logic
+    else if (!ball.hasOwner() && ballInBoxX && ballInBoxY && ball.z < 100.f) {
+        targetPos = ball.getPosition();
+        sprint = true;
+    }
+    else if (shouldRush) {
+        targetPos = ball.getPosition();
+        sprint = true;
+    }
     else {
-        // Calculate goal positioning
-        sf::Vector2f directionToBall = PlayerAI::normalize(ball.getPosition() - myGoalCenter);
-        float actualStepOutDistance = std::min(250.0f * (npc.getGkCoverage() / 100.0f), PlayerAI::dist(myGoalCenter, ball.getPosition()) * 0.15f);
-        targetPos = myGoalCenter + (directionToBall * actualStepOutDistance);
-        targetPos.y = std::clamp(targetPos.y, myGoalCenter.y - 366.0f + 40.0f, myGoalCenter.y + 366.0f - 40.0f);
-        if (teamAI.isHome()) targetPos.x = std::clamp(targetPos.x, myGoalCenter.x, myGoalCenter.x + 250.0f);
-        else targetPos.x = std::clamp(targetPos.x, myGoalCenter.x - 250.0f, myGoalCenter.x);
+        targetPos = GoalkeeperAI::calculateGoaliePositioning(npc, ball.getPosition(), myGoalCenter, pitch);
         sprint = false;
     }
 
@@ -203,24 +227,10 @@ void GoalkeeperAI::handleGoalkeeping(NPCPlayer& npc, Ball& ball, const Pitch& pi
     npc.setVelocity(smoothedVel);
     npc.setRotationToward(ball.getPosition());
 
-    // Dive Math
-    float ballSpeed = std::sqrt(ball.getVelocity().x * ball.getVelocity().x + ball.getVelocity().y * ball.getVelocity().y);
-    if (ballSpeed > 300.0f && ((teamAI.isHome() && ball.getVelocity().x < -10.0f) || (!teamAI.isHome() && ball.getVelocity().x > 10.0f))) {
-        float ballTTI = std::abs((npc.getPosition().x - ball.getPosition().x) / ball.getVelocity().x);
-        if (ballTTI >= 0.0f && ballTTI <= 1.5f) {
-            float interceptZ = std::max(0.f, ball.z + (ball.vz * ballTTI) - (0.5f * 980.f * ballTTI * ballTTI));
-            float interceptY = ball.getPosition().y + (ball.getVelocity().y * ballTTI);
-            float diveDistance = std::abs(npc.getPosition().y - interceptY);
-            float maxDiveSpeed = 600.0f + (((PlayerAI::dist(npc.getPosition(), ball.getPosition()) < 600.f) ? npc.getGkBlocking() : npc.getGkReactions()) / 100.0f * 1000.0f);
-
-            if (ballTTI <= (diveDistance / maxDiveSpeed) + 0.15f && diveDistance <= 800.0f && interceptZ <= npc.height + 120.0f) {
-                float finalSpeed = std::clamp((ballTTI > 0.05f) ? diveDistance / ballTTI : maxDiveSpeed, 150.0f, maxDiveSpeed);
-                npc.setVelocity(PlayerAI::normalize(sf::Vector2f(npc.getPosition().x, interceptY) - npc.getPosition()) * finalSpeed);
-                npc.vz = (interceptZ < 40.f) ? 0.f : ((interceptZ < 120.f) ? 140.f : 200.f + (interceptZ * 0.2f));
-                npc.setState(PlayerState::Diving);
-            }
-        }
-    }
+    // ==========================================
+        // --- THE FIX: ROUTE TO THE 8-WAY SYSTEM ---
+        // ==========================================
+    GoalkeeperAI::attemptSave(npc, ball, dt, teamAI);
 }
 
 sf::Vector2f GoalkeeperAI::calculateGoaliePositioning(NPCPlayer& npc, sf::Vector2f ballPos, sf::Vector2f goalCenter, const Pitch& pitch)
@@ -268,6 +278,18 @@ bool GoalkeeperAI::shouldGoalieRush(NPCPlayer& npc, Ball& ball, const std::vecto
     bool isHomeSide = teamAI.isHome();
     sf::Vector2f myGoalCenter = isHomeSide ? pitch.homeGoalCenter : pitch.awayGoalCenter;
 
+    // ==========================================
+    // --- THE FIX 2: PLAYSTYLE RUSH LIMITS ---
+    // ==========================================
+    float distToGoal = PlayerAI::dist(ballPos, myGoalCenter);
+    PlaystyleType type = npc.getPlaystyle().type;
+
+    float maxRushDist = 1050.f; // Standard keepers stay in the penalty box (16.5m)
+    if (type == PlaystyleType::SweeperKeeper) maxRushDist = 1800.f; // Sweepers will sprint 35m out!
+    else if (type == PlaystyleType::OnTheLine) maxRushDist = 600.f; // Line keepers won't leave the 6-yard box
+
+    if (distToGoal > maxRushDist) return false;
+
     Player* nearestAttacker = PlayerAI::findNearestOpponent(ballPos, opposition);
     if (!nearestAttacker) return false;
 
@@ -281,8 +303,7 @@ bool GoalkeeperAI::shouldGoalieRush(NPCPlayer& npc, Ball& ball, const std::vecto
     float attackerTTI = closestAttackerDist / (attackerSpeed > 0 ? attackerSpeed : 1.0f);
 
     // --- DNA INJECTION: RUSH DECISION ---
-    float hesitationPenalty = (100.0f - npc.getGkAwareness()) * 0.05f;
-    PlaystyleType type = npc.getPlaystyle().type;
+    float hesitationPenalty = (100.0f - npc.getGkAwareness()) * 0.10f;
 
     if (type == PlaystyleType::SweeperKeeper) hesitationPenalty *= 0.1f; // Instant reaction, no fear
     else if (type == PlaystyleType::OnTheLine) hesitationPenalty *= 3.0f; // Terrified to leave the box
@@ -306,6 +327,11 @@ void GoalkeeperAI::attemptSave(NPCPlayer& npc, Ball& ball, float dt, const TeamA
     if (!isHomeSide && ballVel.x <= 10.0f) return;
 
     float ballTTI = std::abs((keeperPos.x - ballPos.x) / ballVel.x);
+
+    // --- DRAG COMPENSATION ---
+    if (ballSpeed < 800.f) ballTTI *= 1.15f;
+    else if (ballSpeed < 1400.f) ballTTI *= 1.08f;
+
     if (ballTTI < 0.0f || ballTTI > 1.5f) return;
 
     float gravity = 980.f;
@@ -313,50 +339,164 @@ void GoalkeeperAI::attemptSave(NPCPlayer& npc, Ball& ball, float dt, const TeamA
     interceptZ = std::max(0.f, interceptZ);
 
     float interceptY = ballPos.y + (ballVel.y * ballTTI);
-    sf::Vector2f interceptPoint(keeperPos.x, interceptY);
     float diveDistance = std::abs(keeperPos.y - interceptY);
 
+    // --- THE 8-WAY ANATOMICAL GRID ---
+    float lateralOffset = interceptY - keeperPos.y;
+    float keepersRightOffset = isHomeSide ? lateralOffset : -lateralOffset;
+
+    int dirX = 0;
+    if (keepersRightOffset < -80.f) dirX = -1;
+    else if (keepersRightOffset > 80.f) dirX = 1;
+
+    int dirZ = 0;
+    if (interceptZ < 60.f) dirZ = -1;
+    else if (interceptZ > 140.f) dirZ = 1;
+
+    std::string diveAnim = "Center";
+    if (dirX == -1 && dirZ == 1) diveAnim = "UpLeft";
+    else if (dirX == -1 && dirZ == 0) diveAnim = "Left";
+    else if (dirX == -1 && dirZ == -1) diveAnim = "DownLeft";
+    else if (dirX == 1 && dirZ == 1) diveAnim = "UpRight";
+    else if (dirX == 1 && dirZ == 0) diveAnim = "Right";
+    else if (dirX == 1 && dirZ == -1) diveAnim = "DownRight";
+    else if (dirX == 0 && dirZ == 1) diveAnim = "Up";
+    else if (dirX == 0 && dirZ == -1) diveAnim = "Down";
+
+    // ==========================================
+    // --- NERF 1: EXPLOSIVENESS & REACH ---
+    // ==========================================
     float distToBall = PlayerAI::dist(keeperPos, ballPos);
     float activeStat = (distToBall < 600.0f) ? npc.getGkBlocking() : npc.getGkReactions();
-    float maxDiveSpeed = 800.0f + ((activeStat / 100.0f) * 1200.0f);
 
-    // ==========================================
-    // --- THE LOW SHOT FIX: COLLAPSE DIVES ---
-    // ==========================================
-    // Dropping to the floor is physically faster than leaping into the air.
-    // If the projected shot is low (< 60px high), we give them a 35% speed boost 
-    // to snap down and cover the bottom corners instantly!
-    if (interceptZ < 60.0f) {
-        maxDiveSpeed *= 1.35f;
+    // A 50-stat Sunday League keeper dives at ~500 speed. A 90-stat Elite keeper dives at ~750 speed!
+    float maxDiveSpeed = 250.0f + ((activeStat / 100.0f) * 500.0f);
+
+    sf::Vector2f committedTarget = keeperPos;
+    float committedVz = 0.f;
+    float speedMultiplier = 1.0f;
+
+    float lateralPushY = 0.f;
+    if (dirX == -1) lateralPushY = isHomeSide ? -diveDistance : diveDistance;
+    else if (dirX == 1) lateralPushY = isHomeSide ? diveDistance : -diveDistance;
+
+    if (diveAnim == "UpLeft" || diveAnim == "UpRight") {
+        committedTarget.y += lateralPushY;
+        committedVz = 240.f + (interceptZ * 0.15f);
+        speedMultiplier = 0.9f;
+    }
+    else if (diveAnim == "Left" || diveAnim == "Right") {
+        committedTarget.y += lateralPushY;
+        committedVz = 120.f;
+    }
+    else if (diveAnim == "DownLeft" || diveAnim == "DownRight") {
+        committedTarget.y += lateralPushY;
+        committedVz = 0.f;
+        speedMultiplier = 1.35f;
+    }
+    else if (diveAnim == "Up") {
+        float backpedalX = isHomeSide ? -150.f : 150.f;
+        committedTarget.x += backpedalX;
+        committedVz = 280.f;
+        speedMultiplier = 0.5f;
+    }
+    else if (diveAnim == "Down") {
+        committedVz = 0.f;
+        speedMultiplier = 0.2f;
+    }
+    else if (diveAnim == "Center") {
+        committedVz = 80.f;
+        speedMultiplier = 0.3f;
     }
 
-    float keeperTTI = diveDistance / maxDiveSpeed;
-    if (ballTTI > keeperTTI + 0.25f) return; // Cannot reach it in time
+    maxDiveSpeed *= speedMultiplier;
 
-    // BUFF 3: Increased dive radius from 800px (8m) to 1000px (10m) to cover the whole net.
+    // ==========================================
+    // --- NERF 2: SPATIAL MISJUDGMENT (ERROR) ---
+    // ==========================================
+    // If Awareness is low, they might dive slightly to the wrong spot!
+    // A 50-awareness keeper can misjudge the target by up to 24 pixels (enough for a ball to slip under them).
+    float gkAwareness = npc.getGkAwareness();
+    float errorMargin = std::max(0.0f, (90.0f - gkAwareness)) * 0.6f;
+    float randomError = ((rand() % 200) - 100) / 100.0f * errorMargin;
+
+    // Apply the error to their physical flight path
+    if (dirX != 0) {
+        committedTarget.y += randomError;
+    }
+
+    // --- THE "JUST WALK" RULE ---
+    float walkingTTI = diveDistance / (npc.getTopSpeed() * 10.0f);
+    if (walkingTTI < ballTTI - 0.2f && interceptZ < 100.f) {
+        return;
+    }
+
+    // ==========================================
+    // --- NERF 3: MENTAL HESITATION (LATE DIVES) ---
+    // ==========================================
+    float lateralTTI = diveDistance / maxDiveSpeed;
+    float verticalTTI = (committedVz > 0.f) ? (committedVz / gravity) : 0.1f;
+
+    // True physical time needed to reach the ball
+    float physicalKeeperTTI = std::max(lateralTTI, verticalTTI);
+
+    // Calculate hesitation based on their mental stats. 
+    // A 90+ stat keeper has 0.0s delay. A 50 stat keeper freezes for a massive 0.16 seconds before reacting!
+    float mentalStat = (npc.getGkReactions() * 0.6f) + (gkAwareness * 0.4f);
+    float hesitationDelay = std::max(0.0f, (90.0f - mentalStat) / 100.0f * 0.4f);
+
+    // Subtract hesitation from their physical time. This tricks the AI into thinking it has less time than it does,
+    // forcing it to wait too long, resulting in a late dive!
+    float perceivedKeeperTTI = physicalKeeperTTI - hesitationDelay;
+
+    float patienceBuffer = std::clamp((ballSpeed - 500.f) / 2000.f * 0.15f, 0.02f, 0.15f);
+
+    if (ball.vz > 150.f && ballTTI > 0.5f) {
+        return;
+    }
+
+    // If the ball is further away than their perceived TTI + buffer, wait!
+    // Bad keepers will wait too long here because perceivedKeeperTTI is artificially tiny.
+    if (ballTTI > perceivedKeeperTTI + patienceBuffer) return;
+
+    // --- EXECUTE DIVE ---
     float attemptDiveRadius = 1000.0f;
 
     if (diveDistance <= attemptDiveRadius && interceptZ <= (npc.height + 150.0f)) {
         float optimalSpeed = maxDiveSpeed;
-        if (ballTTI > 0.05f) optimalSpeed = diveDistance / ballTTI;
+        if (ballTTI > 0.05f && dirX != 0) optimalSpeed = diveDistance / ballTTI;
 
-        // Let them launch at higher minimum speeds
         float finalSpeed = std::clamp(optimalSpeed, 350.0f, maxDiveSpeed);
 
-        triggerDive(npc, interceptPoint, finalSpeed, interceptZ);
+        triggerDive(npc, committedTarget, finalSpeed, committedVz, diveAnim);
     }
 }
 
-void GoalkeeperAI::triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed, float targetZ)
+void GoalkeeperAI::triggerDive(NPCPlayer& npc, sf::Vector2f diveTarget, float jumpSpeed, float targetZ, const std::string& diveAnim)
 {
     sf::Vector2f diveDir = PlayerAI::normalize(diveTarget - npc.getPosition());
-    npc.setVelocity(diveDir * jumpSpeed);
 
-    if (targetZ < 40.f) npc.vz = 0.f;
-    else if (targetZ < 120.f) npc.vz = 140.f;
-    else npc.vz = 200.f + (targetZ * 0.2f);
+    float dirLen = std::sqrt(diveDir.x * diveDir.x + diveDir.y * diveDir.y);
+    if (dirLen < 0.1f) {
+        diveDir = (npc.getTeam() == Team::Home) ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
+        jumpSpeed = 50.f;
+    }
+
+    npc.setVelocity(diveDir * jumpSpeed);
+    npc.vz = targetZ;
 
     npc.setState(PlayerState::Diving);
+    npc.setLastDiveDirection(diveAnim);
+
+    // ==========================================
+    // --- THE FIX: RESTORE THE +90 OFFSET ---
+    // ==========================================
+    if (diveAnim != "Center" && diveAnim != "Up" && diveAnim != "Down") {
+        float angle = std::atan2(diveDir.y, diveDir.x) * 180.f / 3.14159f;
+
+        // Add 90 so the visual sprite is perpendicular to the standing angle
+        npc.setRotation(angle + 90.f);
+    }
 }
 
 void GoalkeeperAI::distributeBallAsGoalie(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI, SoundManager& soundManager)

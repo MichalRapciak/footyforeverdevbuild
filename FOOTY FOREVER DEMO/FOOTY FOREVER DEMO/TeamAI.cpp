@@ -2,32 +2,32 @@
 #include "Player.h"
 #include "Ball.h"
 #include "Pitch.h"
+#include "MatchReferee.h"
 #include <algorithm>
 
 TeamAI::TeamAI(bool isHomeTeam, const TeamTactics& tactics)
-    : m_isHomeTeam(isHomeTeam), m_tactics(tactics), m_offsideLineX(0.f), m_ballProgress(0.5f), m_opposingBlockPush(0.5f) {
+    : m_isHomeTeam(isHomeTeam), m_tactics(tactics), m_offsideLineX(0.f), m_ballProgress(0.5f), m_opposingBlockPush(0.5f), m_phaseTimer(0.f)
+{
+    m_managerCommand = ManagerCommand::Neutral;
+    m_currentState = { MatchPhase::Neutral, TacticalSubState::Normal };
+    m_lastPhase = MatchPhase::Neutral;
 }
 
-void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, const Pitch& pitch) {
+void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, const Pitch& pitch, float dt, const MatchReferee& referee) {
     float ballX = ball.getPosition().x;
     m_ballProgress = m_isHomeTeam ? (ballX / pitch.totalWidth) : (1.0f - (ballX / pitch.totalWidth));
     m_ballProgress = std::clamp(m_ballProgress, 0.0f, 1.0f);
 
     float deepestOpponentX = m_isHomeTeam ? 0.0f : pitch.totalWidth;
-
-    // --- NEW: Initialize highest attacker at the opposite end of the pitch
     m_highestAttackerX = m_isHomeTeam ? pitch.totalWidth : 0.0f;
 
     for (Player* opp : opposition) {
         if (opp->getPositionRole() == PositionRole::Goalkeeper) continue;
         float oppX = opp->getPosition().x;
 
-        // Calculate Offside Line (Deepest Defender)
         if (m_isHomeTeam && oppX > deepestOpponentX) deepestOpponentX = oppX;
         else if (!m_isHomeTeam && oppX < deepestOpponentX) deepestOpponentX = oppX;
 
-        // --- NEW: Calculate Highest Attacker (Closest to our goal) ---
-        // Home defends X=0, so the smallest X is the highest threat.
         if (m_isHomeTeam && oppX < m_highestAttackerX) m_highestAttackerX = oppX;
         else if (!m_isHomeTeam && oppX > m_highestAttackerX) m_highestAttackerX = oppX;
     }
@@ -38,55 +38,108 @@ void TeamAI::update(const std::vector<Player*>& opposition, const Ball& ball, co
 
     float distToTheirGoal = m_isHomeTeam ? (pitch.totalWidth - deepestOpponentX) : deepestOpponentX;
     m_opposingBlockPush = std::clamp((distToTheirGoal - 1500.f) / 3000.f, 0.0f, 1.0f);
+
+    Player* owner = ball.getOwner();
+    if (!owner) owner = ball.getLastOwner();
+
+    MatchPhase currentPhase = MatchPhase::Defending;
+    if (owner) {
+        bool weHaveBall = (owner->getTeam() == (m_isHomeTeam ? Team::Home : Team::Away));
+        currentPhase = weHaveBall ? MatchPhase::Attacking : MatchPhase::Defending;
+    }
+
+    if (currentPhase != m_lastPhase) {
+        m_phaseTimer = 0.f;
+        m_lastPhase = currentPhase;
+    }
+    else {
+        m_phaseTimer += dt;
+    }
+
+    // ==========================================
+    // --- 1. THE MANAGER'S BRAIN (Commands) ---
+    // ==========================================
+    float matchMin = referee.getMatchMinute();
+    int myScore = m_isHomeTeam ? referee.getHomeScore() : referee.getAwayScore();
+    int oppScore = m_isHomeTeam ? referee.getAwayScore() : referee.getHomeScore();
+    int scoreDiff = myScore - oppScore;
+
+    m_managerCommand = ManagerCommand::Neutral;
+
+    // Right before halftime: Push for a goal if tied, lock it down if winning
+    if (matchMin >= 35.0f && matchMin <= 45.0f) {
+        if (scoreDiff == 0) m_managerCommand = ManagerCommand::Aggressive;
+        else if (scoreDiff > 0) m_managerCommand = ManagerCommand::Cautious;
+    }
+    // Second Half Tactics
+    else if (matchMin > 45.0f && matchMin < 80.0f) {
+        if (scoreDiff > 0) m_managerCommand = ManagerCommand::Cautious; // Protect the lead gently
+        else if (scoreDiff <= -2) m_managerCommand = ManagerCommand::Aggressive; // Down by 2+, time to push
+    }
+    // Late Game Desperation / Management
+    else if (matchMin >= 80.0f) {
+        if (scoreDiff < 0) m_managerCommand = ManagerCommand::VeryAggressive; // Throw the kitchen sink
+        else if (scoreDiff > 0) m_managerCommand = ManagerCommand::VeryCautious; // Park the bus
+    }
+
+
+    // ==========================================
+    // --- 2. TACTICAL SUBSTATE INJECTION ---
+    // ==========================================
+    TacticalSubState subState = TacticalSubState::Normal;
+
+    if (m_managerCommand == ManagerCommand::VeryAggressive) {
+        subState = TacticalSubState::AllOut;
+    }
+    else if (m_managerCommand == ManagerCommand::VeryCautious) {
+        // If we are Very Cautious, we completely kill the game
+        subState = (currentPhase == MatchPhase::Attacking) ? TacticalSubState::TimeWasting : TacticalSubState::KeepPossession;
+    }
+    else {
+        // Use dynamically scaled attacking speed from the getter!
+        float transitionTime = 2.0f + (getAttackingSpeedPref() * 2.5f);
+
+        if (m_phaseTimer < transitionTime) {
+            subState = TacticalSubState::Transition;
+        }
+        else if (currentPhase == MatchPhase::Attacking) {
+            // A cautious manager naturally wants to keep possession rather than force attacks
+            if (m_managerCommand == ManagerCommand::Cautious || getAttackingSpeedPref() < 0.4f) {
+                subState = TacticalSubState::KeepPossession;
+            }
+        }
+    }
+
+    m_currentState = { currentPhase, subState };
 }
 
 float TeamAI::getDefensiveLineOffset(bool isDefender) const {
     float shiftMagnitude = 0.f;
     float progressDiff = m_ballProgress - 0.5f;
 
-    // Convert depth to a 0.0 (High Line) to 1.0 (Low Block) normalized value
-    float depthNorm = m_tactics.defensiveDepth / 100.0f;
+    // Pull from the dynamic getter so the Manager Command natively influences the drop!
+    float depthNorm = getDefensiveDepthPref();
 
-    // ==========================================
-    // --- 1. TACTICAL ANCHOR SHIFT ---
-    // ==========================================
     if (progressDiff > 0.f) {
-        // --- NERFED: ATTACKING PUSH ---
-        // Teams no longer flood the opponent's half blindly. 
-        // We cut the base multiplier from 5000 down to 2000.
         shiftMagnitude = progressDiff * (2000.f + ((1.0f - depthNorm) * 1500.f));
     }
     else {
-        // --- THE FIX: AGGRESSIVE SPLIT-BLOCK COMPRESSION ---
-        // Calculate the base dropping speed
         float baseDrop = progressDiff * (3000.f + (depthNorm * 5000.f));
 
         if (isDefender) {
-            // Defenders drop 10% quicker. They retreat safely but don't drop so deep 
-            // that they play the opposing Strikers onside too early!
             shiftMagnitude = baseDrop * 1.10f;
         }
         else {
-            // Midfielders and Attackers drop 30% quicker! 
-            // They actively sprint back to compress the space between the lines.
             shiftMagnitude = baseDrop * 1.30f;
         }
     }
 
-    // ==========================================
-    // --- 2. REACTIVE SQUEEZE ---
-    // ==========================================
     float reactiveShift = (0.5f - m_opposingBlockPush) * 1500.f;
-    float depthShift = (m_tactics.defensiveDepth - 50.0f) * 20.0f;
+    float depthShift = (depthNorm * 100.f - 50.0f) * 20.0f;
 
     float totalOffset = shiftMagnitude - depthShift + reactiveShift;
 
-    // ==========================================
-    // --- 3. DYNAMIC ANCHOR LIMITS (The Wall) ---
-    // ==========================================
     float minAnchor = -1200.f + ((1.0f - depthNorm) * 1000.f);
-
-    // Stop the anchor from pushing the defense into the opponent's half!
     float maxAnchor = 200.f + ((1.0f - depthNorm) * 600.f);
 
     totalOffset = std::clamp(totalOffset, minAnchor, maxAnchor);
@@ -97,53 +150,54 @@ float TeamAI::getDefensiveLineOffset(bool isDefender) const {
 TacticalZone TeamAI::getEffectiveTacticalZone(const Playstyle& playstyle) const {
     TacticalZone effectiveZone = playstyle.zoneMod;
 
-    // Convert 0-100 multipliers (50 = 1.0x)
-    float widthMod = m_tactics.attackingWidth / 50.0f;
-    float pressMod = m_tactics.pressingIntensity / 50.0f;
-    float roamMod = m_tactics.positionalFreedom / 50.0f;
-
-    // Convert to -1.0 to +1.0 directional shifts
-    float lengthShift = (m_tactics.passingLength - 50.0f) / 50.0f; // -1 (Long) to +1 (Tiki Taka)
-    float speedShift = (m_tactics.passingSpeed - 50.0f) / 50.0f;   // -1 (Slow) to +1 (Fast Counter)
-
     // ==========================================
-    // --- REACTIVE PASSING ADAPTATION ---
+    // --- THE FIX: DYNAMIC INJECTION ---
     // ==========================================
-    // If the opponent plays a Low Block, the space behind them vanishes.
-    // We automatically override the manager to force players to show to feet (Short Passing).
+    // ALL of these now pull from the Getters, meaning they are fully subjected 
+    // to the ManagerCommand modifiers!
+    float widthMod = getAttackingWidthPref() * 2.0f;
+    float pressMod = getPressingIntensityPref() * 2.0f;
+    float roamMod = getPositionalFreedomPref() * 2.0f;
+    float lengthShift = (getPassingLengthPref() * 2.0f) - 1.0f;
+    float attackSpeedShift = (getAttackingSpeedPref() * 2.0f) - 1.0f;
+
     if (m_opposingBlockPush < 0.4f) {
-        float lowBlockFactor = 1.0f - (m_opposingBlockPush / 0.4f); // 0.0 to 1.0 intensity
+        float lowBlockFactor = 1.0f - (m_opposingBlockPush / 0.4f);
         lengthShift = (lengthShift * (1.0f - lowBlockFactor)) + (1.0f * lowBlockFactor);
     }
-    // Conversely, if they play a High Line, we automatically trigger players 
-    // to make penetrating runs in behind (Long Passing) to exploit the space!
     else if (m_opposingBlockPush > 0.6f) {
         float highLineFactor = (m_opposingBlockPush - 0.6f) / 0.4f;
         lengthShift = (lengthShift * (1.0f - highLineFactor)) + (-1.0f * highLineFactor);
     }
 
-    // --- 1. ATTACKING WIDTH ---
     effectiveZone.lateralLeash *= widthMod;
     if (std::abs(effectiveZone.widthPreference) > 0.1f) {
         effectiveZone.widthPreference = std::clamp(effectiveZone.widthPreference * widthMod, -1.0f, 1.0f);
     }
 
-    // --- 2. PRESSING INTENSITY ---
     effectiveZone.pressingTrigger *= pressMod;
     effectiveZone.markingRange *= (0.5f + (pressMod * 0.5f));
-
-    // --- 3. POSITIONAL FREEDOM ---
     effectiveZone.roamingFreedom = std::clamp(effectiveZone.roamingFreedom * roamMod, 0.0f, 1.0f);
 
-    // --- 4. PASSING LENGTH (Support Depth) ---
-    effectiveZone.supportDepth -= (lengthShift * 0.5f);
+    effectiveZone.supportDepth -= (lengthShift * 0.3f);
+    effectiveZone.supportDepth += (attackSpeedShift * 0.5f);
 
-    // --- 5. PASSING SPEED (Forward Leash Stretching) ---
-    if (speedShift > 0.0f) {
-        effectiveZone.forwardLeash *= (1.0f + (speedShift * 0.4f));
+    if (m_currentState.phase == MatchPhase::Defending) {
+        float depthNorm = getDefensiveDepthPref();
+        float compressionFactor = 0.4f + (depthNorm * 0.4f);
+
+        effectiveZone.forwardLeash *= compressionFactor;
+        effectiveZone.backwardLeash *= compressionFactor;
     }
     else {
-        effectiveZone.forwardLeash *= (1.0f + (speedShift * 0.2f));
+        if (attackSpeedShift > 0.0f) {
+            effectiveZone.forwardLeash *= (1.0f + (attackSpeedShift * 1.2f));
+            effectiveZone.backwardLeash *= (1.0f - (attackSpeedShift * 0.3f));
+        }
+        else {
+            effectiveZone.forwardLeash *= (1.0f + (attackSpeedShift * 0.5f));
+            effectiveZone.backwardLeash *= (1.0f + std::abs(attackSpeedShift) * 0.8f);
+        }
     }
 
     return effectiveZone;

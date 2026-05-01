@@ -7,8 +7,11 @@
             "beard_color": "#282828",
             "beard_type": "Beard_None",
             "boot_color": "#000000",
+            "boot_logo1_color": "#FFFFFF",
+            "boot_logo1_type": "None",
+            "boot_logo2_color": "#FFFFFF",
+            "boot_logo2_type": "None",
             "boot_type": "Boots_Basic",
-            "face_type": "Face_01",
             "hair_color": "#282828",
             "hair_type": "hair_short",
             "skin_color": "#FFE0BD"

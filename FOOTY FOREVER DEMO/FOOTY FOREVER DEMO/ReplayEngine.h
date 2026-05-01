@@ -30,7 +30,7 @@ struct ReplayFrame {
     std::vector<sf::VertexArray> playerFloodlights;
 
     std::vector<BodySnapshot> bodies;
-
+    bool ballHasOwner = false;
     ReplayFrame() = default;
 };
 
@@ -56,6 +56,7 @@ public:
 
     void render(sf::RenderWindow& window, sf::Shader* kitShader);
 
+    void startOffsideReplay(float playbackSpeed, float offsideLineX, sf::Vector2f attackerPos);
     void replayCam(sf::RenderWindow& window);
 
     bool isReplaying() const { return m_isReplaying; }
@@ -64,7 +65,13 @@ private:
     bool m_isRecordingLocked = false;
     int m_postRollFrames = 0;
     std::deque<ReplayFrame> m_buffer;
-    const size_t MAX_FRAMES = 300;
+    const size_t MAX_FRAMES = 600;
+
+    // --- NEW: Delayed Freeze Logic ---
+    int m_varFreezeFrameIndex = -1;
+    bool m_showVarLines = false;
+    sf::Vector2f m_frozenPasserPos;
+    float m_currentZoom = 0.8f;
 
     float m_blendFactor = 0.0f;
     bool m_isReplaying = false;
@@ -72,4 +79,9 @@ private:
     float m_frameTimer = 0.0f;
     size_t m_playbackIndex = 0;
     sf::Vector2f m_replayCamPos;
+
+    bool m_isOffsideReplay = false;
+    float m_freezeTimer = 0.0f;
+    float m_defenderLineX = 0.0f;     // The Red Line
+    sf::Vector2f m_receiverPos;       // The Blue Line
 };

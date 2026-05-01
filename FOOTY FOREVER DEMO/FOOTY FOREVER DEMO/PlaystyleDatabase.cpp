@@ -58,7 +58,7 @@ Playstyle PlaystyleDatabase::getPlaystyle(PlaystyleType type) {
         // A Ball-Playing Defender. Holds shape perfectly.
         ps.zoneMod = { 3500.f, 1500.f, 800.f, 0.2f, 1200.f, 0.0f, 0.0f, 0.0f, 200.f };
         // Willing to dribble past a pressing striker, extremely high pass risk (long diagonals)
-        ps.behavior = { 0.6f, 0.85f, 0.1f, 0.1f, 0.2f, 0.2f };
+        ps.behavior = { 0.3f, 0.85f, 0.1f, 0.1f, 0.2f, 0.2f };
         break;
 
 

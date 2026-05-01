@@ -12,6 +12,10 @@
                 {
                     "color": "#FFFFFF",
                     "texture_id": "shirt_sleeves"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_collar"
                 }
             ],
             "shorts": [
@@ -45,17 +49,18 @@
         "short_name": "AFC",
         "stadium_name": "Emirates Stadium",
         "tactics": {
-            "attacking_width": 67,
+            "attacking_speed": 33,
+            "attacking_width": 73,
             "captain_id": "PLY_1051",
-            "defensive_depth": 9,
+            "defensive_depth": 74,
             "formation": "4-3-3",
             "free_kick_taker_id": "PLY_1049",
             "left_corner_taker_id": "PLY_1049",
             "passing_length": 23,
-            "passing_speed": 85,
+            "passing_speed": 57,
             "penalty_taker_id": "PLY_1054",
             "positional_freedom": 74,
-            "pressing_intensity": 74,
+            "pressing_intensity": 69,
             "right_corner_taker_id": "PLY_1049",
             "starting_xi": {
                 "0": "PLY_1052",

@@ -13,8 +13,6 @@ public:
     NPCPlayer();
     ~NPCPlayer();
 
-    // Standard getters/setters (matching UserPlayer)
-    void setRotation(float t_degrees) { m_sprite.setRotation(sf::degrees(t_degrees)); }
     //std::vector<std::pair<std::string, float>> actionLog;
     //void logAction(const std::string& action) {actionLog.push_back({ action, 3.0f });}
 

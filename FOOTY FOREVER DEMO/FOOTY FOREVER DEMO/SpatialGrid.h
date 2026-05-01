@@ -27,7 +27,7 @@ public:
 
     void drawDebug(sf::RenderWindow& window, const Pitch& pitch) const;
     sf::Vector2f findBestAttackingPocket(sf::Vector2f myPos, sf::Vector2f sectorCenter, float sectorRadius, Team myTeam, const Pitch& pitch) const;
-    sf::Vector2f findBestSupportPocket(sf::Vector2f carrierPos, sf::Vector2f myPos, Team myTeam, const Pitch& pitch) const;
+    sf::Vector2f findBestSupportPocket(sf::Vector2f carrierPos, sf::Vector2f myPos, Team myTeam, const Pitch& pitch, TeamState state, float passLengthPref) const;
 
     // Tactical Queries
     float getTeamControl(int col, int row, Team team) const;

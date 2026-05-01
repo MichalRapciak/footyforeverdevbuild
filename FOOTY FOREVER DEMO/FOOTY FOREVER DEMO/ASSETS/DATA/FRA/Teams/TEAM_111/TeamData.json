@@ -1,0 +1,77 @@
+{
+    "TEAM_111": {
+        "badge_id": "Badge_Default",
+        "country_code": "FRA",
+        "full_name": "Paris Saint Germain",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#2F3074",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#A20000",
+                    "texture_id": "shirt_collar"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#2F3074",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#B30000",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "manager_name": "Coach",
+        "roster": [
+            "PLY_1081",
+            "PLY_1082",
+            "PLY_1083",
+            "PLY_1084",
+            "PLY_1085",
+            "PLY_1086",
+            "PLY_1087",
+            "PLY_1088",
+            "PLY_1089",
+            "PLY_1090",
+            "PLY_1091"
+        ],
+        "short_name": "PSG",
+        "stadium_name": "Local Park",
+        "tactics": {
+            "attacking_speed": 49,
+            "attacking_width": 83,
+            "captain_id": "PLY_1088",
+            "defensive_depth": 65,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1081",
+            "left_corner_taker_id": "PLY_1083",
+            "passing_length": 25,
+            "passing_speed": 25,
+            "penalty_taker_id": "PLY_1081",
+            "positional_freedom": 37,
+            "pressing_intensity": 77,
+            "right_corner_taker_id": "PLY_1083",
+            "starting_xi": {
+                "0": "PLY_1091",
+                "1": "PLY_1090",
+                "10": "PLY_1083",
+                "2": "PLY_1088",
+                "3": "PLY_1087",
+                "4": "PLY_1089",
+                "5": "PLY_1084",
+                "6": "PLY_1085",
+                "7": "PLY_1086",
+                "8": "PLY_1082",
+                "9": "PLY_1081"
+            }
+        },
+        "team_chemistry": 100.0,
+        "ui_color": "#34327A"
+    }
+}

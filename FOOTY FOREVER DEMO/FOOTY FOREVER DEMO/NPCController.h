@@ -14,7 +14,7 @@ class MatchReferee;
 class TeamAI;
 struct PositioningMask;
 struct TacticalContext;
-enum class TeamState;
+struct TeamState;
 class SpatialGrid;
 class MatchStatistics;
 
@@ -36,7 +36,7 @@ public:
     // The main entry point for the AI brain
     void update(NPCPlayer& npc, UserPlayer* user, Ball& ball,
         const std::vector<Player*>& team, const std::vector<Player*>& opposition,
-        const Pitch& pitch, TeamState teamState, float dt, Player* firstResponder,
+        const Pitch& pitch, float dt, Player* firstResponder,
         const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager, const SpatialGrid& spatialGrid
         , MatchStatistics& stats);
 
@@ -46,7 +46,23 @@ private:
         float dt, float distToTarget, Ball& ball, Player* firstResponder,
         const Pitch& pitch, bool keeperBall, TacticalContext ctx);
 
+    void handleSetPiece(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
+        const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
+        const MatchReferee& referee, const TeamAI& teamAI, SoundManager& soundManager,
+        MatchStatistics& stats, const TacticalContext& ctx);
 
+    bool handleAerialLogic(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
+        const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI,
+        SoundManager& soundManager, MatchStatistics& stats);
+
+    void handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, Ball& ball, const std::vector<Player*>& team,
+        const std::vector<Player*>& opposition, const Pitch& pitch, float dt,
+        Player* firstResponder, const TeamAI& teamAI, SoundManager& soundManager,
+        const SpatialGrid& spatialGrid, MatchStatistics& stats, const TacticalContext& ctx,
+        const PositioningMask& mask);
+
+    void processDefensiveActions(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& opposition,
+        const Pitch& pitch, float dt, const TacticalContext& ctx, const TeamAI& teamAI);
 
     // Constants for AI behavior tuning
     const float M_SUPPORT_DISTANCE = 400.f;

@@ -20,7 +20,9 @@ void MainMenu::initialise(sf::Font& t_font)
 	m_xOffset = (m_mainMenuView.getSize().x / 2) - m_buttonWidth / 2;
 	m_buttonSpacing = 120;
 	int textDropOffset = 15;
-	sf::String m_Texts[] = { "Go To Match Day", "Database Editor", "Settings", "Exit Game" };
+
+	// CHANGED: "Go To Match Day" is now "Select Game Mode"
+	sf::String m_Texts[] = { "Select Game Mode", "Database Editor", "Settings", "Exit Game" };
 
 	m_font = t_font;
 
@@ -73,6 +75,8 @@ void MainMenu::processInput(sf::Event& t_event, sf::RenderWindow& t_window)
 
 void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 {
+	if (m_clickCooldown > 0.f) m_clickCooldown -= t_deltaTime.asSeconds();
+
 	sf::Vector2f mouseLocation;
 	mouseLocation = t_window.mapPixelToCoords(sf::Mouse::getPosition(t_window));
 	for (int i = 0; i < m_buttonCount; i++)
@@ -85,18 +89,20 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		if (mouseLocation.y > m_yOffset && mouseLocation.y < m_yOffset + m_buttonHeight)
 		{
 			m_buttonSprite[0].setColor(sf::Color{ 0,50,0,255 });
-			//m_text[0].setFillColor(sf::Color{ 75,75,75,255 });
-			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) && m_clickCooldown <= 0.f)
 			{
-				Game::currentState = GameState::MatchDay;
+				m_clickCooldown = 0.2f;
+				// CHANGED: Route to the new Game Mode Select menu instead of MatchDay!
+				Game::currentState = GameState::GamemodeSelect;
 			}
 		}
 		if (mouseLocation.y > m_yOffset + m_buttonSpacing && mouseLocation.y < m_yOffset + m_buttonHeight + m_buttonSpacing)
 		{
 			m_buttonSprite[1].setColor(sf::Color{ 0,50,0,255 });
 			//m_text[1].setFillColor(sf::Color{ 75,75,75,255 });
-			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) && m_clickCooldown <= 0.f)
 			{
+				m_clickCooldown = 0.2f;
 				Game::currentState = GameState::Editor;
 			}
 		}
@@ -104,8 +110,9 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		{
 			m_buttonSprite[2].setColor(sf::Color{ 0,50,0,255 });
 			//m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
-			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) && m_clickCooldown <= 0.f)
 			{
+				m_clickCooldown = 0.2f;
 				Game::currentState = GameState::Settings;
 			}
 		}
@@ -113,8 +120,9 @@ void MainMenu::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 		{
 			m_buttonSprite[3].setColor(sf::Color{ 0,50,0,255 });
 			//m_text[2].setFillColor(sf::Color{ 75,75,75,255 });
-			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+			if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) && m_clickCooldown <= 0.f)
 			{
+				m_clickCooldown = 0.2f;
 				t_window.close();
 			}
 		}

@@ -24,15 +24,16 @@ void AnimationServer::loadMasterTextures() {
     std::cout << "Loading Master Textures into VRAM...\n";
     if (!s_skinTexture.loadFromFile("ASSETS/PLAYER/player_run_ing.png")) std::cerr << "Failed to load skin!\n";
     if (!s_kitTextures["shirt_base"].loadFromFile("ASSETS/PLAYER/shirt_run_ing.png")) std::cerr << "Failed to load shirt!\n";
+    if (!s_kitTextures["shirt_stripes"].loadFromFile("ASSETS/PLAYER/shirt_stripes_ing.png")) std::cerr << "Failed to load stripes!\n";
+    if (!s_kitTextures["shirt_collar"].loadFromFile("ASSETS/PLAYER/shirt_collar_ing.png")) std::cerr << "Failed to load collar!\n";
     if (!s_kitTextures["shirt_sleeves"].loadFromFile("ASSETS/PLAYER/sleeve_run_ing.png")) std::cerr << "Failed to load sleeves!\n";
     if (!s_kitTextures["shorts_base"].loadFromFile("ASSETS/PLAYER/shorts_run_ing.png")) std::cerr << "Failed to load shorts!\n";
     if (!s_kitTextures["socks_base"].loadFromFile("ASSETS/PLAYER/socks_run_ing.png")) std::cerr << "Failed to load socks!\n";
     if (!s_tackleTexture.loadFromFile("ASSETS/PLAYER/player_tackle_ing.png")) std::cerr << "Failed to load tackle!\n";
 
     // ==========================================
-    // --- NEW: FACES AND BEARDS ---
+    // --- NEW: BEARDS ---
     // ==========================================
-    if (!s_kitTextures["player_face_ing"].loadFromFile("ASSETS/PLAYER/player_face_ing.png")) std::cerr << "Failed to load face!\n";
     if (!s_kitTextures["player_beard_ing"].loadFromFile("ASSETS/PLAYER/player_beard_ing.png")) std::cerr << "Failed to load beard!\n";
     if (!s_kitTextures["player_goatee_ing"].loadFromFile("ASSETS/PLAYER/player_goatee_ing.png")) std::cerr << "Failed to load goatee!\n";
 
@@ -43,6 +44,13 @@ void AnimationServer::loadMasterTextures() {
     if (!s_kitTextures["hair_flattop"].loadFromFile("ASSETS/PLAYER/hair_flattop.png")) std::cerr << "Failed to load flat top!\n";
     if (!s_kitTextures["hair_short"].loadFromFile("ASSETS/PLAYER/hair_short.png")) std::cerr << "Failed to load short hair!\n";
     if (!s_kitTextures["hair_skinfade"].loadFromFile("ASSETS/PLAYER/hair_skinfade.png")) std::cerr << "Failed to load skin fade!\n";
+
+    if (!s_kitTextures["player_boots_run_ing"].loadFromFile("ASSETS/PLAYER/player_boots_run_ing.png")) std::cerr << "Failed to load boots base!\n";
+    if (!s_kitTextures["boots_logo1_ing"].loadFromFile("ASSETS/PLAYER/boots_logo1_ing.png")) std::cerr << "Failed to load boots logo 1!\n";
+    if (!s_kitTextures["boots_logo2_ing"].loadFromFile("ASSETS/PLAYER/boots_logo2_ing.png")) std::cerr << "Failed to load boots logo 2!\n";
+
+    // Shading layer (The Global Multiply/Overlay Pass)
+    if (!s_kitTextures["player_shading"].loadFromFile("ASSETS/PLAYER/player_shading_run_ing.png")) std::cerr << "Failed to load shading overlay!\n";
 
     s_texturesLoaded = true;
 }

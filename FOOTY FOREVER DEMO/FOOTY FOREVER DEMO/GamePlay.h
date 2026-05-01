@@ -18,6 +18,7 @@
 #include "SoundManager.h"
 #include "SpatialGrid.h"
 #include "MatchStatistics.h"
+#include "MatchInfo.h"
 #include <algorithm>
 
 class GamePlay
@@ -59,6 +60,7 @@ class GamePlay
 		SoundManager m_soundManager;
 		std::unique_ptr<TeamAI> m_homeTeamAI;
 		std::unique_ptr<TeamAI> m_awayTeamAI;
+		MatchInfo m_matchInfo;
 
 		// --- The Bodies ---
 		// We use a vector of unique_ptrs so they are cleaned up automatically
@@ -175,5 +177,6 @@ class GamePlay
 	void drawDebugOffsideLines(sf::RenderWindow& window);
 	void drawDebugNames(sf::RenderWindow& window, const sf::Font& font);
 	void drawDebugHitboxes(sf::RenderWindow& window);
+	void drawPassDebug(sf::RenderWindow& t_window);
 
 };

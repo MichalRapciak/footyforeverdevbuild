@@ -8,6 +8,10 @@
                 {
                     "color": "#922B2B",
                     "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_collar"
                 }
             ],
             "shorts": [
@@ -23,7 +27,7 @@
                 }
             ]
         },
-        "manager_name": "Jurgen Klopp",
+        "manager_name": "Arne Slot",
         "roster": [
             "PLY_1000",
             "PLY_1001",
@@ -43,6 +47,7 @@
         "short_name": "LFC",
         "stadium_name": "Anfield",
         "tactics": {
+            "attacking_speed": 21,
             "attacking_width": 78,
             "captain_id": "PLY_1007",
             "defensive_depth": 78,
@@ -50,23 +55,23 @@
             "free_kick_taker_id": "PLY_1004",
             "left_corner_taker_id": "PLY_1002",
             "passing_length": 31,
-            "passing_speed": 62,
+            "passing_speed": 81,
             "penalty_taker_id": "PLY_1000",
             "positional_freedom": 67,
-            "pressing_intensity": 44,
+            "pressing_intensity": 39,
             "right_corner_taker_id": "PLY_1000",
             "starting_xi": {
                 "0": "PLY_1010",
                 "1": "PLY_1009",
-                "10": "PLY_1035",
+                "10": "PLY_1002",
                 "2": "PLY_1008",
                 "3": "PLY_1007",
-                "4": "PLY_1023",
+                "4": "PLY_1006",
                 "5": "PLY_1004",
                 "6": "PLY_1005",
                 "7": "PLY_1003",
                 "8": "PLY_1000",
-                "9": "PLY_1022"
+                "9": "PLY_1001"
             }
         },
         "team_chemistry": 64.0,

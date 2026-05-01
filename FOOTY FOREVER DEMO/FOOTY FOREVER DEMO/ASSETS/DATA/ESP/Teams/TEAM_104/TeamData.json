@@ -6,23 +6,27 @@
         "kits": {
             "shirt": [
                 {
-                    "color": "#C53172",
+                    "color": "#243D6A",
                     "texture_id": "shirt_base"
                 },
                 {
-                    "color": "#293492",
-                    "texture_id": "shirt_sleeves"
+                    "color": "#A90947",
+                    "texture_id": "shirt_stripes"
+                },
+                {
+                    "color": "#243D6A",
+                    "texture_id": "shirt_collar"
                 }
             ],
             "shorts": [
                 {
-                    "color": "#2F3BA6",
+                    "color": "#243D6A",
                     "texture_id": "shorts_base"
                 }
             ],
             "socks": [
                 {
-                    "color": "#23479B",
+                    "color": "#243D6A",
                     "texture_id": "socks_base"
                 }
             ]
@@ -41,20 +45,21 @@
             "PLY_1033",
             "PLY_1034"
         ],
-        "short_name": "FCB",
+        "short_name": "BAR",
         "stadium_name": "Camp Nou",
         "tactics": {
-            "attacking_width": 61,
+            "attacking_speed": 41,
+            "attacking_width": 72,
             "captain_id": "PLY_1026",
-            "defensive_depth": 15,
+            "defensive_depth": 14,
             "formation": "4-3-3",
             "free_kick_taker_id": "PLY_1024",
             "left_corner_taker_id": "PLY_1026",
-            "passing_length": 15,
-            "passing_speed": 91,
+            "passing_length": 20,
+            "passing_speed": 42,
             "penalty_taker_id": "PLY_1025",
-            "positional_freedom": 65,
-            "pressing_intensity": 81,
+            "positional_freedom": 69,
+            "pressing_intensity": 70,
             "right_corner_taker_id": "PLY_1026",
             "starting_xi": {
                 "0": "PLY_1034",
@@ -70,7 +75,7 @@
                 "9": "PLY_1025"
             }
         },
-        "team_chemistry": 96.0,
+        "team_chemistry": 91.0,
         "ui_color": "#9C3FC3"
     }
 }

@@ -80,7 +80,7 @@ void AimAssist::applyPassAssist(Player& passer, Player* receiver, sf::Vector2f& 
     }
     else {
         float arrivalSpeed = std::clamp(exactDist * 1.0f, 400.f, 800.f);
-        if (isBackpass) arrivalSpeed = 350.f;
+        if (isBackpass) arrivalSpeed = 500.f;
 
         float requiredV0Sq = (arrivalSpeed * arrivalSpeed) + (2.f * ballFriction * exactDist);
         idealPowerWorld = std::sqrt(requiredV0Sq);

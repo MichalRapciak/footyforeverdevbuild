@@ -8,6 +8,10 @@
                 {
                     "color": "#00E6FF",
                     "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_collar"
                 }
             ],
             "shorts": [
@@ -40,6 +44,7 @@
         "short_name": "MCFC",
         "stadium_name": "Etihad Stadium",
         "tactics": {
+            "attacking_speed": 35,
             "attacking_width": 59,
             "captain_id": "PLY_1042",
             "defensive_depth": 42,
@@ -47,10 +52,10 @@
             "free_kick_taker_id": "PLY_1042",
             "left_corner_taker_id": "PLY_1043",
             "passing_length": 15,
-            "passing_speed": 91,
+            "passing_speed": 63,
             "penalty_taker_id": "PLY_1036",
             "positional_freedom": 72,
-            "pressing_intensity": 60,
+            "pressing_intensity": 49,
             "right_corner_taker_id": "PLY_1043",
             "starting_xi": {
                 "0": "PLY_1040",
@@ -66,7 +71,7 @@
                 "9": "PLY_1036"
             }
         },
-        "team_chemistry": 78.0,
+        "team_chemistry": 74.0,
         "ui_color": "#73CAC7"
     }
 }

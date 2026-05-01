@@ -1,0 +1,81 @@
+{
+    "TEAM_112": {
+        "badge_id": "Badge_Default",
+        "country_code": "ITA",
+        "full_name": "San Marino U-16s",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#00CBF7",
+                    "texture_id": "shirt_stripes"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_collar"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#00CBF7",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "manager_name": "Coach",
+        "roster": [
+            "PLY_1092",
+            "PLY_1093",
+            "PLY_1094",
+            "PLY_1095",
+            "PLY_1096",
+            "PLY_1097",
+            "PLY_1098",
+            "PLY_1099",
+            "PLY_1100",
+            "PLY_1101",
+            "PLY_1102"
+        ],
+        "short_name": "SMu16",
+        "stadium_name": "Local Park",
+        "tactics": {
+            "attacking_speed": 45,
+            "attacking_width": 51,
+            "captain_id": "PLY_1100",
+            "defensive_depth": 77,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1094",
+            "left_corner_taker_id": "PLY_1102",
+            "passing_length": 33,
+            "passing_speed": 30,
+            "penalty_taker_id": "PLY_1101",
+            "positional_freedom": 23,
+            "pressing_intensity": 34,
+            "right_corner_taker_id": "PLY_1102",
+            "starting_xi": {
+                "0": "PLY_1095",
+                "1": "PLY_1098",
+                "10": "PLY_1101",
+                "2": "PLY_1092",
+                "3": "PLY_1096",
+                "4": "PLY_1097",
+                "5": "PLY_1099",
+                "6": "PLY_1100",
+                "7": "PLY_1093",
+                "8": "PLY_1102",
+                "9": "PLY_1094"
+            }
+        },
+        "team_chemistry": 31.0,
+        "ui_color": "#0FE1F6"
+    }
+}

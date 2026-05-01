@@ -18,6 +18,10 @@ public:
     void releaseHold() { m_isHolding = false; m_holdFrame = -1; }
     bool isFinished() const { return m_isFinished; }
 
+    void playAction(const Animation* animation, float actionSpeed = 1.0f);
+
+    bool isActionPlaying() const { return m_isActionPlaying; }
+
 private:
     sf::Sprite& m_sprite;
     const Animation* m_currentAnimation;
@@ -25,6 +29,9 @@ private:
     float m_currentTime;
     float m_frameTime;
     int m_currentFrameIndex;
+
+    bool m_isActionPlaying = false;
+    float m_actionSpeed = 1.0f;
 
     // --- NEW VARIABLES ---
     bool m_loop = true;

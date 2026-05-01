@@ -1,0 +1,63 @@
+{
+    "PLY_1091": {
+        "age": 27,
+        "familiarity": {
+            "Center Mid": 4
+        },
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#E6B756",
+            "beard_type": "player_goatee_ing",
+            "boot_color": "#4F9C42",
+            "boot_logo1_color": "#FFFFFF",
+            "boot_logo1_type": "boots_logo2_ing",
+            "boot_logo2_color": "#FFFFFF",
+            "boot_logo2_type": "None",
+            "boot_type": "player_boots_run_ing",
+            "hair_color": "#D7B137",
+            "hair_type": "hair_bun",
+            "skin_color": "#FFE0BD"
+        },
+        "height_cm": 189,
+        "loyalty": 95,
+        "name": "M. Safonov",
+        "nationality": "RUS",
+        "number": 1,
+        "playstyle": "On The Line",
+        "position": "Goalkeeper",
+        "preferred_foot": "Left",
+        "sharpness": 97,
+        "stats": {
+            "acceleration": 75.0,
+            "aggression": 38.0,
+            "agility": 67.0,
+            "awareness": 69.0,
+            "balancing": 61.0,
+            "ball_control": 63.0,
+            "blocking": 47.0,
+            "body_strength": 47.0,
+            "curl": 62.0,
+            "dead_ball": 36.0,
+            "finishing": 15.0,
+            "fitness": 64.0,
+            "gk_awareness": 85.0,
+            "gk_blocking": 86.0,
+            "gk_catching": 84.0,
+            "gk_coverage": 86.0,
+            "gk_reactions": 86.0,
+            "gk_throwing": 82.0,
+            "heading": 48.0,
+            "injury_resistance": 2,
+            "jumping_strength": 86.0,
+            "kick_power": 51.0,
+            "long_passing": 79.0,
+            "short_passing": 75.0,
+            "top_speed": 73.0,
+            "weak_foot_accuracy": 3
+        },
+        "tactical_familiarity": 98.0,
+        "team_id": "TEAM_111",
+        "traits": [],
+        "weight_kg": 70
+    }
+}

@@ -1,0 +1,63 @@
+{
+    "PLY_1083": {
+        "age": 26,
+        "familiarity": {
+            "Center Mid": 4
+        },
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "player_beard_ing",
+            "boot_color": "#A72424",
+            "boot_logo1_color": "#FFFFFF",
+            "boot_logo1_type": "boots_logo2_ing",
+            "boot_logo2_color": "#FFFFFF",
+            "boot_logo2_type": "None",
+            "boot_type": "player_boots_run_ing",
+            "hair_color": "#282828",
+            "hair_type": "hair_short",
+            "skin_color": "#FFE0BD"
+        },
+        "height_cm": 175,
+        "loyalty": 97,
+        "name": "K. Khvaratskhelia",
+        "nationality": "GEO",
+        "number": 7,
+        "playstyle": "Wide Winger",
+        "position": "Left Wing",
+        "preferred_foot": "Left",
+        "sharpness": 98,
+        "stats": {
+            "acceleration": 90.0,
+            "aggression": 53.0,
+            "agility": 88.0,
+            "awareness": 87.0,
+            "balancing": 88.0,
+            "ball_control": 91.0,
+            "blocking": 29.0,
+            "body_strength": 69.0,
+            "curl": 88.0,
+            "dead_ball": 73.0,
+            "finishing": 74.0,
+            "fitness": 82.0,
+            "gk_awareness": 0.0,
+            "gk_blocking": 0.0,
+            "gk_catching": 0.0,
+            "gk_coverage": 0.0,
+            "gk_reactions": 0.0,
+            "gk_throwing": 0.0,
+            "heading": 59.0,
+            "injury_resistance": 2,
+            "jumping_strength": 51.0,
+            "kick_power": 77.0,
+            "long_passing": 83.0,
+            "short_passing": 80.0,
+            "top_speed": 79.0,
+            "weak_foot_accuracy": 3
+        },
+        "tactical_familiarity": 99.0,
+        "team_id": "TEAM_111",
+        "traits": [],
+        "weight_kg": 72
+    }
+}

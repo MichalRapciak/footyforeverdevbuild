@@ -2,11 +2,11 @@
 #include <vector>
 #include <string>
 #include <SFML/System.hpp>
-#include "Team.h" // Wherever your Team::Home enum lives
+#include "Team.h" 
 
 struct TeamMatchStats {
     int goals = 0;
-    std::vector<std::string> goalEvents; // Stores strings like "L. Messi 43'"
+    std::vector<std::string> goalEvents; // Stores strings like "L. Messi 43' (Ast: J. Alba)"
 
     float possessionTime = 0.f;
 
@@ -18,7 +18,6 @@ struct TeamMatchStats {
 
     int fouls = 0;
 
-    // Helper Math
     float getPossessionPercent(float totalMatchPossession) const {
         if (totalMatchPossession <= 0.001f) return 50.0f;
         return (possessionTime / totalMatchPossession) * 100.0f;
@@ -27,7 +26,7 @@ struct TeamMatchStats {
     float getPassCompletion() const {
         if (passesAttempted == 0) return 0.0f;
         float percent = (static_cast<float>(passesCompleted) / static_cast<float>(passesAttempted)) * 100.0f;
-        return std::min(percent, 100.0f); // Hard cap at 100%
+        return std::min(percent, 100.0f);
     }
 };
 
@@ -62,10 +61,23 @@ public:
         else away.fouls++;
     }
 
-    void recordGoal(Team team, const std::string& scorerName, int minute) {
+    // ==========================================
+    // --- UPDATED: NOW ACCEPTS ASSISTS & OGs ---
+    // ==========================================
+    void recordGoal(Team team, const std::string& scorerName, int minute, const std::string& assistName = "", bool isOwnGoal = false) {
         TeamMatchStats& stats = (team == Team::Home) ? home : away;
         stats.goals++;
-        stats.goalEvents.push_back(scorerName + " " + std::to_string(minute) + "'");
+
+        std::string eventString = scorerName + " " + std::to_string(minute) + "'";
+
+        if (isOwnGoal) {
+            eventString += " (OG)";
+        }
+        else if (!assistName.empty()) {
+            eventString += " (Ast: " + assistName + ")";
+        }
+
+        stats.goalEvents.push_back(eventString);
     }
 
     float getTotalPossessionTime() const {

@@ -10,6 +10,7 @@ public:
 	void processInput(sf::Event& t_event, sf::RenderWindow& t_window);
 	void update(sf::Time& t_deltaTime, sf::RenderWindow& t_window);
 	void render(sf::RenderWindow& t_window);
+	void setClickCooldown(float t) { m_clickCooldown = t; }
 
 protected:
 	sf::View m_mainMenuView;
@@ -26,4 +27,5 @@ protected:
 	float m_buttonSpacing{ 0.0f };
 	float m_buttonWidth{ 0.0f };
 	float m_buttonHeight{ 0.0f };
+	float m_clickCooldown{ 0.2f };
 };

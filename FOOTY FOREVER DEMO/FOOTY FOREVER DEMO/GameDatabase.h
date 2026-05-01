@@ -30,14 +30,20 @@ struct KitData {
 
 struct PlayerGraphicsData {
     sf::Color skinColor;
-    std::string faceType;
     std::string hairType;
     sf::Color hairColor;
     std::string beardType;
     sf::Color beardColor;
+
+    // --- BOOTS & LOGOS ---
     std::string bootType;
     sf::Color bootColor;
-    std::vector<std::string> accessories; // e.g., "AnkleTape_White", "Undershirt_Black"
+    std::string bootLogo1Type;
+    sf::Color bootLogo1Color;
+    std::string bootLogo2Type;
+    sf::Color bootLogo2Color;
+
+    std::vector<std::string> accessories; // e.g., "AnkleTape_White"
 };
 
 struct TeamTactics {
@@ -66,7 +72,8 @@ struct TeamTactics {
     int attackingWidth = 50;  // 0 = Narrow, 100 = Hug touchlines
     int pressingIntensity = 50; // 0 = Little to no Pressing, 100 = Gegenpressing
     int positionalFreedom = 50; // 0 = Stay in shape, 100 = Full Fluidity and Rotations
-    int passingSpeed = 50; // 0 = slow, possession based, 100 = fast, counter attacks
+    int passingSpeed = 50; // 0 = slow ball carrying heavy, 100 = fast ball moving constantly
+    int attackingSpeed = 50; // 0 = slow, build up slowly moving up the pitch, 100 = lightning fast counter attacks
 };
 
 // --- CORE ENTITIES ---

@@ -77,12 +77,23 @@ void EditorScreen::updatePreviewTexture(sf::RenderTexture& target, sf::Color ski
     m_kitShader.setUniform("skinColor", toGlslColor(skin));
     m_kitShader.setUniform("skinTex", sf::Shader::CurrentTexture);
 
-    // THE FIX: Inject the array into the shader slots!
-    static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
-    static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
-    static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+    // ==========================================
+    // --- THE FIX: EXPAND TO 15 LAYER MAXIMUM ---
+    // ==========================================
+    static const std::string uUse[15] = {
+        "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7",
+        "use8", "use9", "use10", "use11", "use12", "use13", "use14"
+    };
+    static const std::string uTex[15] = {
+        "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7",
+        "tex8", "tex9", "tex10", "tex11", "tex12", "tex13", "tex14"
+    };
+    static const std::string uCol[15] = {
+        "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7",
+        "col8", "col9", "col10", "col11", "col12", "col13", "col14"
+    };
 
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 15; ++i) {
         if (i < kitLayers.size()) {
             sf::Texture* tex = AnimationServer::getKitTexture(kitLayers[i].textureId);
             if (tex) {
@@ -204,11 +215,16 @@ void EditorScreen::drawPlayerTab(float availableHeight)
         newPlayer.graphics.skinColor = sf::Color(255, 224, 189);
         newPlayer.graphics.hairColor = sf::Color(40, 40, 40);
         newPlayer.graphics.beardColor = sf::Color(40, 40, 40);
-        newPlayer.graphics.bootColor = sf::Color::Black;
-        newPlayer.graphics.faceType = "Face_01";
         newPlayer.graphics.hairType = "Hair_Short";
         newPlayer.graphics.beardType = "Beard_None";
-        newPlayer.graphics.bootType = "Boots_Basic";
+        newPlayer.graphics.bootType = "player_boots_run_ing";
+        newPlayer.graphics.bootColor = sf::Color(30, 30, 30); // Default dark grey boot
+
+        newPlayer.graphics.bootLogo1Type = "boots_logo1_ing";
+        newPlayer.graphics.bootLogo1Color = sf::Color::White; // Default white logo
+
+        newPlayer.graphics.bootLogo2Type = "None"; // Second logo off by default
+        newPlayer.graphics.bootLogo2Color = sf::Color::White;
         newPlayer.stats = PlayerStats::createFromRole(newPlayer.positionRole);
 
         m_db->players[newId] = newPlayer;
@@ -288,12 +304,6 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             // ==========================================
             std::vector<KitLayer> previewStack;
 
-            // 1. FACE (First thing after the skin body)
-            // We use White so the texture's original pixel colors (eyes/lips) show properly!
-            if (!p->graphics.faceType.empty() && p->graphics.faceType != "None") {
-                previewStack.push_back({ p->graphics.faceType, sf::Color::White });
-            }
-
             // 2. BEARD (On top of face)
             if (!p->graphics.beardType.empty() && p->graphics.beardType != "None") {
                 previewStack.push_back({ p->graphics.beardType, p->graphics.beardColor });
@@ -304,9 +314,23 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 previewStack.push_back({ p->graphics.hairType, p->graphics.hairColor });
             }
 
-            // 4. KITS (On top of the body/head)
+            // ==========================================
+            // 4. KITS & BOOTS (On top of the body/head)
+            // ==========================================
             if (t) {
                 previewStack.insert(previewStack.end(), t->socksLayers.begin(), t->socksLayers.end());
+
+                // --- ADD BOOTS OVER SOCKS ---
+                if (!p->graphics.bootType.empty() && p->graphics.bootType != "None") {
+                    previewStack.push_back({ p->graphics.bootType, p->graphics.bootColor });
+                }
+                if (!p->graphics.bootLogo1Type.empty() && p->graphics.bootLogo1Type != "None") {
+                    previewStack.push_back({ p->graphics.bootLogo1Type, p->graphics.bootLogo1Color });
+                }
+                if (!p->graphics.bootLogo2Type.empty() && p->graphics.bootLogo2Type != "None") {
+                    previewStack.push_back({ p->graphics.bootLogo2Type, p->graphics.bootLogo2Color });
+                }
+
                 previewStack.insert(previewStack.end(), t->shortsLayers.begin(), t->shortsLayers.end());
                 for (const auto& layer : t->shirtLayers) {
                     KitLayer shirtLayer = layer;
@@ -317,10 +341,30 @@ void EditorScreen::drawPlayerTab(float availableHeight)
                 }
             }
             else {
+                // Free Agent Default Kits
                 previewStack.push_back({ "socks_base", sf::Color::White });
+
+                // --- ADD BOOTS OVER SOCKS ---
+                if (!p->graphics.bootType.empty() && p->graphics.bootType != "None") {
+                    previewStack.push_back({ p->graphics.bootType, p->graphics.bootColor });
+                }
+                if (!p->graphics.bootLogo1Type.empty() && p->graphics.bootLogo1Type != "None") {
+                    previewStack.push_back({ p->graphics.bootLogo1Type, p->graphics.bootLogo1Color });
+                }
+                if (!p->graphics.bootLogo2Type.empty() && p->graphics.bootLogo2Type != "None") {
+                    previewStack.push_back({ p->graphics.bootLogo2Type, p->graphics.bootLogo2Color });
+                }
+
                 previewStack.push_back({ "shorts_base", sf::Color::White });
                 previewStack.push_back({ "shirt_base", (p->positionRole == PositionRole::Goalkeeper) ? sf::Color(50, 200, 50) : sf::Color::White });
             }
+
+            // ==========================================
+            // 5. GLOBAL SHADING OVERLAY
+            // ==========================================
+            // Drawn absolutely last. This casts shadows and highlights uniformly 
+            // over the skin, face, hair, boots, and all kit elements below it!
+            previewStack.push_back({ "player_shading", sf::Color::White });
 
             updatePreviewTexture(m_playerPreviewTexture, p->graphics.skinColor, previewStack, p->heightCm, p->weightKg);
 
@@ -601,16 +645,6 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             // --- THE FIX 2: NEW UI DROPDOWNS ---
             // ==========================================
 
-            // --- FACE ---
-            const char* faceOptions[] = { "None", "player_face_ing" }; // Expand this array as you make more faces!
-            int currentFaceIdx = 0;
-            for (int i = 0; i < IM_ARRAYSIZE(faceOptions); ++i) {
-                if (p->graphics.faceType == faceOptions[i]) { currentFaceIdx = i; break; }
-            }
-            if (ImGui::Combo("Face Style", &currentFaceIdx, faceOptions, IM_ARRAYSIZE(faceOptions))) {
-                p->graphics.faceType = faceOptions[currentFaceIdx];
-            }
-
             // --- BEARD ---
             const char* beardOptions[] = { "None", "player_beard_ing", "player_goatee_ing" };
             int currentBeardIdx = 0;
@@ -634,12 +668,41 @@ void EditorScreen::drawPlayerTab(float availableHeight)
             ColorEdit4SFML("Hair Color", p->graphics.hairColor);
 
             ImGui::Separator();
+            ImGui::Text("Boots & Branding");
 
-            // --- BOOTS ---
-            char bootBuf[64] = "";
-            strcpy_s(bootBuf, p->graphics.bootType.c_str());
-            if (ImGui::InputText("Boot ID", bootBuf, IM_ARRAYSIZE(bootBuf))) p->graphics.bootType = bootBuf;
+            // --- BOOT BASE ---
+            const char* bootOptions[] = { "None", "player_boots_run_ing" }; // Expand if you make different boot shapes
+            int currentBootIdx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(bootOptions); ++i) {
+                if (p->graphics.bootType == bootOptions[i]) { currentBootIdx = i; break; }
+            }
+            if (ImGui::Combo("Boot Base", &currentBootIdx, bootOptions, IM_ARRAYSIZE(bootOptions))) {
+                p->graphics.bootType = bootOptions[currentBootIdx];
+            }
             ColorEdit4SFML("Boot Color", p->graphics.bootColor);
+
+            ImGui::Spacing();
+
+            // --- LOGOS ---
+            const char* logoOptions[] = { "None", "boots_logo1_ing", "boots_logo2_ing" };
+
+            int currentLogo1Idx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(logoOptions); ++i) {
+                if (p->graphics.bootLogo1Type == logoOptions[i]) { currentLogo1Idx = i; break; }
+            }
+            if (ImGui::Combo("Logo 1", &currentLogo1Idx, logoOptions, IM_ARRAYSIZE(logoOptions))) {
+                p->graphics.bootLogo1Type = logoOptions[currentLogo1Idx];
+            }
+            ColorEdit4SFML("Logo 1 Color", p->graphics.bootLogo1Color);
+
+            int currentLogo2Idx = 0;
+            for (int i = 0; i < IM_ARRAYSIZE(logoOptions); ++i) {
+                if (p->graphics.bootLogo2Type == logoOptions[i]) { currentLogo2Idx = i; break; }
+            }
+            if (ImGui::Combo("Logo 2", &currentLogo2Idx, logoOptions, IM_ARRAYSIZE(logoOptions))) {
+                p->graphics.bootLogo2Type = logoOptions[currentLogo2Idx];
+            }
+            ColorEdit4SFML("Logo 2 Color", p->graphics.bootLogo2Color);
 
             ImGui::EndChild(); // End PlayerStatsPane
         }
@@ -932,7 +995,7 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
     ImGui::Text("Team Style");
     ImGui::Separator();
 
-    const char* formations[] = { "4-3-3", "4-4-2", "4-2-4", "5-3-2", "5-2-3", "5-4-1" };
+    const char* formations[] = { "4-3-3", "4-4-2", "4-2-3-1", "4-1-4-1", "4-1-2-1-2", "4-2-4", "3-4-3", "3-5-2", "5-3-2", "5-2-3", "5-4-1"};
     int formIdx = 0;
     for (int i = 0; i < 6; ++i) {
         if (t->defaultTactics.formationName == formations[i]) {
@@ -950,6 +1013,7 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
     ImGui::SliderInt("Pressing Intensity", &t->defaultTactics.pressingIntensity, 0, 100);
     ImGui::SliderInt("Positional Freedom", &t->defaultTactics.positionalFreedom, 0, 100);
     ImGui::SliderInt("Passing Speed", &t->defaultTactics.passingSpeed, 0, 100);
+    ImGui::SliderInt("Attacking Speed", &t->defaultTactics.attackingSpeed, 0, 100);
 
     ImGui::Spacing();
     ImGui::Text("Set Piece Takers");

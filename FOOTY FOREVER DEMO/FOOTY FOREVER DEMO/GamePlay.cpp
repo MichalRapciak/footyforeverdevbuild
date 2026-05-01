@@ -2,6 +2,9 @@
 #include "Game.h"
 #include "imgui-1.92.6/imgui.h"
 #include "GlobalSettings.h"
+// for debug line
+#include "PlayerAI.h"
+#include "PositioningAI.h"
 
 GamePlay::GamePlay() : m_pauseText(m_font), m_gameOverText(m_font), m_gameWonText(m_font)
 {
@@ -156,11 +159,22 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 	}
 
 	// ==========================================
-	// 1. THE SMOKE AND MIRRORS REPLAY MEDIATOR
-	// ==========================================
+		// 1. THE SMOKE AND MIRRORS REPLAY MEDIATOR
+		// ==========================================
 	if (m_referee.getMatchState() == MatchState::RequestReplay)
 	{
-		m_replayEngine.startReplay(0.7f);
+		if (m_referee.getLastInfraction() == FoulType::Offside) {
+			float defLine = m_referee.getOffsideDefensiveLineX();
+			sf::Vector2f attPos = m_referee.getOffsideAttackerPos();
+
+			m_replayEngine.startOffsideReplay(0.7f, defLine, attPos);
+
+			// THE FIX 3: Clear the infraction so the next Goal doesn't trigger VAR!
+			m_referee.clearLastInfraction();
+		}
+		else {
+			m_replayEngine.startReplay(0.7f);
+		}
 
 		std::vector<Player*> allPlayers;
 		if (m_userPlayer)
@@ -209,8 +223,8 @@ void GamePlay::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
     std::vector<Player*> allPlayers = homeFriends;
 	allPlayers.insert(allPlayers.end(), homeEnemies.begin(), homeEnemies.end());
 
-	m_homeTeamAI->update(homeEnemies, *m_ball, m_pitch);
-	m_awayTeamAI->update(homeFriends, *m_ball, m_pitch);
+	m_homeTeamAI->update(homeEnemies, *m_ball, m_pitch, dt, m_referee);
+	m_awayTeamAI->update(homeFriends, *m_ball, m_pitch, dt, m_referee);
 
 	if (!m_pause && !m_gameOver)
 	{
@@ -294,8 +308,37 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		m_userController->draw(t_window);
 	}
 
-	// 3. Sort Entities by Depth
-	std::sort(m_entities.begin(), m_entities.end(), [](Entity* a, Entity* b) {
+	// ==========================================
+	// --- THE FIX: VIEWPORT CULLING ---
+	// ==========================================
+	// Grab the active view (works for both live cam and replay cam!)
+	sf::View currentView = t_window.getView();
+	sf::Vector2f viewCenter = currentView.getCenter();
+	sf::Vector2f viewSize = currentView.getSize();
+
+	// Create a Render Bounds box. 
+	// We add a 1200px buffer (~12 meters) so players casting long shadows 
+	// or making diving saves don't disappear while at the edge of the screen!
+	float renderBuffer = 1200.f;
+	sf::FloatRect renderBounds({
+		viewCenter.x - (viewSize.x / 2.f) - renderBuffer ,
+		viewCenter.y - (viewSize.y / 2.f) - renderBuffer },
+		{ viewSize.x + (renderBuffer * 2.f),
+		viewSize.y + (renderBuffer * 2.f) }
+	);
+
+	// Filter out the entities that are actually on screen
+	std::vector<Entity*> visibleEntities;
+	visibleEntities.reserve(m_entities.size()); // Prevent reallocation
+
+	for (Entity* entity : m_entities) {
+		if (entity != nullptr && renderBounds.contains(entity->getPosition())) {
+			visibleEntities.push_back(entity);
+		}
+	}
+
+	// 3. Sort ONLY the Visible Entities by Depth
+	std::sort(visibleEntities.begin(), visibleEntities.end(), [](Entity* a, Entity* b) {
 		return a->getSortDepth() > b->getSortDepth();
 		});
 
@@ -313,6 +356,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 	}
 	else {
 		// A. Draw the Floor & Netting FIRST (Always behind the players)
+		// (Optional: You could also wrap these in renderBounds checks if your pitch is huge!)
 		m_homeGoal.drawFloor(t_window); m_awayGoal.drawFloor(t_window);
 		m_homeGoal.drawNet(t_window);   m_awayGoal.drawNet(t_window);
 
@@ -324,8 +368,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		bool awayPostsDrawn = false;
 
 		// B. Draw Live Game Entities & Interleave the Posts
-		for (Entity* entity : m_entities) {
-			if (entity == nullptr) continue;
+		// Notice we are looping over visibleEntities now!
+		for (Entity* entity : visibleEntities) {
 
 			// --- INTERLEAVE HOME POSTS ---
 			if (!homePostsDrawn && entity->getSortDepth() <= homeGoalDepth) {
@@ -351,7 +395,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 			}
 		}
 
-		// Catch-all: If the posts were somehow lower depth than ALL entities
+		// Catch-all: If the posts were somehow lower depth than ALL visible entities
+		// (e.g. all visible players are running away from the goal)
 		if (!homePostsDrawn) m_homeGoal.drawPosts(t_window);
 		if (!awayPostsDrawn) m_awayGoal.drawPosts(t_window);
 
@@ -373,6 +418,7 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		}
 	}
 
+	// Reset view to default before drawing static screens/UI overlays
 	t_window.setView(t_window.getDefaultView());
 
 	if (m_pause || m_referee.getMatchState() == MatchState::FullTime || m_referee.getMatchState() == MatchState::HalfTime)
@@ -382,9 +428,8 @@ void GamePlay::render(sf::RenderWindow& t_window)
 		overlay.setFillColor(sf::Color(20, 20, 20, 200));
 		t_window.draw(overlay);
 
-		t_window.setView(t_window.getDefaultView());
-
 		if (m_showGamePlan) {
+			// Do Gameplan render logic here
 		}
 		else {
 			// 3. Draw Stats Board and SFML Buttons
@@ -523,15 +568,26 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 		m_kitShader.setUniform("skinColor", toGlslColor(p->getSkinColor()));
 		m_kitShader.setUniform("skinTex", sf::Shader::CurrentTexture);
 
-		// 2. Pre-allocated string arrays for maximum performance
-		static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
-		static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
-		static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+		// ==========================================
+		// --- THE FIX: EXPAND TO 15 LAYER MAXIMUM ---
+		// ==========================================
+		static const std::string uUse[15] = {
+			"use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7",
+			"use8", "use9", "use10", "use11", "use12", "use13", "use14"
+		};
+		static const std::string uTex[15] = {
+			"tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7",
+			"tex8", "tex9", "tex10", "tex11", "tex12", "tex13", "tex14"
+		};
+		static const std::string uCol[15] = {
+			"col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7",
+			"col8", "col9", "col10", "col11", "col12", "col13", "col14"
+		};
 
 		const auto& layers = p->getKitLayers();
 
-		// 3. Feed the dynamic stack to the GPU
-		for (int i = 0; i < 8; ++i) {
+		// 3. Feed the dynamic stack to the GPU (Loop up to 15)
+		for (int i = 0; i < 15; ++i) {
 			if (i < layers.size()) {
 				sf::Texture* tex = AnimationServer::getKitTexture(layers[i].textureId);
 				if (tex) {
@@ -556,7 +612,7 @@ void GamePlay::renderPlayerEntity(sf::RenderWindow& t_window, Entity* entity)
 		t_window.draw(visualSprite);
 	}
 }
-	
+
 void GamePlay::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId)
 {
 	m_db = &db;
@@ -621,7 +677,9 @@ void GamePlay::beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, 
 				}
 			}
 		}
-		};
+	};
+
+	m_matchInfo.initMatch(homeTeamId, awayTeamId);
 
 	loadMatchdayMemory(m_homeTeamData);
 	loadMatchdayMemory(m_awayTeamData);
@@ -719,6 +777,11 @@ float GamePlay::loadNextPlayer()
 		player->setMatchTimeScale(90.0f / static_cast<float>(GlobalSettings::matchLengthMinutes));
 		sf::Vector2f basePos = player->getBaseTacticalCoordinate(isHomeSide, slotId, layout);
 		player->setBaseHomePosition(basePos);
+		if (m_userPlayer)
+		{
+			if (m_userPlayer->getTeam() == player->getTeam()) player->setIsUserOpponent(false);
+			else player->setIsUserOpponent(true);
+		}
 		player->setPosition(player->getHomePosition());
 		player->setTeamChemistry(teamData.teamChemistry);
 
@@ -892,19 +955,6 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		effectiveOwner = m_ball->getLastOwner(); // The magic fix for passes!
 	}
 
-	TeamState homeState = TeamState::Defending;
-	TeamState awayState = TeamState::Defending;
-
-	if (effectiveOwner != nullptr) {
-		homeState = (effectiveOwner->getTeam() == Team::Home) ? TeamState::Attacking : TeamState::Defending;
-		awayState = (homeState == TeamState::Attacking) ? TeamState::Defending : TeamState::Attacking;
-	}
-	else {
-		// Failsafe for the literal first frame before any touches
-		homeState = TeamState::Attacking;
-		awayState = TeamState::Defending;
-	}
-
 	// --- 2. UPDATE HUMAN USER ---
 	if (m_userController) {
 		m_userController->update(dt, *this);
@@ -966,7 +1016,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		if (npc->isSentOff()) continue;
 
 		// THE FIX: Pass m_spatialGrid as the final parameter so the AI can read the map!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeTeamActive, awayTeamActive, m_pitch, homeState, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, homeTeamActive, awayTeamActive, m_pitch, dt, homeFirstResponder, m_referee, *m_homeTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
 		npc->update(dt);
 	}
 
@@ -974,7 +1024,7 @@ void GamePlay::runStandardSystems(float dt, sf::RenderWindow& t_window)
 		if (npc->isSentOff()) continue;
 
 		// THE FIX: Note that awayTeamActive is passed first here so it acts as "teammates"!
-		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, awayTeamActive, homeTeamActive, m_pitch, awayState, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
+		m_npcController->update(*npc, m_userPlayer.get(), *m_ball, awayTeamActive, homeTeamActive, m_pitch, dt, awayFirstResponder, m_referee, *m_awayTeamAI, m_soundManager, m_spatialGrid, m_matchStats);
 		npc->update(dt);
 	}
 
@@ -1393,72 +1443,77 @@ void GamePlay::drawUI(sf::RenderWindow& t_window)
 			s_savedGoalMinute = static_cast<int>(m_referee.getMatchMinute());
 		}
 
-		// 1. Identify the Scorer (The last player to touch the ball)
-		Player* scorer = m_ball->getLastOwner();
+		// 1. Pull the official decision from the Referee
+		std::string scorerName = m_referee.getLastGoalScorerName();
+		std::string assistName = m_referee.getLastGoalAssistName();
+		bool isOwnGoal = m_referee.getLastGoalWasOwnGoal();
+		Team scoringTeam = m_referee.getLastGoalScoringTeam();
 
-		if (scorer)
-		{
-			// The team taking the Kick-Off is the team that CONCEDED.
-			// Therefore, the scoring team is the opposite.
-			Team scoringTeam = (m_referee.getAwardedTo() == Team::Home) ? Team::Away : Team::Home;
+		if (isOwnGoal) {
+			scorerName += " (O.G.)";
+		}
 
-			// If the player who touched it last is not on the scoring team, it's an Own Goal!
-			bool isOwnGoal = (scorer->getTeam() != scoringTeam);
+		// Use the SCORING team's colors and name
+		std::string teamName = (scoringTeam == Team::Home) ? m_homeTeamData.fullName : m_awayTeamData.fullName;
+		sf::Color goalColor = (scoringTeam == Team::Home) ? m_homeTeamData.uiColor : m_awayTeamData.uiColor;
+		goalColor.a = 255;
 
-			std::string scorerName = scorer->getName();
-			if (isOwnGoal) {
-				scorerName += " (O.G.)";
-			}
+		// 2. Setup Text
+		sf::Text goalText(m_font, isOwnGoal ? "OWN GOAL!" : "GOAL!", 60);
+		goalText.setStyle(sf::Text::Bold);
+		goalText.setFillColor(sf::Color::White);
 
-			// Use the SCORING team's colors and name, not necessarily the scorer's!
-			std::string teamName = (scoringTeam == Team::Home) ? m_homeTeamData.fullName : m_awayTeamData.fullName;
-			sf::Color goalColor = (scoringTeam == Team::Home) ? m_homeTeamData.uiColor : m_awayTeamData.uiColor;
-			goalColor.a = 255;
+		sf::Text infoText(m_font, scorerName + " (" + std::to_string(s_savedGoalMinute) + "')\n" + teamName, 30);
+		infoText.setFillColor(sf::Color(220, 220, 220));
+		infoText.setLineSpacing(1.2f);
 
-			// 2. Setup Text
-			sf::Text goalText(m_font, isOwnGoal ? "OWN GOAL!" : "GOAL!", 60);
-			goalText.setStyle(sf::Text::Bold);
-			goalText.setFillColor(sf::Color::White);
+		// Setup Assist Text (if applicable)
+		sf::Text assistText(m_font, "", 22);
+		bool hasAssist = (!assistName.empty() && !isOwnGoal);
+		if (hasAssist) {
+			assistText.setString("Assist: " + assistName);
+			assistText.setFillColor(sf::Color(180, 180, 180));
+		}
 
-			// Use our frozen timer!
-			sf::Text infoText(m_font, scorerName + " (" + std::to_string(s_savedGoalMinute) + "')\n" + teamName, 30);
-			infoText.setFillColor(sf::Color(220, 220, 220)); // Off-white
-			infoText.setLineSpacing(1.2f);
+		// 3. Layout Dimensions
+		float bannerWidth = 500.f;
+		float bannerHeight = hasAssist ? 280.f : 250.f; // Make it slightly taller to fit the assist!
+		sf::Vector2f centerPos(t_window.getSize().x * 0.5f, t_window.getSize().y * 0.35f);
+		sf::Vector2f topLeft(centerPos.x - bannerWidth * 0.5f, centerPos.y - bannerHeight * 0.5f);
 
-			// 3. Layout Dimensions
-			float bannerWidth = 500.f;
-			float bannerHeight = 250.f;
-			sf::Vector2f centerPos(t_window.getSize().x * 0.5f, t_window.getSize().y * 0.35f);
-			sf::Vector2f topLeft(centerPos.x - bannerWidth * 0.5f, centerPos.y - bannerHeight * 0.5f);
+		// 4. Draw Background Shadow
+		sf::RectangleShape bannerBg(sf::Vector2f(bannerWidth, bannerHeight));
+		bannerBg.setPosition(topLeft);
+		bannerBg.setFillColor(sf::Color(10, 10, 15, 230));
+		bannerBg.setOutlineThickness(3.f);
+		bannerBg.setOutlineColor(sf::Color(255, 255, 255, 100));
+		t_window.draw(bannerBg);
 
-			// 4. Draw Background Shadow
-			sf::RectangleShape bannerBg(sf::Vector2f(bannerWidth, bannerHeight));
-			bannerBg.setPosition(topLeft);
-			bannerBg.setFillColor(sf::Color(10, 10, 15, 230));
-			bannerBg.setOutlineThickness(3.f);
-			bannerBg.setOutlineColor(sf::Color(255, 255, 255, 100));
-			t_window.draw(bannerBg);
+		// 5. Draw Team Color Header Bar
+		sf::RectangleShape headerBar(sf::Vector2f(bannerWidth, 10.f));
+		headerBar.setPosition(topLeft);
+		headerBar.setFillColor(goalColor);
+		t_window.draw(headerBar);
 
-			// 5. Draw Team Color Header Bar
-			sf::RectangleShape headerBar(sf::Vector2f(bannerWidth, 10.f));
-			headerBar.setPosition(topLeft);
-			headerBar.setFillColor(goalColor);
-			t_window.draw(headerBar);
+		// 6. Position and Draw Text
+		goalText.setPosition({
+			centerPos.x - goalText.getLocalBounds().size.x * 0.5f,
+			topLeft.y + 15.f
+			});
+		t_window.draw(goalText);
 
-			// 6. Position and Draw Text
-			// Center "GOAL!"
-			goalText.setPosition({
-				centerPos.x - goalText.getLocalBounds().size.x * 0.5f,
-				topLeft.y + 15.f
+		infoText.setPosition({
+			centerPos.x - infoText.getLocalBounds().size.x * 0.5f,
+			topLeft.y + 85.f
+			});
+		t_window.draw(infoText);
+
+		if (hasAssist) {
+			assistText.setPosition({
+				centerPos.x - assistText.getLocalBounds().size.x * 0.5f,
+				topLeft.y + 180.f // Placed neatly below the team name
 				});
-			t_window.draw(goalText);
-
-			// Center Player/Team Info
-			infoText.setPosition({
-				centerPos.x - infoText.getLocalBounds().size.x * 0.5f,
-				topLeft.y + 85.f
-				});
-			t_window.draw(infoText);
+			t_window.draw(assistText);
 		}
 	}
 
@@ -1958,6 +2013,7 @@ void GamePlay::drawGamePlan(sf::RenderWindow& t_window)
 				ImGui::TextDisabled("0 = Short/Slow | 100 = Long/Fast");
 				ImGui::SliderInt("Passing Length", &tactics.passingLength, 0, 100);
 				ImGui::SliderInt("Passing Speed", &tactics.passingSpeed, 0, 100);
+				ImGui::SliderInt("Attacking Speed", &tactics.attackingSpeed, 0, 100);
 
 				ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 				ImGui::SliderInt("Attacking Width", &tactics.attackingWidth, 0, 100);
@@ -2295,4 +2351,88 @@ void GamePlay::queueSubstitution(Team team, int pitchIndex, int benchIndex) {
 		m_pendingSubsQueue.end());
 
 	m_pendingSubsQueue.push_back({ team, pitchIndex, benchIndex });
+}
+
+void GamePlay::drawPassDebug(sf::RenderWindow& t_window)
+{
+	// Only draw if the ball is moving freely
+	if (m_ball->hasOwner() || m_ball->getVelocity() == sf::Vector2f(0.f, 0.f)) return;
+
+	Player* lastOwner = m_ball->getLastOwner();
+	if (!lastOwner) return;
+
+	// Get the team of the player who passed the ball
+	const std::vector<Player*>& attackingTeam = (lastOwner->getTeam() == Team::Home) ? m_homeTeam : m_awayTeam;
+
+	sf::Vector2f ballPos = m_ball->getPosition();
+	sf::Vector2f ballVel = m_ball->getVelocity();
+	float speed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+
+	if (speed < 10.f) return;
+
+	// ==========================================
+	// 1. CALCULATE INTENDED TARGET (Physics Projection)
+	// ==========================================
+	float restingDist = (speed * speed) / (2.f * m_ball->friction);
+	restingDist = std::min(restingDist, 4000.f);
+
+	sf::Vector2f restingPoint = ballPos + (PlayerAI::normalize(ballVel) * restingDist);
+
+	Player* intendedTarget = nullptr;
+	float minDistToRest = 99999.f;
+
+	for (Player* p : attackingTeam) {
+		if (p == lastOwner || p->getPositionRole() == PositionRole::Goalkeeper || p->isSentOff()) continue;
+
+		float d = PlayerAI::dist(p->getPosition(), restingPoint);
+		if (d < minDistToRest) {
+			minDistToRest = d;
+			intendedTarget = p;
+		}
+	}
+
+	// ==========================================
+	// 2. CALCULATE ACTUAL RECEIVER (AI Brain)
+	// ==========================================
+	Player* actualReceiver = PositioningAI::identifyTargetReceiver(*m_ball, attackingTeam, m_pitch);
+
+	// ==========================================
+	// 3. SFML 3 DRAWING
+	// ==========================================
+
+	// Draw Intended Target (Yellow - The physics trajectory)
+	if (intendedTarget) {
+		// SFML 3 specific line drawing
+		std::array<sf::Vertex, 2> intendedLine = {
+			sf::Vertex{ballPos, sf::Color(255, 255, 0, 150)},
+			sf::Vertex{intendedTarget->getPosition(), sf::Color(255, 255, 0, 150)}
+		};
+		t_window.draw(intendedLine.data(), intendedLine.size(), sf::PrimitiveType::Lines);
+
+		sf::CircleShape intendedCircle(30.f);
+		intendedCircle.setOrigin({ 30.f, 30.f }); // SFML 3 brace init
+		intendedCircle.setPosition(intendedTarget->getPosition());
+		intendedCircle.setFillColor(sf::Color::Transparent);
+		intendedCircle.setOutlineColor(sf::Color::Yellow);
+		intendedCircle.setOutlineThickness(3.f);
+		t_window.draw(intendedCircle);
+	}
+
+	// Draw Actual Receiver (Cyan - Who the AI assigned to get it)
+	if (actualReceiver) {
+		// SFML 3 specific line drawing
+		std::array<sf::Vertex, 2> actualLine = {
+			sf::Vertex{ballPos, sf::Color(0, 255, 255, 200)},
+			sf::Vertex{actualReceiver->getPosition(), sf::Color(0, 255, 255, 200)}
+		};
+		t_window.draw(actualLine.data(), actualLine.size(), sf::PrimitiveType::Lines);
+
+		sf::CircleShape actualCircle(45.f);
+		actualCircle.setOrigin({ 45.f, 45.f }); // SFML 3 brace init
+		actualCircle.setPosition(actualReceiver->getPosition());
+		actualCircle.setFillColor(sf::Color::Transparent);
+		actualCircle.setOutlineColor(sf::Color::Cyan);
+		actualCircle.setOutlineThickness(5.f);
+		t_window.draw(actualCircle);
+	}
 }

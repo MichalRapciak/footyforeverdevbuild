@@ -140,15 +140,16 @@
     <ClCompile Include="EditorScreen.cpp" />
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="GameDatabase.cpp" />
+    <ClCompile Include="GamemodeSelect.cpp" />
     <ClCompile Include="GamePlay.cpp" />
     <ClCompile Include="GoalkeeperAI.cpp" />
-    <ClCompile Include="Help.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui-SFML.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_draw.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_tables.cpp" />
     <ClCompile Include="imgui-1.92.6\imgui_widgets.cpp" />
     <ClCompile Include="MatchDayScreen.cpp" />
+    <ClCompile Include="MatchInfo.cpp" />
     <ClCompile Include="MatchIntroState.cpp" />
     <ClCompile Include="PhysicsEngine.cpp" />
     <ClCompile Include="PlayerAI.cpp" />
@@ -168,6 +169,8 @@
     <ClCompile Include="NPCPlayer.cpp" />
     <ClCompile Include="Player.cpp" />
     <ClCompile Include="TeamAI.cpp" />
+    <ClCompile Include="TournamentHub.cpp" />
+    <ClCompile Include="TournamentSetup.cpp" />
     <ClCompile Include="UserPlayer.cpp" />
     <ClCompile Include="UserController.cpp" />
     <ClCompile Include="SplashScreen.cpp" />
@@ -182,10 +185,10 @@
     <ClInclude Include="Entity.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="GameDatabase.h" />
+    <ClInclude Include="GamemodeSelect.h" />
     <ClInclude Include="GamePlay.h" />
     <ClInclude Include="GlobalSettings.h" />
     <ClInclude Include="GoalkeeperAI.h" />
-    <ClInclude Include="Help.h" />
     <ClInclude Include="imgui-1.92.6\imconfig-SFML.h" />
     <ClInclude Include="imgui-1.92.6\imconfig.h" />
     <ClInclude Include="imgui-1.92.6\imgui-SFML.h" />
@@ -198,6 +201,7 @@
     <ClInclude Include="InjuryData.h" />
     <ClInclude Include="KitLayer.h" />
     <ClInclude Include="MatchDayScreen.h" />
+    <ClInclude Include="MatchInfo.h" />
     <ClInclude Include="MatchIntroState.h" />
     <ClInclude Include="MatchStatistics.h" />
     <ClInclude Include="PhysicsEngine.h" />
@@ -226,6 +230,8 @@
     <ClInclude Include="TacticalZone.h" />
     <ClInclude Include="Team.h" />
     <ClInclude Include="TeamAI.h" />
+    <ClInclude Include="TournamentHub.h" />
+    <ClInclude Include="TournamentSetup.h" />
     <ClInclude Include="UserPlayer.h" />
     <ClInclude Include="UserController.h" />
     <ClInclude Include="PlayerStats.h" />

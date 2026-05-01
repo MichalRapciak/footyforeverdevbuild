@@ -1,0 +1,63 @@
+{
+    "PLY_1095": {
+        "age": 15,
+        "familiarity": {
+            "Center Mid": 4
+        },
+        "graphics": {
+            "accessories": [],
+            "beard_color": "#282828",
+            "beard_type": "Beard_None",
+            "boot_color": "#1E1E1E",
+            "boot_logo1_color": "#FFFFFF",
+            "boot_logo1_type": "boots_logo1_ing",
+            "boot_logo2_color": "#FFFFFF",
+            "boot_logo2_type": "None",
+            "boot_type": "player_boots_run_ing",
+            "hair_color": "#282828",
+            "hair_type": "hair_skinfade",
+            "skin_color": "#FFE0BD"
+        },
+        "height_cm": 158,
+        "loyalty": 96,
+        "name": "Jonni Firezzi",
+        "nationality": "ITA",
+        "number": 22,
+        "playstyle": "On The Line",
+        "position": "Goalkeeper",
+        "preferred_foot": "Right",
+        "sharpness": 97,
+        "stats": {
+            "acceleration": 25.0,
+            "aggression": 72.0,
+            "agility": 14.0,
+            "awareness": 85.0,
+            "balancing": 19.0,
+            "ball_control": 12.0,
+            "blocking": 68.0,
+            "body_strength": 15.0,
+            "curl": 16.0,
+            "dead_ball": 12.0,
+            "finishing": 8.0,
+            "fitness": 19.0,
+            "gk_awareness": 31.0,
+            "gk_blocking": 28.0,
+            "gk_catching": 27.0,
+            "gk_coverage": 28.0,
+            "gk_reactions": 39.0,
+            "gk_throwing": 28.0,
+            "heading": 13.0,
+            "injury_resistance": 1,
+            "jumping_strength": 40.0,
+            "kick_power": 28.0,
+            "long_passing": 42.0,
+            "short_passing": 26.0,
+            "top_speed": 15.0,
+            "weak_foot_accuracy": 2
+        },
+        "tactical_familiarity": 99.0,
+        "team_id": "TEAM_112",
+        "traits": [],
+        "weight_kg": 54
+    }
+}

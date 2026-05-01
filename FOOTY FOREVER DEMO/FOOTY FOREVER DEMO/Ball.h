@@ -39,6 +39,8 @@ public:
 
     bool isLooseControl() const { return m_isLooseControl; }
 
+    void notifyPlayerSwap(Player* p1, Player* p2);
+
     Player* lastTouch = nullptr;
     float bs = 0.0f;          // Backspin
     float spin = 0.f;         // spin
@@ -47,6 +49,13 @@ public:
     sf::Vector2f velocity;
     sf::CircleShape shape;
     bool passCompletedEvent = false;
+
+    Player* lastShooter = nullptr;
+    Player* assistCandidate = nullptr;
+    bool isPassIntent = false;
+    Player* lastShooterAssister = nullptr;
+    bool lastShotWasOnTarget = false;
+
 private:
 
     sf::Sprite sprite;

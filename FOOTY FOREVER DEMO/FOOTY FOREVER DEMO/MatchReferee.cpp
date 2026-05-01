@@ -8,6 +8,7 @@
 
 void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Player*>& players, float dt, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats)
 {
+
     if (m_matchState == MatchState::InPlay || m_matchState == MatchState::GoalScored) {
         m_matchMinute += (dt * m_timeScale) / 60.0f;
 
@@ -15,6 +16,7 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
             m_matchState = MatchState::HalfTime;
             m_whistleTimer = 5.0f;
             updateMatchContexts();
+            m_lastInfraction = FoulType::None;
             soundManager.playSound("ref_fulltime", 100.f);
             std::cout << "HALF TIME!\n";
         }
@@ -40,12 +42,14 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
         m_whistleTimer -= dt;
         if (m_whistleTimer <= 0.f) {
             m_restartPos = sf::Vector2f(pitch.totalWidth / 2.f, 3500.f);
+            m_lastInfraction = FoulType::None;
             m_matchState = MatchState::RequestReplay;
         }
     }
     else if (m_matchState == MatchState::OutOfBoundsDelay) {
         m_whistleTimer -= dt;
         if (m_whistleTimer <= 0.f) {
+            m_lastInfraction = FoulType::None;
             if ((rand() % 100) < 30) m_matchState = MatchState::RequestReplay;
             else prepareRestart(m_pendingState, ball, pitch, players, soundManager);
         }
@@ -57,6 +61,7 @@ void MatchReferee::update(Ball& ball, const Pitch& pitch, const std::vector<Play
             m_matchMinute = 45.0f;
             m_awardedTo = Team::Away;
             m_restartPos = sf::Vector2f(pitch.totalWidth / 2.f, 3500.f);
+            m_lastInfraction = FoulType::None;
             prepareRestart(MatchState::KickOff, ball, pitch, players, soundManager);
         }
     }
@@ -286,20 +291,53 @@ void MatchReferee::checkBoundaries(Ball& ball, const Pitch& pitch, const Goal& h
     }
 }
 
-bool MatchReferee::checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats) {
+bool MatchReferee::checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& homeGoal, const Goal& awayGoal, SoundManager& soundManager, MatchStatistics& stats /*, MatchInfo& matchInfo */) {
     sf::Vector2f bPos = ball.getPosition();
     if (ball.z > 244.f + 5.f) return false;
 
     float goalLineBuffer = 24.f;
 
+    // ==========================================
+    // --- SCORING IN THE HOME GOAL (AWAY TEAM SCORES) ---
+    // ==========================================
     if (bPos.x < pitch.margin - goalLineBuffer) {
         float goalTopY = homeGoal.center.y - 366.f;
         float goalBottomY = homeGoal.center.y + 366.f;
 
         if (bPos.y >= goalTopY - 2.f && bPos.y <= goalBottomY + 2.f) {
+
+            Player* scorer = ball.lastTouch;
+            Player* assister = ball.assistCandidate;
+            bool isOwnGoal = false;
+
+            // Did a Home player put the ball in the Home net?
+            if (scorer && scorer->getTeam() == Team::Home) {
+                isOwnGoal = true;
+                assister = nullptr;
+
+                // --- SHOT ON TARGET OVERRIDE ---
+                // If the Away team shot it, and it was going in anyway, it's a deflection, NOT an Own Goal!
+                if (ball.lastShooter && ball.lastShooter->getTeam() == Team::Away && ball.lastShotWasOnTarget) {
+                    isOwnGoal = false;
+                    scorer = ball.lastShooter;
+                    assister = ball.lastShooterAssister;
+                }
+            }
+
             m_awayScore++;
-            std::string scorer = ball.lastTouch ? ball.lastTouch->getName() : "Unknown";
-            stats.recordGoal(Team::Away, scorer, static_cast<int>(m_matchMinute));
+
+            m_lastGoalScorerName = scorer ? scorer->getName() : "Unknown";
+            m_lastGoalAssistName = assister ? assister->getName() : "";
+            m_lastGoalWasOwnGoal = isOwnGoal;
+            m_lastGoalScoringTeam = Team::Away;
+
+            if (isOwnGoal) std::cout << "OWN GOAL by " << m_lastGoalScorerName << "!\n";
+            else if (assister) std::cout << "GOAL by " << m_lastGoalScorerName << " (Assist: " << m_lastGoalAssistName << ")!\n";
+            else std::cout << "GOAL by " << m_lastGoalScorerName << "!\n";
+
+            // matchInfo.recordGoal(scorer->getId(), assister ? assister->getId() : "", "AWAY_TEAM_ID", m_matchMinute, isOwnGoal, false);
+            stats.recordGoal(Team::Away, m_lastGoalScorerName, static_cast<int>(m_matchMinute), m_lastGoalAssistName, isOwnGoal);
+
             soundManager.playSound("ref_whistle", 100.f);
             soundManager.playSound("crowd_goal", 100.f);
             m_awardedTo = Team::Home;
@@ -307,14 +345,46 @@ bool MatchReferee::checkGoalScored(Ball& ball, const Pitch& pitch, const Goal& h
         }
     }
 
+    // ==========================================
+    // --- SCORING IN THE AWAY GOAL (HOME TEAM SCORES) ---
+    // ==========================================
     if (bPos.x > pitch.totalWidth - pitch.margin + goalLineBuffer) {
         float goalTopY = awayGoal.center.y - 366.f;
         float goalBottomY = awayGoal.center.y + 366.f;
 
         if (bPos.y >= goalTopY - 2.f && bPos.y <= goalBottomY + 2.f) {
+
+            Player* scorer = ball.lastTouch;
+            Player* assister = ball.assistCandidate;
+            bool isOwnGoal = false;
+
+            // Did an Away player put the ball in the Away net?
+            if (scorer && scorer->getTeam() == Team::Away) {
+                isOwnGoal = true;
+                assister = nullptr;
+
+                // --- SHOT ON TARGET OVERRIDE ---
+                if (ball.lastShooter && ball.lastShooter->getTeam() == Team::Home && ball.lastShotWasOnTarget) {
+                    isOwnGoal = false;
+                    scorer = ball.lastShooter;
+                    assister = ball.lastShooterAssister;
+                }
+            }
+
             m_homeScore++;
-            std::string scorer = ball.lastTouch ? ball.lastTouch->getName() : "Unknown";
-            stats.recordGoal(Team::Home, scorer, static_cast<int>(m_matchMinute));
+
+            m_lastGoalScorerName = scorer ? scorer->getName() : "Unknown";
+            m_lastGoalAssistName = assister ? assister->getName() : "";
+            m_lastGoalWasOwnGoal = isOwnGoal;
+            m_lastGoalScoringTeam = Team::Home;
+
+            if (isOwnGoal) std::cout << "OWN GOAL by " << m_lastGoalScorerName << "!\n";
+            else if (assister) std::cout << "GOAL by " << m_lastGoalScorerName << " (Assist: " << m_lastGoalAssistName << ")!\n";
+            else std::cout << "GOAL by " << m_lastGoalScorerName << "!\n";
+
+            // matchInfo.recordGoal(scorer->getId(), assister ? assister->getId() : "", "HOME_TEAM_ID", m_matchMinute, isOwnGoal, false);
+            stats.recordGoal(Team::Home, m_lastGoalScorerName, static_cast<int>(m_matchMinute), m_lastGoalAssistName, isOwnGoal);
+
             soundManager.playSound("ref_whistle", 100.f);
             soundManager.playSound("crowd_goal", 100.f);
             m_awardedTo = Team::Away;
@@ -461,19 +531,39 @@ PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& p
         float relativeY = (homePos.y - centerY) * 0.8f;
         float scatterY = static_cast<float>(((static_cast<int>(role) * 7) % 300) - 150);
 
+        // ==========================================
+        // --- THE FIX: DIRECTIONAL PITCH MATH ---
+        // ==========================================
+        // +1.0 if pushing towards Away Goal (Home attacking), -1.0 if pushing towards Home Goal (Away attacking)
+        float upPitchDir = (m_awardedTo == Team::Home) ? 1.0f : -1.0f;
+
         if (isAttacking) {
             if (role == PositionRole::Goalkeeper) {
-                mask.manualTarget.x = defendingGoalX + (attackingHomeEnd ? -100.f : 100.f);
+                mask.manualTarget.x = defendingGoalX + (upPitchDir * 100.f);
                 mask.manualTarget.y = centerY;
             }
             else if (role == PositionRole::CenterBack) {
-                float pushY = (homePos.y < centerY) ? -800.f : 800.f;
-                mask.manualTarget.x = defendingGoalX + (attackingHomeEnd ? -800.f : 800.f);
+                // THE FIX: Push CBs FAR out of the goalkeeper's box (Penalty box is 1650px deep)
+                float pushY = (homePos.y < centerY) ? -1100.f : 1100.f;
+                mask.manualTarget.x = defendingGoalX + (upPitchDir * 1850.f);
                 mask.manualTarget.y = centerY + pushY;
             }
+            else if (role == PositionRole::LeftBack || role == PositionRole::RightBack ||
+                role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack) {
+                // Fullbacks push high and wide up the touchlines
+                float pushY = (homePos.y < centerY) ? -1800.f : 1800.f;
+                mask.manualTarget.x = defendingGoalX + (upPitchDir * 2800.f);
+                mask.manualTarget.y = centerY + pushY;
+            }
+            else if (role == PositionRole::Striker || role == PositionRole::CenterForward ||
+                role == PositionRole::LeftWing || role == PositionRole::RightWing) {
+                // Attackers wait near the halfway line to contest the long clearance
+                mask.manualTarget.x = halfwayX - (upPitchDir * 500.f);
+                mask.manualTarget.y = centerY + relativeY + scatterY;
+            }
             else {
-                float pushX = (attackingHomeEnd) ? -2500.f : 2500.f;
-                mask.manualTarget.x = halfwayX + pushX;
+                // Midfielders form a structural line ahead of the defense to provide safe passing lanes
+                mask.manualTarget.x = defendingGoalX + (upPitchDir * 4000.f);
                 mask.manualTarget.y = centerY + relativeY + scatterY;
             }
         }
@@ -483,8 +573,29 @@ PositioningMask MatchReferee::getPositioningMask(const Player* p, const Pitch& p
                 mask.manualTarget.y = centerY;
             }
             else {
-                float pushX = (attackingHomeEnd) ? 800.f : -800.f;
-                mask.manualTarget.x = halfwayX + pushX;
+                // ==========================================
+                // --- THE FIX: DEFENSIVE DROP-OFF ---
+                // ==========================================
+                // Instead of suicidally pressing the 18-yard box, the defending team drops into a mid/low block
+                float dropBackX = 0.f;
+
+                if (role == PositionRole::Striker || role == PositionRole::CenterForward ||
+                    role == PositionRole::LeftWing || role == PositionRole::RightWing) {
+                    // Forwards drop off the edge of the final third to congest the midfield
+                    dropBackX = halfwayX - (upPitchDir * 1500.f);
+                }
+                else if (role == PositionRole::CenterBack || role == PositionRole::LeftBack ||
+                    role == PositionRole::RightBack || role == PositionRole::LeftWingBack ||
+                    role == PositionRole::RightWingBack) {
+                    // Defenders drop deep into their own half to safeguard against a long ball
+                    dropBackX = halfwayX + (upPitchDir * 2000.f);
+                }
+                else {
+                    // Midfielders sit firmly on their side of the halfway line
+                    dropBackX = halfwayX + (upPitchDir * 500.f);
+                }
+
+                mask.manualTarget.x = dropBackX;
                 mask.manualTarget.y = centerY + relativeY + scatterY;
             }
         }
@@ -504,8 +615,10 @@ void MatchReferee::notifyPlayerSwap(Player* p1, Player* p2) {
     else if (m_prevBallOwner == p2) m_prevBallOwner = p1;
 
     for (size_t i = 0; i < m_offsideSnapshot.flaggedPlayers.size(); ++i) {
-        if (m_offsideSnapshot.flaggedPlayers[i] == p1) m_offsideSnapshot.flaggedPlayers[i] = p2;
-        else if (m_offsideSnapshot.flaggedPlayers[i] == p2) m_offsideSnapshot.flaggedPlayers[i] = p1;
+        if (m_offsideSnapshot.flaggedPlayers[i].player == p1)
+            m_offsideSnapshot.flaggedPlayers[i].player = p2;
+        else if (m_offsideSnapshot.flaggedPlayers[i].player == p2)
+            m_offsideSnapshot.flaggedPlayers[i].player = p1;
     }
 }
 
@@ -514,6 +627,9 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
 
     m_matchState = state;
     m_whistleTimer = 2.0f;
+
+    m_lastPossessor = nullptr;
+    m_assistCandidate = nullptr;
 
     if (state == MatchState::GoalScored || state == MatchState::HalfTime ||
         state == MatchState::FullTime || state == MatchState::OutOfBoundsDelay) {
@@ -534,8 +650,9 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
         if (p->isSentOff() || p->getState() == PlayerState::Injured) continue;
 
         p->setVelocity({ 0.f, 0.f });
-        if (p->getState() == PlayerState::Tackling || p->getState() == PlayerState::Diving) {
+        if (p->getState() == PlayerState::Tackling || p->getState() == PlayerState::Diving || p->getState() == PlayerState::FallOver) {
             p->setState(PlayerState::Normal);
+            p->setRotation(90.f); // Force them upright if the play was reset mid-dive!
         }
 
         if (p->getTeam() == m_awardedTo) {
@@ -645,6 +762,12 @@ void MatchReferee::prepareRestart(MatchState state, Ball& ball, const Pitch& pit
             }
         }
     }
+    if (state == MatchState::ThrowIn || state == MatchState::GoalKick || state == MatchState::Corner) {
+        m_exemptNextPass = true;
+    }
+    else {
+        m_exemptNextPass = false;
+    }
 }
 
 void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, const std::vector<Player*>& players, Player* victim, SoundManager& soundManager, MatchStatistics& stats) {
@@ -662,13 +785,35 @@ void MatchReferee::awardFoul(FoulEvent foul, const Pitch& pitch, Ball& ball, con
     stats.recordFoul(foul.offender->getTeam());
     soundManager.playSound("ref_foul", 100.f);
 
-    if (foul.type == FoulType::Sliding) {
-        foul.offender->giveYellowCard();
-        std::cout << "YELLOW CARD: " << foul.offender->getName() << "\n";
-    }
-    else if (foul.type == FoulType::Violent) {
+    // ==========================================
+    // --- THE FIX: REFEREE GAME MANAGEMENT ---
+    // ==========================================
+    int currentFouls = foul.offender->incrementFouls();
+
+    if (foul.type == FoulType::Violent) {
+        // Violent conduct is ALWAYS a red, no matter the time.
         foul.offender->giveRedCard();
         std::cout << "STRAIGHT RED CARD: " << foul.offender->getName() << "\n";
+    }
+    else if (foul.type == FoulType::Sliding) {
+        // Early Match Leniency: First 20 mins, your FIRST sloppy tackle is just a warning.
+        if (m_matchMinute <= 20.0f && currentFouls == 1) {
+            std::cout << "REFEREE WARNING (Early Match): " << foul.offender->getName() << " let off with a warning!\n";
+        }
+        else {
+            foul.offender->giveYellowCard();
+            std::cout << "YELLOW CARD: " << foul.offender->getName() << "\n";
+        }
+    }
+    else if (foul.type == FoulType::Obstruction) {
+        // Persistent Fouling Rule: 3 or more "minor" fouls triggers a yellow card.
+        if (currentFouls >= 3) {
+            foul.offender->giveYellowCard();
+            std::cout << "YELLOW CARD (Persistent Fouling): " << foul.offender->getName() << " has had too many warnings.\n";
+        }
+        else {
+            std::cout << "FOUL CALLED: " << foul.offender->getName() << " (Warning #" << currentFouls << ")\n";
+        }
     }
 
     bool inBox = false;
@@ -734,33 +879,51 @@ void MatchReferee::startMatch(Ball& ball, const Pitch& pitch, const std::vector<
 void MatchReferee::checkOffsideLogic(Ball& ball, const std::vector<Player*>& players, float homeOffsideLine, float awayOffsideLine, const Pitch& pitch, SoundManager& soundManager) {
     Player* currentOwner = ball.getOwner();
 
-    bool isExemptRestart = (m_matchState == MatchState::Corner ||
-        m_matchState == MatchState::GoalKick ||
-        m_matchState == MatchState::ThrowIn ||
-        m_matchState == MatchState::Penalty ||
-        m_matchState == MatchState::KickOff);
-
+    // Ball was just passed
     if (m_prevBallOwner != nullptr && currentOwner == nullptr) {
 
-        if (!isExemptRestart) {
+        // --- THE FIX 4: CHECK THE EXEMPTION MEMORY ---
+        if (!m_exemptNextPass) {
             Team attackingTeam = m_prevBallOwner->getTeam();
-            float currentLine = (attackingTeam == Team::Home) ? homeOffsideLine : awayOffsideLine;
+
+            float deepestX = (attackingTeam == Team::Home) ? 0.f : pitch.totalWidth;
+            float secondDeepestX = deepestX;
+
+            for (Player* p : players) {
+                if (p->getTeam() == attackingTeam || p->isSentOff()) continue;
+
+                float px = p->getPosition().x;
+                if (attackingTeam == Team::Home) {
+                    if (px > deepestX) { secondDeepestX = deepestX; deepestX = px; }
+                    else if (px > secondDeepestX) { secondDeepestX = px; }
+                }
+                else {
+                    if (px < deepestX) { secondDeepestX = deepestX; deepestX = px; }
+                    else if (px < secondDeepestX) { secondDeepestX = px; }
+                }
+            }
+
+            float halfwayX = pitch.totalWidth / 2.f;
+
+            float strictLine = (attackingTeam == Team::Home) ?
+                std::max({ secondDeepestX, m_prevBallOwner->getPosition().x, halfwayX }) :
+                std::min({ secondDeepestX, m_prevBallOwner->getPosition().x, halfwayX });
 
             m_offsideSnapshot.flaggedPlayers.clear();
             m_offsideSnapshot.attackingTeam = attackingTeam;
             m_offsideSnapshot.isActive = true;
+            m_frozenDefensiveLineX = strictLine;
 
             for (Player* p : players) {
                 if (p->getTeam() != attackingTeam || p == m_prevBallOwner) continue;
 
-                float halfwayX = pitch.totalWidth / 2.f;
                 bool inOpponentHalf = (attackingTeam == Team::Home) ? (p->getPosition().x > halfwayX) : (p->getPosition().x < halfwayX);
 
                 if (inOpponentHalf) {
-                    bool isOffsidePos = (attackingTeam == Team::Home) ? (p->getPosition().x > currentLine) : (p->getPosition().x < currentLine);
+                    bool isOffsidePos = (attackingTeam == Team::Home) ? (p->getPosition().x > strictLine) : (p->getPosition().x < strictLine);
 
                     if (isOffsidePos) {
-                        m_offsideSnapshot.flaggedPlayers.push_back(p);
+                        m_offsideSnapshot.flaggedPlayers.push_back({ p, p->getPosition() });
                     }
                 }
             }
@@ -771,17 +934,24 @@ void MatchReferee::checkOffsideLogic(Ball& ball, const std::vector<Player*>& pla
         }
     }
 
+    // Ball was just received
     if (m_prevBallOwner == nullptr && currentOwner != nullptr) {
         if (m_offsideSnapshot.isActive && currentOwner->getTeam() == m_offsideSnapshot.attackingTeam) {
-            for (Player* flagged : m_offsideSnapshot.flaggedPlayers) {
-                if (currentOwner == flagged) {
+            for (const auto& flagged : m_offsideSnapshot.flaggedPlayers) {
+                if (currentOwner == flagged.player) {
+                    m_frozenAttackerPos = flagged.passMomentPos;
                     awardOffside(currentOwner, ball, pitch, soundManager);
                     break;
                 }
             }
         }
+
         m_offsideSnapshot.isActive = false;
         m_offsideSnapshot.flaggedPlayers.clear();
+
+        // --- THE FIX 5: CLEAR EXEMPTION ON FIRST TOUCH ---
+        // The exempt pass has been received. Any subsequent passes in this sequence are subject to normal rules.
+        m_exemptNextPass = false;
     }
 
     m_prevBallOwner = currentOwner;
@@ -795,6 +965,8 @@ void MatchReferee::awardOffside(Player* offender, Ball& ball, const Pitch& pitch
 
     m_restartPos = ball.getPosition();
     m_awardedTo = (offender->getTeam() == Team::Home) ? Team::Away : Team::Home;
+
+    m_lastInfraction = FoulType::Offside; // Stamp the foul type
 
     m_pendingState = MatchState::FreeKick;
     m_matchState = MatchState::FoulDelay;

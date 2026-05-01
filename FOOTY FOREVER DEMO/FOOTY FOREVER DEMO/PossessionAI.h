@@ -18,10 +18,11 @@ public:
     static Player* findBestPassOption(NPCPlayer& npc, const std::vector<Player*>& team, const std::vector<Player*>& opposition, UserPlayer* user, const TeamAI& teamAI, const Pitch& pitch);
     static sf::Vector2f calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI);
 
-    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats);
+    static void executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI);
     static void executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt, SoundManager& soundManager, MatchStatistics& stats);
     static void executeThrowIn(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates);
 
     static void handleNPCJumpLogic(NPCPlayer& npc, Ball& ball);
-    static bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager);
+    static bool tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager, MatchStatistics& stats, const Pitch& pitch);
+    static void executeSetPiece(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, MatchState state, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI);
 };

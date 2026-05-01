@@ -2,9 +2,16 @@
 #include "SpatialGrid.h"
 #include "PlayerAI.h"
 
+// Main Positioning
+
 sf::Vector2f PositioningAI::decideTargetPosition(NPCPlayer& npc, Ball& ball, const Pitch& pitch, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, Player* firstResponder, PositioningMask mask, const TeamAI& teamAI, const SpatialGrid& spatialGrid)
 {
     if (mask.useManualTarget) return mask.manualTarget;
+
+    bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
+    if (isTeammatePass && &npc == firstResponder) {
+        return calculateInterceptionPoint(npc, ball, pitch);
+    }
 
     bool isHomeSide = (npc.getTeam() == Team::Home);
     sf::Vector2f ballPos = ball.getPosition();
@@ -37,7 +44,6 @@ sf::Vector2f PositioningAI::decideTargetPosition(NPCPlayer& npc, Ball& ball, con
             finalTarget = ballPos + (PlayerAI::normalize(goalPos - ballPos) * pressDistance);
         }
         else {
-            // THE FIX: Passed pitch here!
             finalTarget = calculateInterceptionPoint(npc, ball, pitch);
         }
     }
@@ -53,13 +59,8 @@ sf::Vector2f PositioningAI::decideTargetPosition(NPCPlayer& npc, Ball& ball, con
 
     if ((behindHomeGoal || behindAwayGoal) && !isChasing) {
         finalTarget.x = behindHomeGoal ? (pitch.margin - 20.f) : (pitch.totalWidth - pitch.margin + 20.f);
-
-        if (npcPos.y < goalCenterY) {
-            finalTarget.y = goalCenterY - goalHalfWidth - 100.f;
-        }
-        else {
-            finalTarget.y = goalCenterY + goalHalfWidth + 100.f;
-        }
+        if (npcPos.y < goalCenterY) finalTarget.y = goalCenterY - goalHalfWidth - 100.f;
+        else finalTarget.y = goalCenterY + goalHalfWidth + 100.f;
     }
     else {
         bool targetingHomeGoal = (finalTarget.x < pitch.margin + 50.f && std::abs(finalTarget.y - goalCenterY) < goalHalfWidth);
@@ -69,6 +70,25 @@ sf::Vector2f PositioningAI::decideTargetPosition(NPCPlayer& npc, Ball& ball, con
         if (targetingAwayGoal) finalTarget.x = pitch.totalWidth - pitch.margin - 50.f;
     }
 
+    // ==========================================
+    // --- THE FIX: GOAL NET REPULSION ---
+    // ==========================================
+    // If the final calculated target puts them INSIDE the goal net, force the target back out!
+    // The goal depth is ~225px. We'll use 250px to give them a safe boundary.
+    float homeGoalDepthX = pitch.margin - 250.f;
+    float awayGoalDepthX = pitch.totalWidth - pitch.margin + 250.f;
+
+    bool targetInsideHomeNet = (finalTarget.x < pitch.margin && finalTarget.x > homeGoalDepthX && std::abs(finalTarget.y - goalCenterY) < goalHalfWidth);
+    bool targetInsideAwayNet = (finalTarget.x > pitch.totalWidth - pitch.margin && finalTarget.x < awayGoalDepthX && std::abs(finalTarget.y - goalCenterY) < goalHalfWidth);
+
+    if (targetInsideHomeNet) {
+        // Push the target out to the edge of the 6-yard box
+        finalTarget.x = pitch.margin + 150.f;
+    }
+    else if (targetInsideAwayNet) {
+        finalTarget.x = pitch.totalWidth - pitch.margin - 150.f;
+    }
+
     return finalTarget;
 }
 
@@ -76,275 +96,35 @@ sf::Vector2f PositioningAI::evaluateShapeAndSpace(NPCPlayer& npc, sf::Vector2f c
 {
     sf::Vector2f spatialCorrection(0.f, 0.f);
     sf::Vector2f npcPos = npc.getPosition();
-    float awareness = npc.getAwareness() / 100.0f;
 
-    PositionRole role = npc.getPositionRole();
-    bool isForward = (role == PositionRole::Striker || role == PositionRole::CenterForward || role == PositionRole::LeftWing || role == PositionRole::RightWing);
-    bool isMid = (role == PositionRole::CenterMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::DefensiveMid);
-    bool isDefender = (role == PositionRole::CenterBack || role == PositionRole::LeftBack || role == PositionRole::RightBack || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack);
-
-    bool isHomeSide = (npc.getTeam() == Team::Home);
-    float pitchCenterY = pitch.totalHeight / 2.f;
-    float halfwayX = pitch.totalWidth / 2.f;
-
-    // ==========================================
-    // --- THE KEEPER SPACE BUFFER ---
-    // ==========================================
+    // 1. Universal Goalkeeper Repulsion
     if (ball.hasOwner() && ball.getOwner()->getPositionRole() == PositionRole::Goalkeeper && ball.getOwner()->getTeam() == npc.getTeam()) {
         Player* gk = ball.getOwner();
         float distToGk = PlayerAI::dist(npcPos, gk->getPosition());
-
         if (distToGk < 1200.f && &npc != gk) {
             sf::Vector2f repelDir = PlayerAI::normalize(npcPos - gk->getPosition());
-            if (isDefender) {
-                repelDir.x *= 0.2f; repelDir.y *= 1.8f;
-                repelDir = PlayerAI::normalize(repelDir);
-            }
-            else {
-                repelDir.x *= 1.8f; repelDir.y *= 0.2f;
-                repelDir = PlayerAI::normalize(repelDir);
-            }
-            spatialCorrection += repelDir * (1200.f - distToGk);
+            bool isDefender = (npc.getPositionRole() == PositionRole::CenterBack || npc.getPositionRole() == PositionRole::LeftBack || npc.getPositionRole() == PositionRole::RightBack || npc.getPositionRole() == PositionRole::LeftWingBack || npc.getPositionRole() == PositionRole::RightWingBack);
+            if (isDefender) { repelDir.x *= 0.2f; repelDir.y *= 1.8f; }
+            else { repelDir.x *= 1.8f; repelDir.y *= 0.2f; }
+            spatialCorrection += PlayerAI::normalize(repelDir) * (1200.f - distToGk);
         }
     }
 
-    if (state == TeamState::Attacking) {
-
-        // ==========================================
-        // --- 1. GRID-BASED DYNAMIC SUPPORT ---
-        // ==========================================
-        if (ball.hasOwner() && ball.getOwner()->getTeam() == npc.getTeam() && ball.getOwner() != &npc) {
-            Player* carrier = ball.getOwner();
-            float distToCarrier = PlayerAI::dist(npcPos, carrier->getPosition());
-
-            // If we are in the supporting radius (5m to 25m)
-            if (distToCarrier > 500.f && distToCarrier < 2500.f) {
-                // Let the Spatial Grid do the heavy lifting! 
-                // It organically checks enemy influence, passing lanes, and proximity.
-                sf::Vector2f bestPocket = spatialGrid.findBestSupportPocket(carrier->getPosition(), npcPos, npc.getTeam(), pitch);
-                float distToPocket = PlayerAI::dist(npcPos, bestPocket);
-
-                if (distToPocket > 100.f) {
-                    Player* presser = PlayerAI::findNearestOpponent(carrier->getPosition(), opponents);
-                    float presserDist = presser ? PlayerAI::dist(carrier->getPosition(), presser->getPosition()) : 9999.f;
-
-                    // If the carrier is actively being swarmed, urgency spikes and we sprint to the pocket! 
-                    // Otherwise, jog gently into the space to offer the lane.
-                    float urgency = (presserDist < 500.f) ? 1.8f : 0.8f;
-
-                    sf::Vector2f shiftVec = PlayerAI::normalize(bestPocket - npcPos);
-                    spatialCorrection += shiftVec * std::min(distToPocket, 1000.f) * awareness * urgency;
-                }
-            }
-        }
-
-        // ==========================================
-        // --- 2. POSITIONAL ROTATION & COVERING ---
-        // ==========================================
-        // 1. FULLBACK OVERLAP
-        bool isLB = (role == PositionRole::LeftBack || role == PositionRole::LeftWingBack);
-        bool isRB = (role == PositionRole::RightBack || role == PositionRole::RightWingBack);
-
-        if (isLB || isRB) {
-            Player* winger = nullptr;
-            for (Player* tm : team) {
-                if ((isLB && (tm->getPositionRole() == PositionRole::LeftWing || tm->getPositionRole() == PositionRole::LeftMid)) ||
-                    (isRB && (tm->getPositionRole() == PositionRole::RightWing || tm->getPositionRole() == PositionRole::RightMid))) {
-                    winger = tm; break;
-                }
-            }
-            if (winger && (isHomeSide ? winger->getPosition().x > halfwayX : winger->getPosition().x < halfwayX)) {
-                float wingerDistFromSide = isLB ? (winger->getPosition().y - pitch.margin) : ((pitch.totalHeight - pitch.margin) - winger->getPosition().y);
-
-                if (wingerDistFromSide > 1200.f) {
-                    spatialCorrection.x += isHomeSide ? 800.f : -800.f;
-                    spatialCorrection.y += isLB ? -1000.f : 1000.f;
-                }
-            }
-        }
-
-        // 2. MIDFIELD DEFENSIVE COVER
-        if (role == PositionRole::DefensiveMid || role == PositionRole::CenterMid) {
-            for (Player* tm : team) {
-                if (tm->getPositionRole() == PositionRole::LeftBack || tm->getPositionRole() == PositionRole::RightBack) {
-                    bool fbAdvanced = isHomeSide ? (tm->getPosition().x > halfwayX) : (tm->getPosition().x < halfwayX);
-
-                    if (fbAdvanced && PlayerAI::dist(npcPos, tm->getPosition()) < 3000.f) {
-                        sf::Vector2f coverPos = tm->getHomePosition();
-                        spatialCorrection += (coverPos - npcPos) * 0.7f * awareness;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 3. STRIKER FALSE-9 DROP
-        if (role == PositionRole::Striker || role == PositionRole::CenterForward) {
-            for (Player* tm : team) {
-                if (tm->getPositionRole() == PositionRole::CenterMid || tm->getPositionRole() == PositionRole::AttackingMid) {
-                    bool midWentWide = std::abs(tm->getPosition().y - pitchCenterY) > 1500.f;
-
-                    if (midWentWide && PlayerAI::dist(npcPos, tm->getPosition()) < 2000.f) {
-                        sf::Vector2f dropVec = isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
-                        spatialCorrection += dropVec * 800.f * awareness;
-                    }
-                }
-            }
-        }
-
-        // 4. MIDFIELD POCKET FINDING (Minor tactical shift)
-        if (isMid) {
-            Player* nearestOpp = PlayerAI::findNearestOpponent(currentTarget, opponents);
-            if (nearestOpp && PlayerAI::dist(currentTarget, nearestOpp->getPosition()) < 700.f) {
-                sf::Vector2f toOpp = nearestOpp->getPosition() - currentTarget;
-                float escapeY = (toOpp.y > 0) ? -1.0f : 1.0f;
-                spatialCorrection.y += escapeY * 350.f * awareness * zone.roamingFreedom;
-            }
-        }
+    // 2. Delegate to Phase-Specific Logic
+    if (state.phase == MatchPhase::Attacking) {
+        spatialCorrection += evaluateAttackingShape(npc, currentTarget, ballPos, state, team, opponents, teamAI, zone, ball, pitch, spatialGrid);
     }
     else {
-        // ==========================================
-        // --- THE FIX: THE DEFENSIVE FORTRESS ---
-        // ==========================================
-        float ballDistFromCenterY = std::abs(ballPos.y - pitchCenterY);
-        bool inDangerZone = isHomeSide ? (ballPos.x < pitch.margin + 3000.f) : (ballPos.x > pitch.totalWidth - pitch.margin - 3000.f);
-
-        if (inDangerZone && isMid) {
-            // Midfielders form a "Screen" in front of the backline.
-            // Calculate the exact vector from the ball to the center of the goal
-            sf::Vector2f myGoalCenter = isHomeSide ? sf::Vector2f(pitch.margin, pitchCenterY) : sf::Vector2f(pitch.totalWidth - pitch.margin, pitchCenterY);
-            sf::Vector2f ballToGoal = PlayerAI::normalize(myGoalCenter - ballPos);
-
-            // The ideal screen position is ~12 meters (1200px) away from the goal, intersecting the ball's path
-            sf::Vector2f screenPos = myGoalCenter - (ballToGoal * 1200.f);
-
-            // Midfielders aggressively pull towards this screening position to block shots and passes
-            spatialCorrection += (screenPos - npcPos) * 0.8f * awareness;
-        }
-        else if (ballDistFromCenterY < 1200.f) {
-            // ATTACK IS DOWN THE MIDDLE (Normal play)
-            if (role == PositionRole::DefensiveMid || role == PositionRole::CenterMid) {
-                sf::Vector2f dropVec = isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
-                spatialCorrection += dropVec * 600.f * awareness;
-
-                float pinch = (pitchCenterY - npcPos.y);
-                spatialCorrection.y += pinch * 0.6f * awareness;
-            }
-        }
-        else {
-            // ATTACK IS OUT WIDE
-            bool ballOnLeft = ballPos.y < pitchCenterY;
-            if ((ballOnLeft && (role == PositionRole::LeftMid || role == PositionRole::LeftWing)) ||
-                (!ballOnLeft && (role == PositionRole::RightMid || role == PositionRole::RightWing))) {
-
-                sf::Vector2f dropVec = isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
-                spatialCorrection += dropVec * 900.f * awareness;
-
-                float pullWide = ballOnLeft ? -1.0f : 1.0f;
-                spatialCorrection.y += pullWide * 400.f * awareness;
-            }
-        }
-
-        // STRUCTURAL INTEGRITY & GRID GAP FILLING
-        if (isDefender || isMid) {
-            float sectorRadius = isDefender ? 1200.f : 1600.f;
-            sf::Vector2f bestCover = spatialGrid.findBestCoverSpace(npcPos, npc.getHomePosition(), sectorRadius, npc.getTeam(), pitch);
-
-            float distToCover = PlayerAI::dist(npcPos, bestCover);
-            if (distToCover > 300.f) {
-                float coverWillingness = awareness * (0.4f + (zone.roamingFreedom * 0.4f));
-                sf::Vector2f shiftVec = PlayerAI::normalize(bestCover - npcPos);
-                spatialCorrection += shiftVec * std::min(distToCover, 800.f) * coverWillingness;
-            }
-        }
-
-        // RUNNER TRACKING OVERRIDE
-        bool trackingRunner = false;
-        if (isDefender) {
-            float myGoalX = isHomeSide ? pitch.margin : pitch.totalWidth - pitch.margin;
-            Player* mostDangerousRunner = nullptr;
-            float highestDangerScore = 0.f;
-
-            for (Player* opp : opponents) {
-                if (opp->getPositionRole() == PositionRole::Goalkeeper || opp == ball.getOwner()) continue;
-
-                sf::Vector2f oppVel = opp->getVelocity();
-                float oppSpeed = std::sqrt(oppVel.x * oppVel.x + oppVel.y * oppVel.y);
-
-                if (oppSpeed > 500.f) {
-                    bool runningAtGoal = isHomeSide ? (oppVel.x < -200.f) : (oppVel.x > 200.f);
-
-                    if (runningAtGoal) {
-                        float distToDefender = PlayerAI::dist(npcPos, opp->getPosition());
-                        if (distToDefender < 1500.f) {
-                            float danger = oppSpeed + (1500.f - distToDefender);
-                            if (danger > highestDangerScore) {
-                                highestDangerScore = danger;
-                                mostDangerousRunner = opp;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (mostDangerousRunner && (awareness + zone.roamingFreedom) > 0.8f) {
-                trackingRunner = true;
-                sf::Vector2f toGoal = PlayerAI::normalize(sf::Vector2f(myGoalX, 3500.f) - mostDangerousRunner->getPosition());
-                sf::Vector2f trackTarget = mostDangerousRunner->getPosition() + (mostDangerousRunner->getVelocity() * 0.4f) + (toGoal * 100.f);
-                spatialCorrection += (trackTarget - npcPos) * 0.85f * awareness;
-            }
-        }
-
-        // UNIVERSAL HORIZONTAL LINE SYNC
-        float avgLineX = 0.f;
-        int lineCount = 0;
-
-        for (Player* tm : team) {
-            if (tm->isSentOff()) continue;
-
-            bool tmIsForward = (tm->getPositionRole() == PositionRole::Striker || tm->getPositionRole() == PositionRole::CenterForward || tm->getPositionRole() == PositionRole::LeftWing || tm->getPositionRole() == PositionRole::RightWing);
-            bool tmIsMid = (tm->getPositionRole() == PositionRole::CenterMid || tm->getPositionRole() == PositionRole::AttackingMid || tm->getPositionRole() == PositionRole::LeftMid || tm->getPositionRole() == PositionRole::RightMid || tm->getPositionRole() == PositionRole::DefensiveMid);
-            bool tmIsDef = (tm->getPositionRole() == PositionRole::CenterBack || tm->getPositionRole() == PositionRole::LeftBack || tm->getPositionRole() == PositionRole::RightBack || tm->getPositionRole() == PositionRole::LeftWingBack || tm->getPositionRole() == PositionRole::RightWingBack);
-
-            if ((isDefender && tmIsDef) || (isMid && tmIsMid) || (isForward && tmIsForward)) {
-                avgLineX += tm->getPosition().x;
-                lineCount++;
-            }
-        }
-
-        if (lineCount > 0) {
-            avgLineX /= lineCount;
-            float xDiff = avgLineX - npcPos.x;
-            float discipline = 1.0f - (zone.roamingFreedom * 0.4f);
-            float distToBall = PlayerAI::dist(npcPos, ballPos);
-
-            bool isStopper = false;
-            if (distToBall < 1800.f) {
-                isStopper = true;
-                for (Player* tm : team) {
-                    if (tm == &npc || tm->getPositionRole() == PositionRole::Goalkeeper || tm->isSentOff()) continue;
-
-                    bool tmIsForward = (tm->getPositionRole() == PositionRole::Striker || tm->getPositionRole() == PositionRole::CenterForward || tm->getPositionRole() == PositionRole::LeftWing || tm->getPositionRole() == PositionRole::RightWing);
-                    bool tmIsMid = (tm->getPositionRole() == PositionRole::CenterMid || tm->getPositionRole() == PositionRole::AttackingMid || tm->getPositionRole() == PositionRole::LeftMid || tm->getPositionRole() == PositionRole::RightMid || tm->getPositionRole() == PositionRole::DefensiveMid);
-                    bool tmIsDef = (tm->getPositionRole() == PositionRole::CenterBack || tm->getPositionRole() == PositionRole::LeftBack || tm->getPositionRole() == PositionRole::RightBack || tm->getPositionRole() == PositionRole::LeftWingBack || tm->getPositionRole() == PositionRole::RightWingBack);
-
-                    if (((isDefender && tmIsDef) || (isMid && tmIsMid) || (isForward && tmIsForward)) &&
-                        PlayerAI::dist(tm->getPosition(), ballPos) < distToBall) {
-                        isStopper = false;
-                        break;
-                    }
-                }
-            }
-
-            if (std::abs(xDiff) > 50.f && !isStopper && !trackingRunner) {
-                float snapStrength = isDefender ? 0.90f : 0.75f;
-                spatialCorrection.x += xDiff * snapStrength * discipline * awareness;
-            }
-        }
+        float avgLineX = getAverageDefensiveLineX(npc, team);
+        spatialCorrection += evaluateDefendingShape(npc, currentTarget, ballPos, state, team, opponents, teamAI, zone, ball, pitch, spatialGrid, avgLineX);
     }
 
+    // 3. Final Magnitude Clamping
     float correctionMagnitude = std::sqrt(spatialCorrection.x * spatialCorrection.x + spatialCorrection.y * spatialCorrection.y);
-    float maxAllowedDrift = 300.f + (zone.roamingFreedom * 500.f); // THE FIX: Shrunk absolute max drift!
+    float maxAllowedDrift = 300.f + (zone.roamingFreedom * 500.f);
+    if (state.phase == MatchPhase::Attacking) {
+        maxAllowedDrift += 400.f + ((1.0f - teamAI.getPassingLengthPref()) * 1000.f);
+    }
 
     if (correctionMagnitude > maxAllowedDrift) {
         spatialCorrection = (spatialCorrection / correctionMagnitude) * maxAllowedDrift;
@@ -353,19 +133,317 @@ sf::Vector2f PositioningAI::evaluateShapeAndSpace(NPCPlayer& npc, sf::Vector2f c
     return spatialCorrection;
 }
 
+sf::Vector2f PositioningAI::evaluateAttackingShape(NPCPlayer& npc, sf::Vector2f currentTarget, sf::Vector2f ballPos, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, const TeamAI& teamAI, const TacticalZone& zone, Ball& ball, const Pitch& pitch, const SpatialGrid& spatialGrid) {
+    sf::Vector2f correction(0.f, 0.f);
+    sf::Vector2f npcPos = npc.getPosition();
+    float awareness = npc.getAwareness() / 100.0f;
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    float pitchCenterY = pitch.totalHeight / 2.f;
+    float halfwayX = pitch.totalWidth / 2.f;
+    PositionRole role = npc.getPositionRole();
+    bool isMid = (role == PositionRole::CenterMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::DefensiveMid);
+
+    if (ball.hasOwner() && ball.getOwner()->getTeam() == npc.getTeam() && ball.getOwner() != &npc) {
+        Player* carrier = ball.getOwner();
+        float distToCarrier = PlayerAI::dist(npcPos, carrier->getPosition());
+
+        if (distToCarrier > 300.f && distToCarrier < 3000.f) {
+            sf::Vector2f bestPocket = spatialGrid.findBestSupportPocket(carrier->getPosition(), npcPos, npc.getTeam(), pitch, state, teamAI.getPassingLengthPref());
+            float distToPocket = PlayerAI::dist(npcPos, bestPocket);
+
+            if (distToPocket > 100.f) {
+                Player* presser = PlayerAI::findNearestOpponent(carrier->getPosition(), opponents);
+                float presserDist = presser ? PlayerAI::dist(carrier->getPosition(), presser->getPosition()) : 9999.f;
+                float urgency = (presserDist < 500.f || state.subState == TacticalSubState::KeepPossession) ? 1.8f : 1.0f;
+                if (state.subState == TacticalSubState::Transition) urgency = 2.0f;
+                urgency += ((1.0f - teamAI.getPassingLengthPref()) * 0.8f);
+                correction += PlayerAI::normalize(bestPocket - npcPos) * std::min(distToPocket, 1500.f) * awareness * urgency;
+            }
+        }
+
+        Player* myMarker = PlayerAI::findNearestOpponent(npcPos, opponents);
+        if (myMarker && distToCarrier < 2500.f) {
+            float markerDist = PlayerAI::dist(npcPos, myMarker->getPosition());
+            if (markerDist < 800.f) {
+                sf::Vector2f toBallNorm = PlayerAI::normalize(carrier->getPosition() - npcPos);
+                sf::Vector2f toMarkerNorm = PlayerAI::normalize(myMarker->getPosition() - npcPos);
+                if ((toBallNorm.x * toMarkerNorm.x + toBallNorm.y * toMarkerNorm.y) > 0.7f) {
+                    sf::Vector2f stepDir(-toBallNorm.y, toBallNorm.x);
+                    if ((stepDir.x * toMarkerNorm.x + stepDir.y * toMarkerNorm.y) > 0.f) stepDir = -stepDir;
+                    float unmarkUrgency = 1.0f + ((1.0f - teamAI.getPassingLengthPref()) * 2.0f);
+                    correction += stepDir * 1800.f * awareness * unmarkUrgency;
+                }
+                else if (markerDist < 250.f) {
+                    correction -= toMarkerNorm * 600.f * awareness;
+                }
+            }
+        }
+    }
+
+    bool isLB = (role == PositionRole::LeftBack || role == PositionRole::LeftWingBack);
+    bool isRB = (role == PositionRole::RightBack || role == PositionRole::RightWingBack);
+
+    if ((isLB || isRB) && state.subState != TacticalSubState::TimeWasting && state.subState != TacticalSubState::KeepPossession) {
+        Player* winger = nullptr;
+        for (Player* tm : team) {
+            if ((isLB && (tm->getPositionRole() == PositionRole::LeftWing || tm->getPositionRole() == PositionRole::LeftMid)) ||
+                (isRB && (tm->getPositionRole() == PositionRole::RightWing || tm->getPositionRole() == PositionRole::RightMid))) {
+                winger = tm; break;
+            }
+        }
+        if (winger && (isHomeSide ? winger->getPosition().x > halfwayX : winger->getPosition().x < halfwayX)) {
+            float wingerDistFromSide = isLB ? (winger->getPosition().y - pitch.margin) : ((pitch.totalHeight - pitch.margin) - winger->getPosition().y);
+            if (wingerDistFromSide > 1200.f) {
+                correction.x += isHomeSide ? 800.f : -800.f;
+                correction.y += isLB ? -1000.f : 1000.f;
+            }
+        }
+    }
+
+    if (role == PositionRole::DefensiveMid || role == PositionRole::CenterMid) {
+        for (Player* tm : team) {
+            if (tm->getPositionRole() == PositionRole::LeftBack || tm->getPositionRole() == PositionRole::RightBack) {
+                if ((isHomeSide ? (tm->getPosition().x > halfwayX) : (tm->getPosition().x < halfwayX)) && PlayerAI::dist(npcPos, tm->getPosition()) < 3000.f) {
+                    correction += (tm->getHomePosition() - npcPos) * 0.7f * awareness;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (role == PositionRole::Striker || role == PositionRole::CenterForward) {
+        for (Player* tm : team) {
+            if (tm->getPositionRole() == PositionRole::CenterMid || tm->getPositionRole() == PositionRole::AttackingMid) {
+                if (std::abs(tm->getPosition().y - pitchCenterY) > 1500.f && PlayerAI::dist(npcPos, tm->getPosition()) < 2000.f) {
+                    correction += (isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f)) * 800.f * awareness;
+                }
+            }
+        }
+    }
+
+    if (isMid) {
+        Player* nearestOpp = PlayerAI::findNearestOpponent(currentTarget, opponents);
+        if (nearestOpp && PlayerAI::dist(currentTarget, nearestOpp->getPosition()) < 700.f) {
+            float escapeY = ((nearestOpp->getPosition().y - currentTarget.y) > 0) ? -1.0f : 1.0f;
+            correction.y += escapeY * 350.f * awareness * zone.roamingFreedom;
+        }
+    }
+
+    return correction;
+}
+
+sf::Vector2f PositioningAI::evaluateDefendingShape(NPCPlayer& npc, sf::Vector2f currentTarget, sf::Vector2f ballPos, TeamState state, const std::vector<Player*>& team, const std::vector<Player*>& opponents, const TeamAI& teamAI, const TacticalZone& zone, Ball& ball, const Pitch& pitch, const SpatialGrid& spatialGrid, float avgLineX) {
+    sf::Vector2f correction(0.f, 0.f);
+    float awareness = npc.getAwareness() / 100.0f;
+    PositionRole role = npc.getPositionRole();
+
+    bool isMid = (role == PositionRole::CenterMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::DefensiveMid);
+    bool isForward = (role == PositionRole::Striker || role == PositionRole::CenterForward || role == PositionRole::LeftWing || role == PositionRole::RightWing);
+    bool isDefender = (!isForward && !isMid);
+
+    // 1. Base Zonal & Screen Positioning
+    if (state.subState != TacticalSubState::Transition && state.subState != TacticalSubState::AllOut) {
+        correction += evaluateZonalShifts(npc, ballPos, pitch, zone, spatialGrid, awareness, isMid, isDefender);
+    }
+
+    // 2. Dynamic Runner Tracking & Offside Traps
+    bool trackingRunner = false;
+    bool triggerOffsideTrap = false;
+    correction += evaluateRunnerTracking(npc, ballPos, state, opponents, teamAI, zone, avgLineX, awareness, isMid, isDefender, trackingRunner, triggerOffsideTrap);
+
+    // 3. Defensive Line Cohesion & Tight Squeeze
+    correction += evaluateLineIntegrity(npc, ballPos, team, zone, pitch, avgLineX, awareness, isMid, isForward, isDefender, trackingRunner, triggerOffsideTrap);
+
+    return correction;
+}
+
+sf::Vector2f PositioningAI::evaluateZonalShifts(NPCPlayer& npc, sf::Vector2f ballPos, const Pitch& pitch, const TacticalZone& zone, const SpatialGrid& spatialGrid, float awareness, bool isMid, bool isDefender) {
+    sf::Vector2f correction(0.f, 0.f);
+    sf::Vector2f npcPos = npc.getPosition();
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    float pitchCenterY = pitch.totalHeight / 2.f;
+    PositionRole role = npc.getPositionRole();
+
+    float ballDistFromCenterY = std::abs(ballPos.y - pitchCenterY);
+    bool inDangerZone = isHomeSide ? (ballPos.x < pitch.margin + 3000.f) : (ballPos.x > pitch.totalWidth - pitch.margin - 3000.f);
+
+    if (inDangerZone && isMid) {
+        sf::Vector2f myGoalCenter = isHomeSide ? sf::Vector2f(pitch.margin, pitchCenterY) : sf::Vector2f(pitch.totalWidth - pitch.margin, pitchCenterY);
+        sf::Vector2f screenPos = myGoalCenter - (PlayerAI::normalize(myGoalCenter - ballPos) * 1200.f);
+        correction += (screenPos - npcPos) * 0.8f * awareness;
+    }
+    else if (ballDistFromCenterY < 1200.f) {
+        if (role == PositionRole::DefensiveMid || role == PositionRole::CenterMid) {
+            correction += (isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f)) * 600.f * awareness;
+            correction.y += (pitchCenterY - npcPos.y) * 0.6f * awareness;
+        }
+    }
+    else {
+        bool ballOnLeft = ballPos.y < pitchCenterY;
+        if ((ballOnLeft && (role == PositionRole::LeftMid || role == PositionRole::LeftWing)) ||
+            (!ballOnLeft && (role == PositionRole::RightMid || role == PositionRole::RightWing))) {
+            correction += (isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f)) * 900.f * awareness;
+            correction.y += (ballOnLeft ? -1.0f : 1.0f) * 400.f * awareness;
+        }
+    }
+
+    if (isDefender || isMid) {
+        float sectorRadius = isDefender ? 1200.f : 1600.f;
+        sf::Vector2f bestCover = spatialGrid.findBestCoverSpace(npcPos, npc.getHomePosition(), sectorRadius, npc.getTeam(), pitch);
+        float distToCover = PlayerAI::dist(npcPos, bestCover);
+        if (distToCover > 300.f) {
+            correction += PlayerAI::normalize(bestCover - npcPos) * std::min(distToCover, 800.f) * (awareness * (0.4f + (zone.roamingFreedom * 0.4f)));
+        }
+    }
+
+    return correction;
+}
+
+sf::Vector2f PositioningAI::evaluateRunnerTracking(NPCPlayer& npc, sf::Vector2f ballPos, TeamState state, const std::vector<Player*>& opponents, const TeamAI& teamAI, const TacticalZone& zone, float avgLineX, float awareness, bool isMid, bool isDefender, bool& outTrackingRunner, bool& outTriggerTrap) {
+    sf::Vector2f correction(0.f, 0.f);
+    sf::Vector2f npcPos = npc.getPosition();
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    float pitchCenterY = 3500.f;
+
+    outTrackingRunner = false;
+    outTriggerTrap = false;
+
+    if (isDefender || (isMid && state.subState == TacticalSubState::Transition)) {
+        float myGoalX = isHomeSide ? 600.f : 9400.f; // Example margins
+        Player* mostDangerousRunner = nullptr;
+        float highestDangerScore = 0.f;
+        float depthPref = teamAI.getDefensiveDepthPref();
+
+        for (Player* opp : opponents) {
+            if (opp->getPositionRole() == PositionRole::Goalkeeper) continue;
+            sf::Vector2f oppVel = opp->getVelocity();
+            float oppSpeed = std::sqrt(oppVel.x * oppVel.x + oppVel.y * oppVel.y);
+
+            if (oppSpeed > 500.f) {
+                bool runningAtGoal = isHomeSide ? (oppVel.x < -200.f) : (oppVel.x > 200.f);
+                float offsideTrapThreshold = (depthPref < 0.4f) ? 20.f : 50.f + (depthPref * 450.f);
+                bool isBehindLine = isHomeSide ? (opp->getPosition().x < avgLineX - offsideTrapThreshold) : (opp->getPosition().x > avgLineX + offsideTrapThreshold);
+
+                if (isDefender && depthPref < 0.4f && runningAtGoal) {
+                    float distToLine = isHomeSide ? (avgLineX - opp->getPosition().x) : (opp->getPosition().x - avgLineX);
+                    if (distToLine > -50.f && distToLine < 800.f) outTriggerTrap = true;
+                }
+
+                if (runningAtGoal && !isBehindLine) {
+                    float distToDefender = PlayerAI::dist(npcPos, opp->getPosition());
+                    float detectRadius = isMid ? 3500.f : 1500.f;
+                    if (distToDefender < detectRadius) {
+                        float danger = oppSpeed + (detectRadius - distToDefender);
+                        if (danger > highestDangerScore) {
+                            highestDangerScore = danger;
+                            mostDangerousRunner = opp;
+                        }
+                    }
+                }
+            }
+        }
+
+        // DM Suffocation
+        if (npc.getPositionRole() == PositionRole::DefensiveMid && mostDangerousRunner) {
+            if (std::abs(mostDangerousRunner->getPosition().y - pitchCenterY) < 1000.f) {
+                bool runningAtDefense = isHomeSide ? (mostDangerousRunner->getVelocity().x < -200.f) : (mostDangerousRunner->getVelocity().x > 200.f);
+                if (runningAtDefense && highestDangerScore > 400.f) {
+                    correction += isHomeSide ? sf::Vector2f(200.f, 0.f) : sf::Vector2f(-200.f, 0.f);
+                }
+            }
+        }
+
+        if (mostDangerousRunner && (awareness + zone.roamingFreedom) > 0.6f && !outTriggerTrap) {
+            outTrackingRunner = true;
+            sf::Vector2f toGoal = PlayerAI::normalize(sf::Vector2f(myGoalX, 3500.f) - mostDangerousRunner->getPosition());
+            sf::Vector2f insideShade(0.f, (mostDangerousRunner->getPosition().y < 3500.f) ? 80.f : -80.f);
+            if (std::abs(mostDangerousRunner->getPosition().y - 3500.f) < 500.f) insideShade.y = 0.f;
+            sf::Vector2f trackTarget = mostDangerousRunner->getPosition() + insideShade + (mostDangerousRunner->getVelocity() * 0.6f) + (toGoal * 100.f);
+            correction += (trackTarget - npcPos) * 0.95f * awareness;
+        }
+        else if (outTriggerTrap && isDefender && state.subState != TacticalSubState::AllOut) {
+            float trapPush = 350.f * awareness * (1.0f - depthPref);
+            correction.x += isHomeSide ? trapPush : -trapPush;
+        }
+    }
+    return correction;
+}
+
+sf::Vector2f PositioningAI::evaluateLineIntegrity(NPCPlayer& npc, sf::Vector2f ballPos, const std::vector<Player*>& team, const TacticalZone& zone, const Pitch& pitch, float avgLineX, float awareness, bool isMid, bool isForward, bool isDefender, bool trackingRunner, bool triggerOffsideTrap) {
+    sf::Vector2f correction(0.f, 0.f);
+    sf::Vector2f npcPos = npc.getPosition();
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+
+    if (std::abs(avgLineX - npcPos.x) > 50.f && !trackingRunner && !triggerOffsideTrap) {
+        float xDiff = avgLineX - npcPos.x;
+        float distToBall = PlayerAI::dist(npcPos, ballPos);
+        bool isStopper = false;
+
+        if (distToBall < 1800.f) {
+            isStopper = true;
+            for (Player* tm : team) {
+                if (tm == &npc || tm->getPositionRole() == PositionRole::Goalkeeper || tm->isSentOff()) continue;
+                PositionRole tr = tm->getPositionRole();
+                bool tmIsForward = (tr == PositionRole::Striker || tr == PositionRole::CenterForward || tr == PositionRole::LeftWing || tr == PositionRole::RightWing);
+                bool tmIsMid = (tr == PositionRole::CenterMid || tr == PositionRole::AttackingMid || tr == PositionRole::LeftMid || tr == PositionRole::RightMid || tr == PositionRole::DefensiveMid);
+                bool tmIsDef = (!tmIsForward && !tmIsMid);
+
+                if (((isDefender && tmIsDef) || (isMid && tmIsMid) || (isForward && tmIsForward)) && PlayerAI::dist(tm->getPosition(), ballPos) < distToBall) {
+                    isStopper = false; break;
+                }
+            }
+        }
+
+        // Zonal Engagement Override
+        if (isDefender && distToBall < 800.f) {
+            isStopper = true;
+        }
+
+        // ==========================================
+        // --- THE FIX: DEFENSIVE SQUEEZE & COVER ---
+        // ==========================================
+        float halfwayX = pitch.totalWidth / 2.0f;
+        bool ballInOurHalf = isHomeSide ? (ballPos.x < halfwayX) : (ballPos.x > halfwayX);
+
+        if (ballInOurHalf && (isDefender || isMid)) {
+            // 1. The Lateral Squeeze (Choke the central space)
+            float yPinch = (ballPos.y - npcPos.y);
+            float pinchFactor = isDefender ? 0.35f : 0.20f;
+
+            // Squeeze tighter the closer the ball gets to the goal
+            float depthRatio = isHomeSide ? (1.0f - (ballPos.x / halfwayX)) : ((ballPos.x - halfwayX) / halfwayX);
+            depthRatio = std::clamp(depthRatio, 0.0f, 1.0f);
+
+            float lateralShift = yPinch * pinchFactor * depthRatio * awareness;
+            // Prevent defenders from totally abandoning their flank
+            lateralShift = std::clamp(lateralShift, -1200.f, 1200.f);
+            correction.y += lateralShift;
+
+            // 2. The Defensive Cover Drop (The "V" Shape)
+            // If the stopper steps up, the adjacent defenders must drop slightly behind them to provide cover.
+            if (!isStopper && isDefender) {
+                float coverDrop = isHomeSide ? -250.f : 250.f; // Drop back ~2.5 meters
+                correction.x += coverDrop * depthRatio * awareness;
+            }
+        }
+
+        // 3. Line Snapping (Only if not actively engaging the ball)
+        if (!isStopper) {
+            float snapStrength = isDefender ? 0.90f : 0.75f;
+            correction.x += xDiff * snapStrength * (1.0f - (zone.roamingFreedom * 0.4f)) * awareness;
+        }
+    }
+
+    return correction;
+}
+
 sf::Vector2f PositioningAI::applyTacticalPositioning(NPCPlayer& npc, Ball& ball, sf::Vector2f homePos, sf::Vector2f ballPos, sf::Vector2f goalPos, TeamState state, TacticalZone zone, const Pitch& pitch, const std::vector<Player*>& team, const std::vector<Player*>& opposition, const TeamAI& teamAI, const SpatialGrid& spatialGrid)
 {
-    // ==========================================
-    // --- 0. THE S-CURVE PROGRESSION ---
-    // ==========================================
-    float rawProgress = teamAI.getBallProgress();
-    rawProgress = std::clamp(rawProgress, 0.0f, 1.0f);
+    float rawProgress = std::clamp(teamAI.getBallProgress(), 0.0f, 1.0f);
     float ballProgress = rawProgress * rawProgress * rawProgress * (rawProgress * (rawProgress * 6.0f - 15.0f) + 10.0f);
     bool isHomeSide = (npc.getTeam() == Team::Home);
 
-    // ==========================================
-    // --- 1. NATIVE DIRECTIONAL INTELLIGENCE ---
-    // ==========================================
+    // Calculate Global Extremes
     float enemyOffsideLineX = pitch.totalWidth / 2.f;
     float threatX = isHomeSide ? pitch.totalWidth : 0.f;
 
@@ -373,25 +451,14 @@ sf::Vector2f PositioningAI::applyTacticalPositioning(NPCPlayer& npc, Ball& ball,
         std::vector<float> oppX;
         for (Player* opp : opposition) {
             if (opp->getPositionRole() == PositionRole::Goalkeeper || opp->isSentOff()) continue;
-
             float px = opp->getPosition().x;
             oppX.push_back(px);
-
-            if (isHomeSide) {
-                if (px < threatX) threatX = px; // Home defends 0 (Left)
-            }
-            else {
-                if (px > threatX) threatX = px; // Away defends 10000 (Right)
-            }
+            if (isHomeSide) { if (px < threatX) threatX = px; }
+            else { if (px > threatX) threatX = px; }
         }
-
         if (!oppX.empty()) {
-            if (isHomeSide) {
-                std::sort(oppX.begin(), oppX.end(), std::greater<float>()); // Home attacks 10000
-            }
-            else {
-                std::sort(oppX.begin(), oppX.end(), std::less<float>());    // Away attacks 0
-            }
+            if (isHomeSide) std::sort(oppX.begin(), oppX.end(), std::greater<float>());
+            else std::sort(oppX.begin(), oppX.end(), std::less<float>());
             enemyOffsideLineX = oppX[0];
         }
     }
@@ -399,352 +466,330 @@ sf::Vector2f PositioningAI::applyTacticalPositioning(NPCPlayer& npc, Ball& ball,
     if (isHomeSide && enemyOffsideLineX < pitch.totalWidth / 2.f) enemyOffsideLineX = pitch.totalWidth / 2.f;
     if (!isHomeSide && enemyOffsideLineX > pitch.totalWidth / 2.f) enemyOffsideLineX = pitch.totalWidth / 2.f;
 
-    float myDefLineX = 0.f;
-    int defCount = 0;
-    for (Player* tm : team) {
-        bool isDef = (tm->getPositionRole() == PositionRole::CenterBack || tm->getPositionRole() == PositionRole::LeftBack || tm->getPositionRole() == PositionRole::RightBack || tm->getPositionRole() == PositionRole::LeftWingBack || tm->getPositionRole() == PositionRole::RightWingBack);
-        if (isDef && !tm->isSentOff()) {
-            myDefLineX += tm->getPosition().x;
-            defCount++;
-        }
-    }
-    if (defCount > 0) myDefLineX /= defCount;
-    else myDefLineX = isHomeSide ? (pitch.margin + 1500.f) : (pitch.totalWidth - pitch.margin - 1500.f);
+    sf::Vector2f tacticalTarget = homePos;
 
-    // ==========================================
-    // --- 2. ROLE CLASSIFICATION ---
-    // ==========================================
+    // Delegate to Phase-Specific Targeting
+    if (state.phase == MatchPhase::Attacking) {
+        tacticalTarget = calculateAttackingTarget(npc, ball, tacticalTarget, ballPos, state, zone, pitch, teamAI, enemyOffsideLineX, ballProgress);
+    }
+    else {
+        tacticalTarget = calculateDefendingTarget(npc, ball, tacticalTarget, ballPos, state, zone, pitch, team, teamAI, ballProgress, threatX, homePos.x);
+    }
+
+    // Apply Local Shape Adjustments
+    tacticalTarget += evaluateShapeAndSpace(npc, tacticalTarget, ballPos, state, team, opposition, teamAI, zone, ball, pitch, spatialGrid);
+
+    // The Dynamic Rogue Sweeper Clamp
     bool isForward = (npc.getPositionRole() == PositionRole::Striker || npc.getPositionRole() == PositionRole::CenterForward || npc.getPositionRole() == PositionRole::LeftWing || npc.getPositionRole() == PositionRole::RightWing);
     bool isMid = (npc.getPositionRole() == PositionRole::CenterMid || npc.getPositionRole() == PositionRole::AttackingMid || npc.getPositionRole() == PositionRole::LeftMid || npc.getPositionRole() == PositionRole::RightMid || npc.getPositionRole() == PositionRole::DefensiveMid);
     bool isDefender = (!isForward && !isMid);
 
-    sf::Vector2f tacticalTarget = homePos;
-    float pitchCenterY = pitch.totalHeight / 2.0f;
-
-    // --- FETCH MANAGER'S SLIDERS ---
-    float passLengthPref = teamAI.getPassingLengthPref();
-    float counterSpeed = teamAI.getPassingSpeedPref();
-    float depthPref = teamAI.getDefensiveDepthPref();
-    float freedomPref = teamAI.getPositionalFreedomPref();
-
-    PlayerBehavior behavior = npc.getPlaystyle().behavior;
-
-    if (state == TeamState::Attacking) {
-        float depthPush = isHomeSide ? 1.0f : -1.0f;
-
-        // 1. PROACTIVE BALL SENSITIVITY
-        float targetBallX = ballPos.x;
-
-        if (ball.hasOwner() && ball.getOwner()->getPositionRole() == PositionRole::Goalkeeper) {
-            float pushAmount = 2500.f + (teamAI.getPassingLengthPref() * 2000.f);
-            targetBallX += (isHomeSide ? pushAmount : -pushAmount);
-        }
-
-        if ((isForward || npc.getPositionRole() == PositionRole::AttackingMid) && zone.supportDepth > -0.3f) {
-            float leadDist = 400.f + (passLengthPref * 1000.f) + (zone.supportDepth * 600.f);
-            targetBallX += depthPush * leadDist;
-        }
-        else if (isMid && zone.supportDepth > -0.3f) {
-            // THE FIX 1: Increased Midfield lead distance so they join the attack faster!
-            float leadDist = 300.f + (passLengthPref * 800.f) + (zone.supportDepth * 500.f);
-            targetBallX += depthPush * leadDist;
-        }
-
-        float xDiff = targetBallX - tacticalTarget.x;
-        tacticalTarget.x += (xDiff * zone.ballInfluence * 0.6f);
-
-        // 2. TRANSITION SPEED & PUSH
-        float unitExpansion = 0.0f;
-
-        if (isForward) unitExpansion = std::clamp((ballProgress - 0.1f) * (1.8f + (counterSpeed * 0.5f)), 0.0f, 1.0f);
-        // THE FIX 2: Midfielders spring to life immediately! 
-        // We added a baseline +0.10f so they expand even when deep in their own half, and raised the floor to 0.15f.
-        else if (isMid) unitExpansion = std::clamp((ballProgress + 0.10f) * (1.5f + (counterSpeed * 1.5f)), 0.15f, 1.0f);
-        else unitExpansion = std::clamp((ballProgress - 0.2f) * (1.0f + (counterSpeed * 0.4f)), 0.0f, 0.4f + (freedomPref * 0.3f));
-
-        float runModifier = (behavior.runFrequency - 0.5f) * 0.4f;
-        unitExpansion = std::clamp(unitExpansion + runModifier, 0.0f, 1.0f);
-
-        float pushFactor = (ballProgress - 0.5f) * 2.0f;
-        pushFactor = std::max(0.0f, pushFactor);
-
-        float leashMultiplier = isForward ? 0.5f : (isMid ? 0.3f : 0.15f);
-        tacticalTarget.x += depthPush * (zone.forwardLeash * leashMultiplier * unitExpansion);
-        tacticalTarget.x += depthPush * (zone.supportDepth * 600.f);
-
-        // ---------------------------------------------------------
-        // 3. ATTACKING SHAPE (Extreme Fanning Out)
-        // ---------------------------------------------------------
-        float yOffset = tacticalTarget.y - pitchCenterY;
-        tacticalTarget.y += yOffset * (0.25f * pushFactor);
-
-        if (std::abs(zone.widthPreference) > 0.1f) {
-            float dirToTouchline = (tacticalTarget.y > pitchCenterY) ? 1.0f : -1.0f;
-
-            // THE FIX 4: WINGER TOUCHLINE HUGGING
-            bool isWidePlayer = (npc.getPositionRole() == PositionRole::LeftWing ||
-                npc.getPositionRole() == PositionRole::RightWing ||
-                npc.getPositionRole() == PositionRole::LeftMid ||
-                npc.getPositionRole() == PositionRole::RightMid ||
-                npc.getPositionRole() == PositionRole::LeftWingBack ||
-                npc.getPositionRole() == PositionRole::RightWingBack);
-
-            // Center players push out 500px. Wide players push out a massive 2200px to chalk their boots!
-            float widthPush = isWidePlayer ? 2200.f : 500.f;
-
-            tacticalTarget.y += (dirToTouchline * zone.widthPreference * widthPush);
-        }
-
-        // 4. DYNAMIC PASSING POCKETS
-        float idealSupportDist = 600.f + (passLengthPref * 800.f);
-        float distToBallTarget = PlayerAI::dist(tacticalTarget, ballPos);
-
-        if (distToBallTarget < idealSupportDist - 150.f) {
-            sf::Vector2f repelDir = PlayerAI::normalize(tacticalTarget - ballPos);
-            repelDir.x *= 0.3f;
-            repelDir.y *= 1.8f;
-            repelDir = PlayerAI::normalize(repelDir);
-            tacticalTarget += repelDir * (idealSupportDist - distToBallTarget) * 0.7f;
-        }
-        else if (distToBallTarget > idealSupportDist + 300.f && !isForward) {
-            sf::Vector2f attractDir = PlayerAI::normalize(ballPos - tacticalTarget);
-            tacticalTarget += attractDir * (distToBallTarget - idealSupportDist) * passLengthPref * 0.6f;
-        }
-
-        // 5. ATTACKING BOX LIMITS & OFFSIDE
-        float oppGoalLineX = isHomeSide ? pitch.totalWidth - pitch.margin : pitch.margin;
-        float attackingMaxPush = isHomeSide ? oppGoalLineX - 800.f : oppGoalLineX + 800.f;
-
-        if (isHomeSide && tacticalTarget.x > attackingMaxPush) tacticalTarget.x = attackingMaxPush;
-        else if (!isHomeSide && tacticalTarget.x < attackingMaxPush) tacticalTarget.x = attackingMaxPush;
-
-        if (zone.supportDepth > -0.5f) {
-            float awarenessError = (1.0f - (npc.getAwareness() / 100.0f)) * 300.f;
-            if (isHomeSide && tacticalTarget.x > enemyOffsideLineX + awarenessError) {
-                tacticalTarget.x = enemyOffsideLineX + awarenessError - 50.f;
-            }
-            else if (!isHomeSide && tacticalTarget.x < enemyOffsideLineX - awarenessError) {
-                tacticalTarget.x = enemyOffsideLineX - awarenessError + 50.f;
-            }
-        }
+    if (isDefender && state.subState != TacticalSubState::AllOut) {
+        float maxDrop = (teamAI.getDefensiveDepthPref() < 0.35f) ? 10.f : 100.f + (teamAI.getDefensiveDepthPref() * 500.f);
+        if (isHomeSide && tacticalTarget.x < homePos.x - maxDrop) tacticalTarget.x = homePos.x - maxDrop;
+        else if (!isHomeSide && tacticalTarget.x > homePos.x + maxDrop) tacticalTarget.x = homePos.x + maxDrop;
     }
-    else
-    {
-        // ==========================================
-        // --- 1. SLIDER-DRIVEN DEFENDING (Quicker) ---
-        // ==========================================
-        float dropIntensity = 1.0f - ballProgress;
-        float dropMultiplier = 0.0f;
 
-        if (isDefender)
-        {
-            // Increased base drop so the backline retreats faster against counters
-            dropMultiplier = 0.40f + (depthPref * 0.35f);
-        }
-        else if (isMid) {
-            // THE FIX 2: MASSIVE MIDFIELD DROP BUFF
-            // Midfielders now drop almost as fast as defenders to compress the space!
-            dropMultiplier = 0.45f + (depthPref * 0.35f);
-            if (npc.getPositionRole() == PositionRole::DefensiveMid) dropMultiplier += 0.15f;
-        }
-        else {
-            dropMultiplier = 0.20f + (depthPref * 0.20f);
-        }
-
-        float dropDist = (zone.backwardLeash * dropMultiplier) * dropIntensity;
-        sf::Vector2f dropDir = isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f);
-        tacticalTarget += (dropDir * dropDist);
-
-        // ==========================================
-        // --- 2. PROACTIVE HIGH LINE & ATTACKER TETHER ---
-        // ==========================================
-        if (isDefender) {
-            float buffer = 600.f + (depthPref * 800.f);
-            if (isHomeSide && tacticalTarget.x < threatX - buffer) tacticalTarget.x = threatX - buffer;
-            else if (!isHomeSide && tacticalTarget.x > threatX + buffer) tacticalTarget.x = threatX + buffer;
-        }
-        else if (isMid) {
-            float midBuffer = 800.f;
-            float referenceX = isHomeSide ? std::max(threatX, ballPos.x) : std::min(threatX, ballPos.x);
-
-            if (isHomeSide && tacticalTarget.x < referenceX + midBuffer) tacticalTarget.x = referenceX + midBuffer;
-            else if (!isHomeSide && tacticalTarget.x > referenceX - midBuffer) tacticalTarget.x = referenceX - midBuffer;
-        }
-        else if (isForward) {
-            float outletDepth = 400.f + (depthPref * 800.f);
-            float targetX = isHomeSide ? (ballPos.x - outletDepth) : (ballPos.x + outletDepth);
-
-            if (isHomeSide) {
-                targetX = std::min(targetX, enemyOffsideLineX - 150.f);
-            }
-            else {
-                targetX = std::max(targetX, enemyOffsideLineX + 150.f);
-            }
-
-            float minStrikerDepth = isHomeSide ? (myDefLineX + 2500.f) : (myDefLineX - 2500.f);
-            if (isHomeSide) {
-                targetX = std::max(targetX, minStrikerDepth);
-            }
-            else {
-                targetX = std::min(targetX, minStrikerDepth);
-            }
-
-            tacticalTarget.x = targetX;
-        }
-
-        // 3. DEFENSIVE COMPACTNESS (Slamming the Door)
-        float yOffset = tacticalTarget.y - pitchCenterY;
-        float squeezeFactor = 0.0f;
-
-        if (isDefender) squeezeFactor = (0.5f + (depthPref * 0.4f)) * dropIntensity;
-        else if (isMid) squeezeFactor = (0.2f + (depthPref * 0.3f)) * dropIntensity;
-
-        float ballDistFromCenterY = std::abs(ballPos.y - pitchCenterY);
-        float distToBallExact = PlayerAI::dist(npc.getPosition(), ballPos);
-
-        if (distToBallExact < 2000.f && ballDistFromCenterY < 1200.f) {
-            squeezeFactor *= 1.8f;
-        }
-        tacticalTarget.y -= yOffset * squeezeFactor;
-
-        // 4. THE SWARM
-        float maxLateralShift = 800.f + (depthPref * 400.f);
-        float desiredYShift = (ballPos.y - tacticalTarget.y) * (zone.ballInfluence * 0.85f);
-        desiredYShift = std::clamp(desiredYShift, -maxLateralShift, maxLateralShift);
-        tacticalTarget.y += desiredYShift;
-        sf::Vector2f npcPos = npc.getPosition();
-
-        // ==========================================
-        // --- 4.5 THE STOPPER / SWEEPER SYSTEM ---
-        // ==========================================
-        if (isDefender && distToBallExact < 1000.f) {
-            bool amIClosestDef = true;
-            for (Player* tm : team) {
-                if (tm == &npc || tm->getPositionRole() == PositionRole::Goalkeeper || tm->isSentOff()) continue;
-
-                bool tmIsDef = (tm->getPositionRole() == PositionRole::CenterBack ||
-                    tm->getPositionRole() == PositionRole::LeftBack ||
-                    tm->getPositionRole() == PositionRole::RightBack ||
-                    tm->getPositionRole() == PositionRole::LeftWingBack ||
-                    tm->getPositionRole() == PositionRole::RightWingBack);
-
-                if (tmIsDef && PlayerAI::dist(tm->getPosition(), ballPos) < distToBallExact) {
-                    amIClosestDef = false;
-                    break;
-                }
-            }
-
-            if (amIClosestDef) {
-                sf::Vector2f toBall = ballPos - tacticalTarget;
-
-                float defensiveUrgency = 1.0f;
-                float penaltyBoxX = isHomeSide ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
-                if (std::abs(ballPos.x - penaltyBoxX) < 1200.f) defensiveUrgency = 1.6f;
-
-                // Nerfed the base stopper bite from 0.4 down to 0.25 so they don't over-commit
-                float stopperBite = std::min(0.85f, (0.25f + (npc.getAggression() / 100.f * 0.35f)) * defensiveUrgency);
-                sf::Vector2f biteVector = toBall * stopperBite;
-
-                // ==========================================
-                // --- THE FIX 3: THE LINE-BREAK CLAMP ---
-                // ==========================================
-                // DO NOT allow the defender to step more than 600px ahead of the average defensive line!
-                if (isHomeSide && tacticalTarget.x + biteVector.x > myDefLineX + 600.f) {
-                    biteVector.x = (myDefLineX + 600.f) - tacticalTarget.x;
-                }
-                else if (!isHomeSide && tacticalTarget.x + biteVector.x < myDefLineX - 600.f) {
-                    biteVector.x = (myDefLineX - 600.f) - tacticalTarget.x;
-                }
-
-                tacticalTarget += biteVector;
-            }
-            else {
-                float coverDrop = 250.f + (depthPref * 150.f);
-                tacticalTarget.x += isHomeSide ? -coverDrop : coverDrop;
-
-                float yPinch = (ballPos.y - tacticalTarget.y) * 0.65f;
-                tacticalTarget.y += yPinch;
-            }
-        }
-
-        // 5. STRICT BOX DISCIPLINE
-        float penaltyBoxEdgeX = isHomeSide ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
-        bool ballOutsideBox = isHomeSide ? (ballPos.x > penaltyBoxEdgeX) : (ballPos.x < penaltyBoxEdgeX);
-
-        if (ballOutsideBox) {
-            float lineError = (1.0f - (npc.getAwareness() / 100.0f)) * 150.f;
-
-            if (isDefender) {
-                if (isHomeSide && tacticalTarget.x < penaltyBoxEdgeX - lineError) tacticalTarget.x = penaltyBoxEdgeX - lineError;
-                else if (!isHomeSide && tacticalTarget.x > penaltyBoxEdgeX + lineError) tacticalTarget.x = penaltyBoxEdgeX + lineError;
-            }
-            else if (isMid) {
-                float midLine = isHomeSide ? penaltyBoxEdgeX + 600.f : penaltyBoxEdgeX - 600.f;
-                if (isHomeSide && tacticalTarget.x < midLine) tacticalTarget.x = midLine;
-                else if (!isHomeSide && tacticalTarget.x > midLine) tacticalTarget.x = midLine;
-            }
-        }
-    }
-    // ==========================================
-        // --- 6. THE MIDFIELD GLUE (Dynamic Linking) ---
-        // ==========================================
-    if (isMid) {
-        if (state == TeamState::Attacking) {
-            // THE FIX 3: THE BUILD-UP INVERSION
-            float idealDistance = 0.f;
-
-            // If the ball is in the first 35% of the pitch (Build-Up phase)
-            if (ballProgress < 0.35f) {
-                // Show IN FRONT of the ball carrier by 10 to 15 meters to offer an outlet!
-                // (Negative values put the player ahead of the ball)
-                idealDistance = -(1000.f + (passLengthPref * 500.f));
-            }
-            else {
-                // Final Third / Opponent Half: Sit 6 to 10 meters BEHIND the ball as a safety pivot
-                idealDistance = 600.f + (passLengthPref * 400.f);
-                if (npc.getPositionRole() == PositionRole::AttackingMid) idealDistance = 150.f;
-            }
-
-            float pocketX = isHomeSide ? (ballPos.x - idealDistance) : (ballPos.x + idealDistance);
-
-            // Pull strength increases when deep so we aggressively break out of the backline to get open
-            float deepUrgency = (ballProgress < 0.35f) ? 0.3f : 0.0f;
-            float pullStrength = 0.4f + (zone.supportDepth * 0.2f) + deepUrgency;
-
-            tacticalTarget.x = (tacticalTarget.x * (1.0f - pullStrength)) + (pocketX * pullStrength);
-        }
-        else {
-            float screenDist = 1000.f - (depthPref * 300.f);
-            if (npc.getPositionRole() == PositionRole::DefensiveMid) screenDist = 500.f;
-            else if (npc.getPositionRole() == PositionRole::AttackingMid) screenDist = 1600.f;
-
-            float idealScreenX = isHomeSide ? (myDefLineX + screenDist) : (myDefLineX - screenDist);
-
-            float discipline = 0.8f - (zone.roamingFreedom * 0.3f);
-            tacticalTarget.x = (tacticalTarget.x * (1.0f - discipline)) + (idealScreenX * discipline);
-        }
-    }
-    // ==========================================
-    // --- FINAL LAYER: SPATIAL INTELLIGENCE ---
-    // ==========================================
-    sf::Vector2f spatialAdjustments = evaluateShapeAndSpace(npc, tacticalTarget, ballPos, state, team, opposition, teamAI, zone, ball, pitch, spatialGrid);
-
-    tacticalTarget += spatialAdjustments;
-
-    // TOUCHLINE SAFE ZONE
+    // Final Pitch Clamp
     float safeZone = 150.f;
-    float minSafeX = pitch.margin + safeZone;
-    float maxSafeX = pitch.totalWidth - pitch.margin - safeZone;
-    float minSafeY = pitch.margin + safeZone;
-    float maxSafeY = pitch.totalHeight - pitch.margin - safeZone;
-
-    tacticalTarget.x = std::clamp(tacticalTarget.x, minSafeX, maxSafeX);
-    tacticalTarget.y = std::clamp(tacticalTarget.y, minSafeY, maxSafeY);
+    tacticalTarget.x = std::clamp(tacticalTarget.x, pitch.margin + safeZone, pitch.totalWidth - pitch.margin - safeZone);
+    tacticalTarget.y = std::clamp(tacticalTarget.y, pitch.margin + safeZone, pitch.totalHeight - pitch.margin - safeZone);
 
     return tacticalTarget;
 }
 
-bool PositioningAI::evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall) {
+sf::Vector2f PositioningAI::calculateAttackingTarget(NPCPlayer& npc, Ball& ball, sf::Vector2f tacticalTarget, sf::Vector2f ballPos, TeamState state, TacticalZone zone, const Pitch& pitch, const TeamAI& teamAI, float enemyOffsideLineX, float ballProgress) {
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    float pitchCenterY = pitch.totalHeight / 2.0f;
+    float passLengthPref = teamAI.getPassingLengthPref();
+    float attackSpeedPref = teamAI.getAttackingSpeedPref();
+    PositionRole role = npc.getPositionRole();
+    bool isForward = (role == PositionRole::Striker || role == PositionRole::CenterForward || role == PositionRole::LeftWing || role == PositionRole::RightWing);
+    bool isMid = (role == PositionRole::CenterMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::DefensiveMid);
+
+    if (state.subState == TacticalSubState::TimeWasting) {
+        float cornerY = (ballPos.y > pitchCenterY) ? pitch.totalHeight - pitch.margin : pitch.margin;
+        float cornerX = isHomeSide ? pitch.totalWidth - pitch.margin : pitch.margin;
+        tacticalTarget += (sf::Vector2f(cornerX, cornerY) - tacticalTarget) * 0.4f;
+    }
+
+    float depthPush = isHomeSide ? 1.0f : -1.0f;
+    float targetBallX = ballPos.x;
+
+    if (ball.hasOwner() && ball.getOwner()->getPositionRole() == PositionRole::Goalkeeper) {
+        targetBallX += (isHomeSide ? 1 : -1) * (2500.f + (passLengthPref * 2000.f));
+    }
+
+    if ((isForward || role == PositionRole::AttackingMid) && zone.supportDepth > -0.3f) {
+        targetBallX += depthPush * (200.f + (attackSpeedPref * 1000.f) + (passLengthPref * 400.f) + (zone.supportDepth * 600.f));
+    }
+    else if (isMid && zone.supportDepth > -0.3f) {
+        if (role == PositionRole::DefensiveMid) {
+            targetBallX -= depthPush * (600.f + (passLengthPref * 400.f));
+        }
+        else {
+            targetBallX += depthPush * (150.f + (attackSpeedPref * 700.f) + (passLengthPref * 300.f) + (zone.supportDepth * 500.f));
+        }
+    }
+
+    tacticalTarget.x += ((targetBallX - tacticalTarget.x) * zone.ballInfluence * 0.6f);
+
+    float unitExpansion = 0.0f;
+    float pushFactor = (ballProgress - 0.5f) * 2.0f;
+
+    if (state.subState == TacticalSubState::Transition) {
+        unitExpansion = 0.4f + (attackSpeedPref * 0.6f);
+        pushFactor = 1.0f + (attackSpeedPref * 0.5f);
+    }
+    else if (state.subState == TacticalSubState::AllOut) {
+        unitExpansion = 1.2f; pushFactor = 2.0f;
+    }
+    else if (state.subState == TacticalSubState::KeepPossession || state.subState == TacticalSubState::TimeWasting) {
+        unitExpansion = std::clamp((ballProgress - 0.2f) * 0.3f, 0.0f, 0.4f);
+        pushFactor *= 0.3f;
+    }
+    else {
+        if (isForward) unitExpansion = std::clamp((ballProgress - 0.1f) * (0.8f + (attackSpeedPref * 1.8f)), 0.0f, 1.0f);
+        else if (isMid) unitExpansion = std::clamp((ballProgress + 0.10f) * (0.6f + (attackSpeedPref * 1.6f)), 0.15f, 1.0f);
+        else unitExpansion = std::clamp((ballProgress - 0.2f) * (0.4f + (attackSpeedPref * 1.2f)), 0.0f, 0.4f + (teamAI.getPositionalFreedomPref() * 0.3f));
+    }
+
+    unitExpansion = std::clamp(unitExpansion + ((npc.getPlaystyle().behavior.runFrequency - 0.5f) * 0.4f), 0.0f, 1.0f);
+    pushFactor = std::max(0.0f, pushFactor);
+
+    float leashMultiplier = isForward ? 0.5f : (isMid ? 0.3f : 0.15f);
+    tacticalTarget.x += depthPush * (zone.forwardLeash * leashMultiplier * unitExpansion);
+    tacticalTarget.x += depthPush * (zone.supportDepth * 600.f);
+
+    if (state.subState == TacticalSubState::AllOut && !isForward && !isMid) tacticalTarget.x += depthPush * 1200.f;
+
+    tacticalTarget.y += (tacticalTarget.y - pitchCenterY) * (0.25f * pushFactor);
+
+    if (std::abs(zone.widthPreference) > 0.1f) {
+        float dirToTouchline = (tacticalTarget.y > pitchCenterY) ? 1.0f : -1.0f;
+        bool isWidePlayer = (role == PositionRole::LeftWing || role == PositionRole::RightWing || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack);
+        tacticalTarget.y += (dirToTouchline * zone.widthPreference * (isWidePlayer ? 2200.f : 500.f));
+    }
+
+    float idealSupportDist = 350.f + (passLengthPref * 400.f) + (attackSpeedPref * 500.f);
+    if (state.subState == TacticalSubState::KeepPossession) idealSupportDist *= 0.6f;
+
+    float distToBallTarget = PlayerAI::dist(tacticalTarget, ballPos);
+    if (distToBallTarget < idealSupportDist - 150.f) {
+        sf::Vector2f repelDir = PlayerAI::normalize(tacticalTarget - ballPos);
+        repelDir.x *= 0.3f; repelDir.y *= 1.8f;
+        tacticalTarget += PlayerAI::normalize(repelDir) * (idealSupportDist - distToBallTarget) * 0.7f;
+    }
+    else if (distToBallTarget > idealSupportDist + 300.f && !isForward) {
+        tacticalTarget += PlayerAI::normalize(ballPos - tacticalTarget) * (distToBallTarget - idealSupportDist) * passLengthPref * 0.6f;
+    }
+
+    float attackingMaxPush = isHomeSide ? (pitch.totalWidth - pitch.margin) - 800.f : pitch.margin + 800.f;
+    if (isHomeSide && tacticalTarget.x > attackingMaxPush) tacticalTarget.x = attackingMaxPush;
+    else if (!isHomeSide && tacticalTarget.x < attackingMaxPush) tacticalTarget.x = attackingMaxPush;
+
+    if (zone.supportDepth > -0.5f) {
+        float awErr = (1.0f - (npc.getAwareness() / 100.0f)) * 300.f;
+        if (isHomeSide && tacticalTarget.x > enemyOffsideLineX + awErr) tacticalTarget.x = enemyOffsideLineX + awErr - 50.f;
+        else if (!isHomeSide && tacticalTarget.x < enemyOffsideLineX - awErr) tacticalTarget.x = enemyOffsideLineX - awErr + 50.f;
+    }
+
+    // Midfield Pocket Adjustment
+    if (isMid) {
+        float idealDistance = (ballProgress < 0.35f) ? -(500.f + (attackSpeedPref * 900.f) + (passLengthPref * 200.f)) : (600.f + (passLengthPref * 400.f) - (attackSpeedPref * 250.f));
+        if (role == PositionRole::AttackingMid) idealDistance = 150.f - (attackSpeedPref * 100.f);
+        float pocketX = isHomeSide ? (ballPos.x - idealDistance) : (ballPos.x + idealDistance);
+        float pullStrength = 0.4f + (zone.supportDepth * 0.2f) + ((ballProgress < 0.35f) ? 0.3f : 0.0f);
+        tacticalTarget.x = (tacticalTarget.x * (1.0f - pullStrength)) + (pocketX * pullStrength);
+    }
+
+    return tacticalTarget;
+}
+
+sf::Vector2f PositioningAI::calculateDefendingTarget(NPCPlayer& npc, Ball& ball, sf::Vector2f tacticalTarget, sf::Vector2f ballPos, TeamState state, TacticalZone zone, const Pitch& pitch, const std::vector<Player*>& team, const TeamAI& teamAI, float ballProgress, float threatX, float myDefLineX) {
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+    float pitchCenterY = pitch.totalHeight / 2.0f;
+    PositionRole role = npc.getPositionRole();
+    bool isForward = (role == PositionRole::Striker || role == PositionRole::CenterForward || role == PositionRole::LeftWing || role == PositionRole::RightWing);
+    bool isMid = (role == PositionRole::CenterMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid || role == PositionRole::DefensiveMid);
+    bool isDefender = (!isForward && !isMid);
+    float depthPref = teamAI.getDefensiveDepthPref();
+    bool ballIsCentral = std::abs(ballPos.y - pitchCenterY) < 1200.f;
+    float distToBallExact = PlayerAI::dist(npc.getPosition(), ballPos);
+
+    if (role == PositionRole::DefensiveMid && state.subState != TacticalSubState::Transition && state.subState != TacticalSubState::AllOut) {
+        float shieldDist = 700.f + ((1.0f - depthPref) * 400.f);
+        float shieldX = isHomeSide ? myDefLineX + shieldDist : myDefLineX - shieldDist;
+        if (std::abs(ballPos.y - pitchCenterY) < 1400.f && distToBallExact < 3000.f) {
+            tacticalTarget.x = shieldX; tacticalTarget.y = ballPos.y;
+            return tacticalTarget;
+        }
+    }
+
+    float dropIntensity = 1.0f - ballProgress;
+    float dropMultiplier = 0.0f;
+    bool isCounterPressing = false;
+
+    if (state.subState == TacticalSubState::Transition) {
+        if (teamAI.getPressingIntensityPref() > 0.6f && !isDefender && distToBallExact < 1500.f) {
+            isCounterPressing = true; dropIntensity = -1.0f; dropMultiplier = 0.5f + (teamAI.getPressingIntensityPref() * 0.5f);
+        }
+        else {
+            dropIntensity = 1.0f; dropMultiplier = ballIsCentral ? (0.3f - (depthPref * 0.1f)) : (0.8f - (depthPref * 0.4f));
+            if (isMid) tacticalTarget.x += isHomeSide ? -1000.f : 1000.f;
+        }
+    }
+    else if (state.subState == TacticalSubState::AllOut) {
+        dropIntensity = 1.0f; dropMultiplier = 1.0f;
+    }
+    else {
+        if (isDefender) dropMultiplier = 0.40f + (depthPref * 0.35f);
+        else if (isMid) dropMultiplier = 0.45f + (depthPref * 0.35f) + ((role == PositionRole::DefensiveMid) ? 0.15f : 0.f);
+        else dropMultiplier = 0.20f + (depthPref * 0.20f);
+    }
+
+    tacticalTarget += (isHomeSide ? sf::Vector2f(-1.f, 0.f) : sf::Vector2f(1.f, 0.f)) * (zone.backwardLeash * dropMultiplier * dropIntensity);
+
+    if (isDefender) {
+        float buffer = (state.subState == TacticalSubState::AllOut) ? 0.f : 600.f + (depthPref * 800.f);
+        if (state.subState == TacticalSubState::Transition && depthPref > 0.6f) buffer = ballIsCentral ? -600.f : -300.f;
+        if (isHomeSide && tacticalTarget.x < threatX - buffer) tacticalTarget.x = threatX - buffer;
+        else if (!isHomeSide && tacticalTarget.x > threatX + buffer) tacticalTarget.x = threatX + buffer;
+    }
+    else if (isMid) {
+        float midBuffer = (state.subState == TacticalSubState::AllOut) ? 200.f : 800.f;
+        float referenceX = isHomeSide ? std::max(threatX, ballPos.x) : std::min(threatX, ballPos.x);
+        if (!isCounterPressing) {
+            if (isHomeSide && tacticalTarget.x < referenceX + midBuffer) tacticalTarget.x = referenceX + midBuffer;
+            else if (!isHomeSide && tacticalTarget.x > referenceX - midBuffer) tacticalTarget.x = referenceX - midBuffer;
+        }
+    }
+    else if (isForward && !isCounterPressing) {
+        float outletDepth = (state.subState == TacticalSubState::AllOut) ? -1500.f : 400.f + (depthPref * 800.f);
+        float targetX = isHomeSide ? (ballPos.x - outletDepth) : (ballPos.x + outletDepth);
+        float minStrikerDepth = isHomeSide ? (myDefLineX + 2500.f) : (myDefLineX - 2500.f);
+        tacticalTarget.x = isHomeSide ? std::max(targetX, minStrikerDepth) : std::min(targetX, minStrikerDepth);
+    }
+
+    float squeezeFactor = isDefender ? (0.5f + (depthPref * 0.4f)) * dropIntensity : (isMid ? (0.2f + (depthPref * 0.3f)) * dropIntensity : 0.f);
+    if (distToBallExact < 2000.f) squeezeFactor *= 2.1f;
+    if (state.subState == TacticalSubState::Transition) squeezeFactor *= ballIsCentral ? 4.0f : 2.1f;
+    if (state.subState == TacticalSubState::AllOut) squeezeFactor = 0.9f;
+    tacticalTarget.y -= (tacticalTarget.y - pitchCenterY) * squeezeFactor;
+
+    float flankRatio = std::abs(ballPos.y - pitchCenterY) / (pitch.totalHeight / 2.f);
+    float insideOffset = ballIsCentral ? 0.f : ((ballPos.y < pitchCenterY) ? (200.f + flankRatio * 300.f) : -(200.f + flankRatio * 300.f));
+    float desiredYShift = ((ballPos.y + insideOffset) - tacticalTarget.y) * (zone.ballInfluence * 0.85f);
+
+    if (isDefender) {
+        bool ballOnLeft = (ballPos.y < pitchCenterY);
+        bool amIOnLeft = (npc.getHomePosition().y < pitchCenterY);
+        if (ballOnLeft != amIOnLeft && flankRatio > 0.4f) {
+            desiredYShift += (amIOnLeft ? (1200.f * flankRatio) : -(1200.f * flankRatio));
+        }
+    }
+
+    if (isCounterPressing) desiredYShift = (ballPos.y - tacticalTarget.y) * (zone.ballInfluence * 1.5f);
+    tacticalTarget.y += std::clamp(desiredYShift, -(800.f + (depthPref * 400.f)), 800.f + (depthPref * 400.f));
+
+    float engageDist = (ballIsCentral && state.subState == TacticalSubState::Transition) ? 600.f : 300.f;
+    if ((isDefender || isMid) && distToBallExact < engageDist && state.subState != TacticalSubState::AllOut) {
+        bool amIClosestDef = true;
+        Player* closestDefPtr = &npc;
+        float minDefDist = distToBallExact - ((isHomeSide ? (npc.getPosition().x - myDefLineX) : (myDefLineX - npc.getPosition().x)) > 80.f ? 250.f : 0.f);
+
+        for (Player* tm : team) {
+            if (tm == &npc || tm->getPositionRole() == PositionRole::Goalkeeper || tm->isSentOff()) continue;
+            PositionRole tr = tm->getPositionRole();
+            if (tr == PositionRole::CenterBack || tr == PositionRole::LeftBack || tr == PositionRole::RightBack || tr == PositionRole::LeftWingBack || tr == PositionRole::RightWingBack || tr == PositionRole::DefensiveMid || tr == PositionRole::CenterMid) {
+                float tmDist = PlayerAI::dist(tm->getPosition(), ballPos);
+                if (((isHomeSide ? (tm->getPosition().x - myDefLineX) : (myDefLineX - tm->getPosition().x)) > 80.f)) tmDist -= 250.f;
+                if (tmDist < minDefDist) { amIClosestDef = false; minDefDist = tmDist; closestDefPtr = tm; }
+            }
+        }
+
+        if (amIClosestDef) {
+            sf::Vector2f shadedBallPos = ballPos;
+
+            // ==========================================
+            // --- THE FIX 1: KILL THE POLITE SHADE ---
+            // ==========================================
+            // Only maintain a tactical shade if the ball is far away.
+            // If they are within 600px, aim squarely for the ball to block their path!
+            if (distToBallExact > 600.f) {
+                shadedBallPos.y += (ballPos.y < pitchCenterY) ? 80.f : -80.f;
+            }
+            if (std::abs(ballPos.y - pitchCenterY) < 400.f) shadedBallPos.y = ballPos.y;
+
+            float defUrgency = 1.0f;
+            float penaltyBoxX = isHomeSide ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
+            if (std::abs(ballPos.x - penaltyBoxX) < 1200.f) defUrgency = 1.6f;
+            if (state.subState == TacticalSubState::Transition && ballIsCentral) defUrgency = 2.0f;
+
+            // ==========================================
+            // --- THE FIX 2: THE "CRASH" COMMITMENT ---
+            // ==========================================
+            // stopperBite dictates how much of the distance they close. 
+            float stopperBite = isCounterPressing ? 1.0f : std::min(1.0f, (0.25f + (npc.getAggression() / 100.f * 0.35f)) * defUrgency);
+
+            // If the ball carrier enters tackle range, abandon the base shape completely!
+            // Over-commit (1.2x bite) and lead the target's velocity to step IN FRONT of them.
+            if (distToBallExact < 500.f) {
+                stopperBite = 1.2f;
+                shadedBallPos = ballPos + (ball.getVelocity() * 0.15f); // Cut off their run!
+            }
+
+            if (std::abs(tacticalTarget.x - myDefLineX) > 800.f && !isCounterPressing && distToBallExact > 500.f) {
+                stopperBite *= 0.1f;
+            }
+
+            sf::Vector2f biteVector = (shadedBallPos - tacticalTarget) * stopperBite;
+
+            float maxStepOut = ballIsCentral ? 1400.f : 800.f;
+            if (isHomeSide && tacticalTarget.x + biteVector.x > myDefLineX + maxStepOut) biteVector.x = (myDefLineX + maxStepOut) - tacticalTarget.x;
+            else if (!isHomeSide && tacticalTarget.x + biteVector.x < myDefLineX - maxStepOut) biteVector.x = (myDefLineX - maxStepOut) - tacticalTarget.x;
+
+            tacticalTarget += biteVector;
+        }
+        else {
+            float coverDrop = 0.f;
+            if (depthPref > 0.35f) {
+                coverDrop = (depthPref - 0.35f) * 400.f;
+                if (closestDefPtr) coverDrop += std::clamp((std::abs(closestDefPtr->getPosition().x - myDefLineX) - 150.f) * 0.6f, 0.f, (depthPref - 0.35f) * 500.f);
+            }
+            else if (closestDefPtr && std::abs(closestDefPtr->getPosition().x - myDefLineX) > 100.f) {
+                coverDrop = -150.f;
+            }
+            tacticalTarget.x += isHomeSide ? -coverDrop : coverDrop;
+            float pinchStrength = (role == PositionRole::CenterBack) ? 0.65f : 0.35f;
+            if (ballIsCentral && state.subState == TacticalSubState::Transition) pinchStrength *= 2.0f;
+            tacticalTarget.y += ((closestDefPtr->getPosition().y - tacticalTarget.y) * std::clamp(pinchStrength, 0.0f, 0.9f));
+        }
+    }
+
+    float penaltyBoxEdgeX = isHomeSide ? pitch.margin + 1650.f : pitch.totalWidth - pitch.margin - 1650.f;
+    if ((isHomeSide ? (ballPos.x > penaltyBoxEdgeX) : (ballPos.x < penaltyBoxEdgeX)) && !isCounterPressing) {
+        float lineError = (1.0f - (npc.getAwareness() / 100.0f)) * 150.f;
+        if (isDefender) tacticalTarget.x = isHomeSide ? std::max(tacticalTarget.x, penaltyBoxEdgeX - lineError) : std::min(tacticalTarget.x, penaltyBoxEdgeX + lineError);
+        else if (isMid) tacticalTarget.x = isHomeSide ? std::max(tacticalTarget.x, penaltyBoxEdgeX + 600.f) : std::min(tacticalTarget.x, penaltyBoxEdgeX - 600.f);
+    }
+
+    // Midfield Screen Adjustment
+    if (isMid) {
+        float screenDist = (state.subState == TacticalSubState::AllOut) ? 300.f : 1000.f - (depthPref * 300.f);
+        if (state.subState == TacticalSubState::Transition) screenDist *= 0.5f;
+        if (role == PositionRole::DefensiveMid) screenDist = 500.f;
+        else if (role == PositionRole::AttackingMid) screenDist = 1600.f;
+        float discipline = 0.8f - (zone.roamingFreedom * 0.3f);
+        tacticalTarget.x = (tacticalTarget.x * (1.0f - discipline)) + ((isHomeSide ? (myDefLineX + screenDist) : (myDefLineX - screenDist)) * discipline);
+    }
+
+    return tacticalTarget;
+}
+
+// Smaller Functions
+
+bool PositioningAI::evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, float distToTarget, float distToBall, TeamState state) {
     if (npc.getBallPossession()) return true;
 
     float stamRatio = npc.getCurrentStamina() / npc.getMaxStamina();
@@ -756,13 +801,19 @@ bool PositioningAI::evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, flo
     bool isDefender = (role == PositionRole::CenterBack || role == PositionRole::LeftBack || role == PositionRole::RightBack || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack);
     bool isMid = (!isAttacker && !isDefender);
 
-    // ==========================================
-    // --- THE FIX: REMOVED HESITATION TIMER ---
-    // ==========================================
-    // Professional players don't walk when tracking back! (Drastically reduced)
     float hesitationTimer = (100.f - npc.getTacticalFamiliarity()) / 100.f * 1.0f;
+
     if (hesitationTimer > 0.0f && (rand() % 100) < 5) {
         return false;
+    }
+
+    if (state.subState == TacticalSubState::Transition) {
+        return (stamRatio > 0.15f && distToTarget > 150.f);
+    }
+    else if (state.subState == TacticalSubState::KeepPossession || state.subState == TacticalSubState::TimeWasting) {
+        if (urgency != AIUrgency::Critical) {
+            return (stamRatio > 0.5f && distToTarget > 1000.f);
+        }
     }
 
     switch (urgency) {
@@ -779,7 +830,6 @@ bool PositioningAI::evaluateSprintUrgency(NPCPlayer& npc, AIUrgency urgency, flo
 
     case AIUrgency::Recovery:
     default:
-        // Defenders and Midfielders MUST hustle to cover shape
         if (isDefender) {
             return (stamRatio > 0.15f && distToTarget > 150.f);
         }
@@ -800,11 +850,27 @@ sf::Vector2f PositioningAI::calculateInterceptionPoint(NPCPlayer& npc, Ball& bal
     sf::Vector2f npcPos = npc.getPosition();
     sf::Vector2f npcVel = npc.getVelocity();
     float npcSpeedSq = npcVel.x * npcVel.x + npcVel.y * npcVel.y;
-    float turnPenalty = 0.f;
 
+    float stamRatio = npc.getCurrentStamina() / npc.getMaxStamina();
+    float awarenessNorm = npc.getAwareness() / 100.f;
+
+    float speedMultiplier = 0.7f + (0.3f * stamRatio);
+    float absoluteTopSpeed = 450.f + (npc.getTopSpeed() * 4.5f);
+    float avgRunSpeed = absoluteTopSpeed * speedMultiplier;
+
+    bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
+
+    float errorSeverity = isTeammatePass ? 0.0f : std::clamp(0.25f + ((1.0f - awarenessNorm) * 0.70f), 0.f, 1.f);
+    float perceivedGravity = 980.f * (1.0f + (errorSeverity * 0.2f));
+
+    float baseReaction = (1.0f - awarenessNorm) * 0.35f;
+    float reactionDelay = isTeammatePass ? baseReaction : baseReaction + 0.15f + (errorSeverity * 0.15f);
+
+    float turnPenalty = 0.f;
     if (npcSpeedSq > 400.f) {
         sf::Vector2f npcDir = PlayerAI::normalize(npcVel);
-        sf::Vector2f targetDir = PlayerAI::normalize(ballPos - npcPos);
+        sf::Vector2f futureBallRough = ballPos + (ballVel * 0.5f);
+        sf::Vector2f targetDir = PlayerAI::normalize(futureBallRough - npcPos);
         float dot = npcDir.x * targetDir.x + npcDir.y * targetDir.y;
 
         if (dot < 0.4f) {
@@ -813,23 +879,16 @@ sf::Vector2f PositioningAI::calculateInterceptionPoint(NPCPlayer& npc, Ball& bal
         }
     }
 
-    bool isTeammatePass = (!ball.hasOwner() && ball.getLastOwner() && ball.getLastOwner()->getTeam() == npc.getTeam());
-    float awarenessNorm = npc.getAwareness() / 100.f;
-    float errorSeverity = isTeammatePass ? 0.0f : std::clamp(1.0f - awarenessNorm, 0.f, 1.f);
-    float perceivedGravity = 980.f * (1.0f + (errorSeverity * 0.2f));
-
     float dtSim = 0.05f;
     float maxTime = 4.0f;
 
     sf::Vector2f simPos = ballPos;
     sf::Vector2f simVel = ballVel;
     float simZ = ball.z, simVz = ball.vz, simSpin = ball.spin, simBs = ball.bs;
-    float avgRunSpeed = npc.getTopSpeed() * 8.5f + 1.f;
 
     float minX = pitch.margin, maxX = pitch.totalWidth - pitch.margin;
     float minY = pitch.margin, maxY = pitch.totalHeight - pitch.margin;
 
-    // THE FIX 1: Track if the ball is a high pass!
     bool isAerialBall = (ball.z > 160.f || ball.vz > 100.f);
 
     for (float t = 0.f; t < maxTime; t += dtSim) {
@@ -894,7 +953,7 @@ sf::Vector2f PositioningAI::calculateInterceptionPoint(NPCPlayer& npc, Ball& bal
 
         if (simZ <= interceptZ && simVz <= 50.f) {
             float distToSim = PlayerAI::dist(npcPos, simPos);
-            float availableRunTime = t - turnPenalty;
+            float availableRunTime = t - turnPenalty - reactionDelay;
             float maxReach = (availableRunTime > 0.f ? availableRunTime * avgRunSpeed : 0.f) + 60.f;
 
             if (maxReach >= distToSim) {
@@ -903,17 +962,17 @@ sf::Vector2f PositioningAI::calculateInterceptionPoint(NPCPlayer& npc, Ball& bal
                     float errLen = std::sqrt(errDir.x * errDir.x + errDir.y * errDir.y);
                     if (errLen > 0.1f) {
                         float side = (rand() % 2 == 0) ? 1.f : -1.f;
-                        simPos += (errDir / errLen) * side * (errorSeverity * 150.f);
+                        simPos += (errDir / errLen) * side * (errorSeverity * 250.f);
                     }
                 }
                 return simPos;
             }
 
-            // THE FIX 2: THE DROP ZONE OVERRIDE
-            // If the ball is dropping out of the sky, this exact spot IS the drop zone.
-            // We return it immediately so the player sprints here, instead of letting it bounce.
             if (isAerialBall) {
-                return simPos;
+                float timeDeficit = (distToSim / avgRunSpeed) - availableRunTime;
+                if (timeDeficit < 0.4f) {
+                    return simPos;
+                }
             }
         }
         if (simZ == 0.f && speed < 5.f) break;
@@ -943,15 +1002,12 @@ sf::Vector2f PositioningAI::calculateSeparation(NPCPlayer& npc, const std::vecto
         Player* teammateTarget = PlayerAI::findNearestOpponent(teamPos, opponents);
         bool markingSameGuy = (myTarget != nullptr && myTarget == teammateTarget);
 
-        // THE FIX 2: EXTREME ANTI-CRAMPING
-        // Base bubble increased to 800px (8m) if marking same guy, 1400px (14m) otherwise!
         float baseBubble = markingSameGuy ? 800.f : 1400.f;
         float currentBubble = baseBubble * widthMultiplier * freedomMultiplier * movementActivity;
 
         if (distSq < currentBubble * currentBubble && distSq > 0.1f) {
             float d = std::sqrt(distSq);
             float overlap = (currentBubble - d) / currentBubble;
-            // Multiply the final outward push by 2.5 so they violently snap away from each other
             force += (diff / d) * (overlap * overlap) * 2.5f;
         }
     }
@@ -974,15 +1030,11 @@ bool PositioningAI::shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder,
     bool isDefender = (role == PositionRole::CenterBack || role == PositionRole::LeftBack || role == PositionRole::RightBack || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack);
     bool isMid = (!isAttacker && !isDefender);
 
-    // ==========================================
-    // --- THE FIX: DEFENSIVE EMERGENCY OVERRIDE ---
-    // ==========================================
-    // If the ball is loose in our defensive third, EVERY nearby defender chases it, overriding the 'firstResponder' lock!
     bool isDefensiveEmergency = (owner == nullptr && isDefender && inDangerZone && distToBall < 2000.f);
 
     if (&npc != firstResponder && !isDefensiveEmergency) return false;
 
-    if (owner == nullptr) return true; // Loose ball override
+    if (owner == nullptr) return true;
 
     float depthPref = teamAI.getDefensiveDepthPref();
     float pressPref = teamAI.getPressingIntensityPref();
@@ -1035,7 +1087,7 @@ bool PositioningAI::shouldEmergencyChase(NPCPlayer& npc, Player* firstResponder,
     return true;
 }
 
-sf::Vector2f PositioningAI::calculateMarkingPosition(NPCPlayer& npc, Player* threat, sf::Vector2f goalPos, const TacticalZone& zone, const TeamAI& teamAI) {
+sf::Vector2f PositioningAI::calculateMarkingPosition(NPCPlayer& npc, Player* threat, sf::Vector2f goalPos, const TacticalZone& zone, const TeamAI& teamAI, Ball& ball) {
     sf::Vector2f threatPos = threat->getPosition();
     sf::Vector2f threatVel = threat->getVelocity();
     float threatSpeed = std::sqrt(threatVel.x * threatVel.x + threatVel.y * threatVel.y);
@@ -1046,85 +1098,163 @@ sf::Vector2f PositioningAI::calculateMarkingPosition(NPCPlayer& npc, Player* thr
     float pressPref = teamAI.getPressingIntensityPref();
 
     PlayerBehavior behavior = npc.getPlaystyle().behavior;
+    bool isHomeSide = npc.getTeam() == Team::Home;
+    PositionRole myRole = npc.getPositionRole();
+
+    float pitchCenterY = 3500.f;
+    float shadeAmount = 70.f + (awarenessNorm * 60.f);
+
+    bool isFullback = (myRole == PositionRole::LeftBack || myRole == PositionRole::RightBack ||
+        myRole == PositionRole::LeftWingBack || myRole == PositionRole::RightWingBack);
+
+    bool isWideThreat = std::abs(threatPos.y - pitchCenterY) > 1200.f;
+
+    if (isFullback && isWideThreat) {
+        shadeAmount += 150.f;
+    }
+
+    bool rightFooted = (threat->getPreferredFoot() == "Right");
+
+    if (threatPos.y < pitchCenterY && rightFooted) shadeAmount += 80.f;
+    else if (threatPos.y > pitchCenterY && !rightFooted) shadeAmount += 80.f;
+
+    sf::Vector2f insideShade(0.f, (threatPos.y < pitchCenterY) ? shadeAmount : -shadeAmount);
+    if (std::abs(threatPos.y - pitchCenterY) < 500.f) insideShade.y = 0.f;
 
     if (threat->getBallPossession()) {
-        // ==========================================
-        // --- THE FIX 1: TIGHTER JOCKEY BUFFER ---
-        // ==========================================
-        // Shrunk the base buffer from 300px down to 220px.
-        // High aggression/pressing teams will now stand practically on top of the attacker (down to 20px gap!).
-        float jockeyBuffer = 220.f - (aggressionNorm * 80.f) - (pressPref * 100.f) - (behavior.tackleAggression * 80.f);
-        jockeyBuffer = std::max(20.f, jockeyBuffer);
+        float baseBuffer = 250.f - (aggressionNorm * 60.f) - (pressPref * 80.f);
+
+        float paceDifference = threatSpeed - (npc.getTopSpeed() * 5.0f);
+        if (paceDifference > 0.f) {
+            baseBuffer += (paceDifference * 0.5f);
+        }
+
+        baseBuffer = std::max(50.f, baseBuffer);
 
         float dxToGoal = std::abs(npc.getPosition().x - goalPos.x);
         float dyToGoal = std::abs(npc.getPosition().y - goalPos.y);
+
         bool inOwnBox = (dxToGoal < 1650.f && dyToGoal < 2050.f);
+
+        // Identify if we are in the "Danger Zone" outside the box
+        bool inFinalThird = (dxToGoal < 3000.f && dyToGoal < 2500.f);
 
         sf::Vector2f toThreat = threatPos - npc.getPosition();
         float distToThreat = std::sqrt(toThreat.x * toThreat.x + toThreat.y * toThreat.y);
-
         sf::Vector2f threatDir = (threatSpeed > 10.f) ? (threatVel / threatSpeed) : sf::Vector2f(0.f, 0.f);
-        sf::Vector2f npcDir = (distToThreat > 0.1f) ? (toThreat / distToThreat) : sf::Vector2f(0.f, 0.f);
 
-        float approachAngle = (npcDir.x * threatDir.x) + (npcDir.y * threatDir.y);
-        bool isTacklingFromBehind = (approachAngle > 0.4f);
-        bool isCertain = !isTacklingFromBehind && (awarenessNorm > 0.4f);
+        bool isHeavyTouch = false;
+        float ballControlNorm = threat->getBallControl() / 100.f;
+        if (threatSpeed > 600.f && ballControlNorm < 0.7f && (rand() % 100 > 80)) {
+            isHeavyTouch = true;
+        }
 
-        // ==========================================
-        // --- THE FIX 2: AGGRESSIVE BACKPEDAL LIMIT ---
-        // ==========================================
-        float speedThreat = (threatSpeed / 1000.f);
+        bool mustBackpedal = (!inOwnBox && threatSpeed > 500.f && !isHeavyTouch);
 
-        // Reduced the speed penalty from 500px to 300px so defenders don't drop too deep against pace!
-        float dynamicBuffer = jockeyBuffer + (speedThreat * 300.f);
-
-        // Increased the "fear" threshold. They will only backpedal if the attacker is going > 650px/s.
-        if (inOwnBox || !isCertain || threatSpeed > 650.f) {
-            float safeBuffer = inOwnBox ? std::max(80.f, dynamicBuffer) : std::max(60.f, dynamicBuffer);
-
-            // Reduced the look-ahead from 0.5s to 0.3s so the defender stays tighter to the current position.
-            sf::Vector2f predictedThreatPos = threatPos + (threatVel * 0.3f);
-            sf::Vector2f predictedToGoal = PlayerAI::normalize(goalPos - predictedThreatPos);
-
-            return predictedThreatPos + (predictedToGoal * safeBuffer);
+        if (isFullback && isWideThreat) {
+            baseBuffer = 20.f;
+            mustBackpedal = false;
         }
 
         // ==========================================
-        // --- THE FIX 3: THE COMMITMENT TO TACKLE ---
+        // --- THE FIX 1: CENTER BACK BRAVERY ---
         // ==========================================
-        // If we aren't backpedaling, we are stepping in!
-        sf::Vector2f baseDefendPos = threatPos + (toGoal * dynamicBuffer);
+        bool isCenterBack = (myRole == PositionRole::CenterBack);
 
-        // Increased the tackle lead from 0.3 to 0.45. The defender will actively try to intercept the run!
-        sf::Vector2f tacticalTarget = baseDefendPos + (threatVel * 0.45f);
+        // If a CB is in the final third, they stop backpedaling and plant their feet!
+        // Running backward into the box just gives the striker a free shot.
+        if (isCenterBack && inFinalThird && std::abs(threatPos.y - pitchCenterY) < 1200.f) {
+            mustBackpedal = false;
+            baseBuffer *= 0.4f; // Crush the gap down so they are breathing on the striker
+        }
 
-        // Increased the "dive in" radius from 80px to 140px! 
-        // This forces the defender to bite and attempt the tackle much earlier.
-        float tackleRadius = 140.f + ((1.0f - awarenessNorm) * 60.f) + (behavior.tackleAggression * 50.f);
+            if (mustBackpedal) {
+                if (paceDifference > 200.f && aggressionNorm > 0.7f && distToThreat < 200.f) {
+                    if (npc.canTackle()) return threatPos;
+                }
+                sf::Vector2f backpedalVec = threatVel * 0.4f;
+                return threatPos + insideShade + (toGoal * baseBuffer) + backpedalVec;
+            }
 
-        if (PlayerAI::dist(npc.getPosition(), threatPos) < tackleRadius && npc.canTackle()) {
+        sf::Vector2f baseDefendPos = threatPos + insideShade + (toGoal * baseBuffer);
+        sf::Vector2f tacticalTarget = baseDefendPos + (threatVel * 0.35f);
 
-            // If they are strong and aware, they step directly in front of the attacker (Body Check)
-            if (awarenessNorm > 0.5f && (npc.getBodyStrength() / 100.f) > 0.6f) {
+        // ==========================================
+        // --- THE FIX 2: TACKLE AGGRESSION ---
+        // ==========================================
+        // We boost the base tackle radius slightly so defenders lunge in *before* // the attacker is physically clipping into them.
+        float tackleRadius = 180.f + (aggressionNorm * 60.f) + (behavior.tackleAggression * 80.f);
+
+        if (isFullback && isWideThreat) tackleRadius += 60.f;
+        if (isCenterBack) tackleRadius += 40.f; // CBs lunge earlier to block shots
+
+        if ((isHeavyTouch || distToThreat < tackleRadius) && npc.canTackle()) {
+            if (awarenessNorm > 0.6f && (npc.getBodyStrength() / 100.f) > 0.6f) {
                 sf::Vector2f diveDir = (threatSpeed > 10.f) ? threatDir : toGoal;
-                // Cut off the exact vector the attacker is running on
-                return threatPos + (diveDir * 120.f);
+                return threatPos + insideShade + (diveDir * 90.f);
             }
             else {
-                // Otherwise they just lunge straight at the ball
-                return threatPos + (toGoal * (120.f - (aggressionNorm * 40.f)));
+                return threatPos + insideShade + (toGoal * 60.f);
             }
         }
         return tacticalTarget;
     }
     else {
-        // Off-ball marking: Drop off faster players to avoid getting beaten over the top
-        float offBallGap = std::max(350.f - (aggressionNorm * 150.f) - (pressPref * 200.f) - (behavior.tackleAggression * 100.f), 30.f);
+        float offBallGap = std::max(400.f - (aggressionNorm * 150.f) - (pressPref * 200.f), 50.f);
 
-        // Reduced the pace buffer from 0.4 to 0.25 so defenders mark tight to wingers!
-        offBallGap += (threatSpeed * 0.25f);
+        if (threatSpeed > 400.f) {
+            offBallGap += (threatSpeed * 0.4f);
+        }
 
-        return threatPos + (threatVel * (awarenessNorm * 0.4f)) + (toGoal * offBallGap);
+        if (isFullback && isWideThreat) {
+            sf::Vector2f ballPos = ball.getPosition();
+            sf::Vector2f ballVel = ball.getVelocity();
+            float ballSpeed = std::sqrt(ballVel.x * ballVel.x + ballVel.y * ballVel.y);
+
+            bool isBallOnMyFlank = (threatPos.y > pitchCenterY && ballPos.y > pitchCenterY) ||
+                (threatPos.y < pitchCenterY && ballPos.y < pitchCenterY);
+
+            bool incomingPass = false;
+            if (ballSpeed > 400.f) {
+                sf::Vector2f ballToThreat = threatPos - ballPos;
+                float distToThreat = std::sqrt(ballToThreat.x * ballToThreat.x + ballToThreat.y * ballToThreat.y);
+
+                if (distToThreat > 0.1f) {
+                    float dot = ((ballVel.x / ballSpeed) * (ballToThreat.x / distToThreat)) +
+                        ((ballVel.y / ballSpeed) * (ballToThreat.y / distToThreat));
+
+                    if (dot > 0.85f && distToThreat < 2500.f) incomingPass = true;
+                }
+            }
+
+            if (incomingPass) {
+                offBallGap = -100.f;
+            }
+            else if (isBallOnMyFlank) {
+                offBallGap *= 0.1f;
+            }
+            else {
+                offBallGap *= 0.8f;
+            }
+        }
+
+        if (myRole == PositionRole::DefensiveMid) {
+            offBallGap *= 0.5f;
+            if (std::abs(threatPos.y - pitchCenterY) < 1000.f) {
+                offBallGap = std::max(10.f, offBallGap - 150.f);
+                bool runningAtDefense = isHomeSide ? (threatVel.x < -200.f) : (threatVel.x > 200.f);
+                if (runningAtDefense && threatSpeed > 400.f) {
+                    offBallGap = -80.f;
+                }
+            }
+        }
+
+        float frustration = teamAI.getFrustration();
+        if (frustration > 0.0f) {
+            offBallGap = std::max(20.f, offBallGap - (frustration * 350.f));
+        }
+
+        return threatPos + insideShade + (threatVel * (awarenessNorm * 0.3f)) + (toGoal * offBallGap);
     }
 }
 
@@ -1186,7 +1316,7 @@ Player* PositioningAI::identifyTargetReceiver(Ball& ball, const std::vector<Play
 
         ReceiverProfile profile;
         profile.ptr = p;
-        profile.sprintSpeed = p->getTopSpeed() * 8.5f + 1.f;
+        profile.sprintSpeed = 450.f + (p->getTopSpeed() * 4.5f);
 
         sf::Vector2f pVel = p->getVelocity();
         float pSpeedSq = pVel.x * pVel.x + pVel.y * pVel.y;
@@ -1203,7 +1333,7 @@ Player* PositioningAI::identifyTargetReceiver(Ball& ball, const std::vector<Play
             }
         }
 
-        profile.reactionDelay = (100.f - p->getTeamChemistry()) / 100.f * 0.40f;
+        profile.reactionDelay = (100.f - p->getTeamChemistry()) / 100.f * 0.80f;
         activeRunners.push_back(profile);
     }
 
@@ -1324,4 +1454,27 @@ Player* PositioningAI::identifyTargetReceiver(Ball& ball, const std::vector<Play
         }
     }
     return nullptr;
+}
+
+float PositioningAI::getAverageDefensiveLineX(NPCPlayer& npc, const std::vector<Player*>& team) {
+    float avgLineX = 0.f;
+    int lineCount = 0;
+    PositionRole myRole = npc.getPositionRole();
+    bool isForward = (myRole == PositionRole::Striker || myRole == PositionRole::CenterForward || myRole == PositionRole::LeftWing || myRole == PositionRole::RightWing);
+    bool isMid = (myRole == PositionRole::CenterMid || myRole == PositionRole::AttackingMid || myRole == PositionRole::LeftMid || myRole == PositionRole::RightMid || myRole == PositionRole::DefensiveMid);
+    bool isDefender = (!isForward && !isMid);
+
+    for (Player* tm : team) {
+        if (tm->isSentOff() || tm->getPositionRole() == PositionRole::Goalkeeper) continue;
+        PositionRole tmRole = tm->getPositionRole();
+        bool tmIsForward = (tmRole == PositionRole::Striker || tmRole == PositionRole::CenterForward || tmRole == PositionRole::LeftWing || tmRole == PositionRole::RightWing);
+        bool tmIsMid = (tmRole == PositionRole::CenterMid || tmRole == PositionRole::AttackingMid || tmRole == PositionRole::LeftMid || tmRole == PositionRole::RightMid || tmRole == PositionRole::DefensiveMid);
+        bool tmIsDef = (!tmIsForward && !tmIsMid);
+
+        if ((isDefender && tmIsDef) || (isMid && tmIsMid) || (isForward && tmIsForward)) {
+            avgLineX += tm->getPosition().x;
+            lineCount++;
+        }
+    }
+    return (lineCount > 0) ? (avgLineX / lineCount) : npc.getPosition().x;
 }

@@ -123,7 +123,7 @@ void Ball::updateDribbling(float dt)
     if (isRightFoot && currentFrame == 7) {
         isTapFrame = true;
     }
-    else if (!isRightFoot && (currentFrame == 3 || currentFrame == 11)) {
+    else if (currentFrame == 3 || currentFrame == 7 || currentFrame == 11) {
         isTapFrame = true;
     }
 
@@ -137,7 +137,7 @@ void Ball::updateDribbling(float dt)
         // ==========================================
         // If the ball has swung too far wide during a sharp cut, 
         // the foot swing misses completely! 
-        float maxLegReach = 65.f + (bcNorm * 40.f); // 65px to 105px reach
+        float maxLegReach = 55.f + (bcNorm * 40.f); // 65px to 105px reach
         if (m_isFirstTouch) maxLegReach += 30.f; // Lunge allowance
 
         if (dist > maxLegReach) {
@@ -155,10 +155,10 @@ void Ball::updateDribbling(float dt)
             }
 
             float basePush = 14.f + (12.f * errorFactor);
-            float sprintPush = 40.f * speedFactor * (1.0f + errorFactor);
+            float sprintPush = 30.f * speedFactor * (1.0f + errorFactor);
             float dynamicForwardPush = basePush + sprintPush;
 
-            float footSpread = (playerSpeed < 50.f) ? 8.f : 16.f;
+            float footSpread = (playerSpeed < 150.f) ? 8.f : 16.f;
             float sideOffset = isRightFoot ? footSpread : -footSpread;
 
             float turnDot = (m_lastDribbleDir.x * forward.x) + (m_lastDribbleDir.y * forward.y);
@@ -369,9 +369,7 @@ void Ball::draw(sf::RenderWindow& window)
 
 void Ball::possess(Player* player)
 {
-    // Valid possession check
     if (!player) {
-        // If we passed nullptr, we treat it as releasing the ball
         owner = nullptr;
         return;
     }
@@ -386,16 +384,34 @@ void Ball::possess(Player* player)
         owner = player;
         owner->setBallPossession(true);
 
-        if (lastTouch != nullptr && lastTouch->getTeam() == player->getTeam() && lastTouch != player) {
-            passCompletedEvent = true;
+        // ==========================================
+        // --- THE FIX: CLEAN POINTER COMPARISON ---
+        // ==========================================
+        if (lastTouch != nullptr && lastTouch != player) {
+
+            // If it's a teammate...
+            if (lastTouch->getTeam() == player->getTeam()) {
+
+                if (isPassIntent) {
+                    passCompletedEvent = true;
+                    isPassIntent = false; // Consume the intent!
+                }
+
+                assistCandidate = lastTouch;
+            }
+            // If an enemy intercepts or touches it...
+            else {
+                isPassIntent = false; // Intercepted! The pass failed.
+                assistCandidate = nullptr;
+            }
         }
 
         lastTouch = player;
 
         // ==========================================
-                // --- NEW: DYNAMIC RECEIVING FOOT ---
-                // ==========================================
-                // Figure out which side the ball is physically arriving on
+        // --- NEW: DYNAMIC RECEIVING FOOT ---
+        // ==========================================
+        // Figure out which side the ball is physically arriving on
         sf::Vector2f forward = owner->getAimDirection();
         sf::Vector2f lateral = { -forward.y, forward.x };
         sf::Vector2f toBall = shape.getPosition() - owner->getPosition();
@@ -552,7 +568,7 @@ void Ball::applyImpulse(sf::Vector2f force)
 
     // 3. HARD SPEED LIMIT
     float speed = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    float maxBallSpeed = 1300.f;
+    float maxBallSpeed = 800.f;
 
     if (speed > maxBallSpeed)
     {
@@ -577,4 +593,24 @@ sf::Vector2f Ball::reflect(const sf::Vector2f& velocity, const sf::Vector2f& nor
 
     // Apply the perfect reflection formula, then instantly dampen it
     return (velocity - 2.f * dot * normal) * restitution;
+}
+
+void Ball::notifyPlayerSwap(Player* p1, Player* p2) {
+    if (owner == p1) owner = p2;
+    else if (owner == p2) owner = p1;
+
+    if (lastOwner == p1) lastOwner = p2;
+    else if (lastOwner == p2) lastOwner = p1;
+
+    if (lastTouch == p1) lastTouch = p2;
+    else if (lastTouch == p2) lastTouch = p1;
+
+    if (assistCandidate == p1) assistCandidate = p2;
+    else if (assistCandidate == p2) assistCandidate = p1;
+
+    if (lastShooter == p1) lastShooter = p2;
+    else if (lastShooter == p2) lastShooter = p1;
+
+    if (lastShooterAssister == p1) lastShooterAssister = p2;
+    else if (lastShooterAssister == p2) lastShooterAssister = p1;
 }

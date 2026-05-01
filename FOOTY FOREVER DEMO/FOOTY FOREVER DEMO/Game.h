@@ -5,12 +5,14 @@
 #include "LicenseScreen.h"
 #include "SplashScreen.h"
 #include "MainMenu.h"
-#include "Help.h"
 #include "EditorScreen.h" // <-- NEW
 #include "GameDatabase.h"
 #include "MatchDayScreen.h"
 #include "SettingsScreen.h"
 #include "MatchIntroState.h"
+#include "GamemodeSelect.h"
+#include "TournamentSetup.h"
+#include "TournamentHub.h"
 
 enum class
 	GameState
@@ -19,12 +21,14 @@ enum class
 	License,
 	Splash,
 	MainMenu,
-	Help,
-	GamePlay,
 	Editor,
-	MatchDay,
 	Settings,
-	MatchIntro
+	GamemodeSelect,
+	TournamentSetup,
+	TournamentHub,
+	MatchDay,
+	MatchIntro,
+	GamePlay
 };
 
 class Game
@@ -62,11 +66,13 @@ private:
 	LicenseScreen m_licenseScreen;
 	SplashScreen m_splashScreen;
 	MainMenu m_mainMenuScreen;
-	Help m_helpScreen;
+	GamemodeSelect m_gamemodeSelectScreen;
 	EditorScreen m_editorScreen;
 	MatchDayScreen m_matchDayScreen;
 	SettingsState m_settingsScreen;
 	MatchIntroState m_matchIntroScreen;
+	TournamentSetup m_tourSetupScreen;
+	TournamentHub m_tourHubScreen;
 	std::unique_ptr<GamePlay> m_gamingScreen;
 
 	bool m_exitGame; // control exiting game

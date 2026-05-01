@@ -8,6 +8,10 @@
                 {
                     "color": "#FFFFFF",
                     "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#A1A1A1",
+                    "texture_id": "shirt_collar"
                 }
             ],
             "shorts": [
@@ -37,9 +41,10 @@
             "PLY_1068",
             "PLY_1069"
         ],
-        "short_name": "RMFC",
+        "short_name": "RMCF",
         "stadium_name": "Bernabeu",
         "tactics": {
+            "attacking_speed": 79,
             "attacking_width": 75,
             "captain_id": "PLY_1059",
             "defensive_depth": 41,
@@ -47,10 +52,10 @@
             "free_kick_taker_id": "PLY_1069",
             "left_corner_taker_id": "PLY_1065",
             "passing_length": 62,
-            "passing_speed": 82,
+            "passing_speed": 75,
             "penalty_taker_id": "PLY_1069",
-            "positional_freedom": 57,
-            "pressing_intensity": 53,
+            "positional_freedom": 47,
+            "pressing_intensity": 50,
             "right_corner_taker_id": "PLY_1065",
             "starting_xi": {
                 "0": "PLY_1059",
@@ -66,7 +71,7 @@
                 "9": "PLY_1069"
             }
         },
-        "team_chemistry": 84.0,
+        "team_chemistry": 66.0,
         "ui_color": "#FFFFFF"
     }
 }

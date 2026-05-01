@@ -3,6 +3,158 @@
 #include "AimAssist.h"
 #include "MatchStatistics.h"
 
+
+// 1. Receiver Orientation
+static float getReceiverOrientationBonus(Player* target, sf::Vector2f goalPos) {
+    sf::Vector2f targetPos = target->getPosition();
+    sf::Vector2f toGoal = PlayerAI::normalize(goalPos - targetPos);
+    sf::Vector2f facing = PlayerAI::getFacingVec(target->getDirection());
+
+    float alignment = (facing.x * toGoal.x + facing.y * toGoal.y);
+    float agilityNorm = target->getAgility() / 100.f;
+
+    if (alignment > 0.5f) return 2000.f; // Facing goal: ready to attack
+    if (alignment > -0.2f) return 500.f; // Side-on: can turn quickly
+
+    // Facing away from goal. Agile players mitigate this penalty.
+    return -2000.f * (1.0f - agilityNorm);
+}
+
+// 2. Defensive Gravity (The Trap Check)
+static float calculateReceiverPressureTrend(sf::Vector2f aimSpot, float leadTime, const std::vector<Player*>& opposition) {
+    float trapPenalty = 0.f;
+    int closingDefenders = 0;
+
+    for (Player* opp : opposition) {
+        if (opp->getPositionRole() == PositionRole::Goalkeeper || opp->isSentOff()) continue;
+
+        sf::Vector2f oppPos = opp->getPosition();
+        sf::Vector2f oppVel = opp->getVelocity();
+        float oppSpeed = std::sqrt(oppVel.x * oppVel.x + oppVel.y * oppVel.y);
+
+        float distToAim = PlayerAI::dist(oppPos, aimSpot);
+
+        if (distToAim < 1500.f && oppSpeed > 150.f) {
+            sf::Vector2f toAim = PlayerAI::normalize(aimSpot - oppPos);
+            sf::Vector2f oppDir = oppVel / oppSpeed;
+            float closingAlignment = (toAim.x * oppDir.x + toAim.y * oppDir.y);
+
+            // If they are sprinting directly at the landing spot
+            if (closingAlignment > 0.7f) {
+                float arrivalTime = distToAim / oppSpeed;
+                // If they will arrive at the same time or shortly after the ball
+                if (arrivalTime < leadTime + 0.8f) {
+                    closingDefenders++;
+                    trapPenalty += 6000.f * closingAlignment * (1.0f - (distToAim / 1500.f));
+                }
+            }
+        }
+    }
+
+    if (closingDefenders >= 2) trapPenalty *= 2.5f; // Exponential penalty if swarmed
+    return trapPenalty;
+}
+
+// 3. Line Breaker Logic
+static float calculateLineBreakerValue(sf::Vector2f startPos, sf::Vector2f aimSpot, const std::vector<Player*>& opposition, bool isHomeTeam) {
+    float oppDefLineX = 0.f;
+    float oppMidLineX = 0.f;
+    int defCount = 0;
+    int midCount = 0;
+
+    for (Player* opp : opposition) {
+        if (opp->isSentOff()) continue;
+        PositionRole role = opp->getPositionRole();
+        if (role == PositionRole::CenterBack || role == PositionRole::LeftBack || role == PositionRole::RightBack || role == PositionRole::LeftWingBack || role == PositionRole::RightWingBack) {
+            oppDefLineX += opp->getPosition().x;
+            defCount++;
+        }
+        else if (role == PositionRole::CenterMid || role == PositionRole::DefensiveMid || role == PositionRole::AttackingMid || role == PositionRole::LeftMid || role == PositionRole::RightMid) {
+            oppMidLineX += opp->getPosition().x;
+            midCount++;
+        }
+    }
+
+    if (defCount > 0) oppDefLineX /= defCount;
+    if (midCount > 0) oppMidLineX /= midCount;
+
+    float bonus = 0.f;
+    bool crossedMid = isHomeTeam ? (startPos.x < oppMidLineX && aimSpot.x > oppMidLineX) : (startPos.x > oppMidLineX && aimSpot.x < oppMidLineX);
+    bool crossedDef = isHomeTeam ? (startPos.x < oppDefLineX && aimSpot.x > oppDefLineX) : (startPos.x > oppDefLineX && aimSpot.x < oppDefLineX);
+
+    if (crossedMid) bonus += 4000.f;
+    if (crossedDef) bonus += 12000.f; // Massive reward for playing someone in behind
+
+    return bonus;
+}
+
+// 4. Triangulation (Dead End Check)
+static float evaluateTriangulation(Player* target, const std::vector<Player*>& team, const std::vector<Player*>& opposition) {
+    int safeOptions = 0;
+    sf::Vector2f targetPos = target->getPosition();
+
+    for (Player* teammate : team) {
+        if (teammate == target || teammate->isSentOff()) continue;
+        float dist = PlayerAI::dist(targetPos, teammate->getPosition());
+
+        // Are they in safe passing range?
+        if (dist > 400.f && dist < 2000.f) {
+            Player* nearestOpp = PlayerAI::findNearestOpponent(teammate->getPosition(), opposition);
+            float oppDist = nearestOpp ? PlayerAI::dist(teammate->getPosition(), nearestOpp->getPosition()) : 9999.f;
+            if (oppDist > 600.f) {
+                safeOptions++;
+            }
+        }
+    }
+
+    if (safeOptions == 0) return -4000.f; // Passing to a dead end
+    if (safeOptions >= 2) return 3000.f;  // Great flow state
+    return 0.f;
+}
+
+// ==========================================
+// --- NEW: THE NPC KICK DISPATCHER ---
+// ==========================================
+static void dispatchNPCKick(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, float power, float spin, float vz, float backspin, bool isPass, bool isShot, bool isOnTarget, SoundManager& soundManager) 
+{
+
+    int currentFrame = npc.getAnimator().getCurrentFrameIndex();
+    bool usingRight = npc.usingRightFoot();
+    int targetFrame = 7;
+
+    if (!usingRight) {
+        if (currentFrame < 3 || currentFrame > 9) targetFrame = 3;
+        else targetFrame = 11;
+    }
+
+    npc.m_pendingKick.aimDir = aimDir;
+    npc.m_pendingKick.power = power;
+    npc.m_pendingKick.spin = spin;
+    npc.m_pendingKick.vz = vz;
+    npc.m_pendingKick.backspin = backspin;
+    npc.m_pendingKick.targetFrame = targetFrame;
+    npc.m_pendingKick.failsafeTimer = 0.0f;
+
+    // ==========================================
+    // --- THE FIX: STORE DEFERRED INTENT ---
+    // ==========================================
+    npc.m_pendingKick.isPassIntent = isPass;
+    npc.m_pendingKick.isShotIntent = isShot;
+    npc.m_pendingKick.isShotOnTarget = isOnTarget;
+    npc.m_pendingKick.assistCandidate = ball.assistCandidate; // Grab the live assist candidate!
+
+    npc.m_pendingKick.isActive = true;
+
+    npc.setState(PlayerState::Kicking);
+
+    // Force a tiny step forward to drive the running animation
+    sf::Vector2f curVel = npc.getVelocity();
+    float curSpeed = std::sqrt(curVel.x * curVel.x + curVel.y * curVel.y);
+    if (curSpeed < 150.f) {
+        npc.setVelocity(npc.getAimDirection() * 250.f);
+    }
+}
+
 sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, UserPlayer* user, const Pitch& pitch, float dt, MatchState matchstate, const TeamAI& teamAI, SoundManager& soundManager, MatchStatistics& stats)
 {
     sf::Vector2f npcPos = npc.getPosition();
@@ -16,12 +168,63 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
 
     sf::Vector2f facingVec = PlayerAI::getFacingVec(npc.getDirection());
 
-    Player* nearestOpp = PlayerAI::findNearestOpponent(npcPos, opposition);
-    float closestOppDist = nearestOpp ? PlayerAI::dist(npcPos, nearestOpp->getPosition()) : 9999.f;
+    bool isDeepDefender = (npc.getPositionRole() == PositionRole::CenterBack ||
+        npc.getPositionRole() == PositionRole::LeftBack ||
+        npc.getPositionRole() == PositionRole::RightBack ||
+        npc.getPositionRole() == PositionRole::LeftWingBack ||
+        npc.getPositionRole() == PositionRole::RightWingBack ||
+        npc.getPositionRole() == PositionRole::DefensiveMid);
+
+    float pitchHalfX = pitch.totalWidth / 2.f;
+    float noseBleedFactor = 0.0f;
+
+    if (isDeepDefender) {
+        float excursion = isHome ? (npcPos.x - pitchHalfX) : (pitchHalfX - npcPos.x);
+        float tolerance = (npc.getPositionRole() == PositionRole::CenterBack) ? -800.f : 800.f;
+
+        if (excursion > tolerance) {
+            noseBleedFactor = std::clamp((excursion - tolerance) / 2500.f, 0.0f, 1.0f);
+        }
+    }
+
+    Player* gk = nullptr;
+    float distToOutfieldOpp = 9999.f;
+    float deepestOutfieldX = isHome ? 0.f : pitch.totalWidth;
+
+    for (auto* opp : opposition) {
+        if (opp->getPositionRole() == PositionRole::Goalkeeper) {
+            gk = opp;
+        }
+        else {
+            float d = PlayerAI::dist(npcPos, opp->getPosition());
+            if (d < distToOutfieldOpp) distToOutfieldOpp = d;
+
+            if (isHome && opp->getPosition().x > deepestOutfieldX) deepestOutfieldX = opp->getPosition().x;
+            else if (!isHome && opp->getPosition().x < deepestOutfieldX) deepestOutfieldX = opp->getPosition().x;
+        }
+    }
+
+    float distToGk = gk ? PlayerAI::dist(npcPos, gk->getPosition()) : 9999.f;
+
+    bool inAttackingHalf = isHome ? (npcPos.x > pitch.totalWidth / 2.f) : (npcPos.x < pitch.totalWidth / 2.f);
+    bool isCleanThrough = inAttackingHalf && (isHome ? (npcPos.x > deepestOutfieldX - 150.f) : (npcPos.x < deepestOutfieldX + 150.f));
+
+    float closestOppDist = std::min(distToOutfieldOpp, distToGk);
     bool isUnderPressure = (closestOppDist < 600.f);
     bool isCrammed = (closestOppDist < (250.f - (bc * 100.f)));
 
+    // ==========================================
+    // --- THE FIX 1: DEFENSIVE THIRD CONTEXT ---
+    // ==========================================
+    bool inDefensiveThird = isHome ? (npcPos.x < pitch.totalWidth / 3.f) : (npcPos.x > pitch.totalWidth * 0.66f);
+
     PlayerBehavior behavior = npc.getPlaystyle().behavior;
+
+    if (noseBleedFactor > 0.0f) {
+        behavior.dribbleBias *= (1.0f - (noseBleedFactor * 0.8f));
+    }
+
+    TeamState state = teamAI.getCurrentState();
 
     sf::Vector2f npcScale = npc.getSprite().getScale();
     sf::Vector2f feetPos = npcPos;
@@ -51,6 +254,13 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
             bypassShooting = true;
         }
 
+        if (state.subState == TacticalSubState::TimeWasting && distToGoal > 1200.f) {
+            bypassShooting = true;
+        }
+        else if (state.subState == TacticalSubState::AllOut) {
+            behavior.shootBias += 0.3f;
+        }
+
         float maxShotRange = 800.f + (kickPowerNorm * 1400.f) + (behavior.shootBias * 500.f);
 
         if (!bypassShooting && distToGoal < maxShotRange && npc.getKickCooldown() <= 0.0f && matchstate == MatchState::InPlay) {
@@ -65,17 +275,33 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
                     bool isFirstTime = (npc.m_possessionTimer < 0.4f);
                     bool wantsToShoot = false;
 
-                    if (distToGoal < 1500.f) {
-                        wantsToShoot = true;
-                    }
-                    else if (!isFirstTime && behavior.shootBias > 0.4f) {
-                        wantsToShoot = true;
-                    }
+                    if (distToGoal < 1500.f) wantsToShoot = true;
+                    else if (!isFirstTime && behavior.shootBias > 0.4f) wantsToShoot = true;
                     else if (isFirstTime && finishingNorm > 0.8f && behavior.shootBias > 0.7f) {
                         if ((rand() % 100) < 50) wantsToShoot = true;
                     }
 
                     if (isCrammed && distToGoal > 1800.f) wantsToShoot = false;
+
+                    if (wantsToShoot && isCleanThrough) {
+                        if (distToGoal > 1200.f) wantsToShoot = false;
+                        if (distToGk <= 600.f) wantsToShoot = true;
+                    }
+                    else if (wantsToShoot && distToGoal > 500.f) {
+                        if (distToOutfieldOpp > 350.f && distToGk > 600.f && distToGoal > 700.f) {
+                            float composure = (finishingNorm * 0.6f) + (bc * 0.4f);
+                            if ((rand() % 100) / 100.f < composure) {
+                                wantsToShoot = false;
+                            }
+                        }
+
+                        if (distToGk <= 600.f && distToGoal < 2000.f) {
+                            sf::Vector2f toGoal = PlayerAI::normalize(goalPos - npcPos);
+                            if ((facingVec.x * toGoal.x + facingVec.y * toGoal.y) > 0.4f) {
+                                wantsToShoot = true;
+                            }
+                        }
+                    }
 
                     if (wantsToShoot) {
                         sf::Vector2f toGoal = PlayerAI::normalize(goalPos - npcPos);
@@ -93,45 +319,46 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
 
         npc.m_passTimer += dt;
 
-        // ==========================================
-        // --- THE FIX 1: EXPONENTIAL HOG MATH ---
-        // ==========================================
         float passSpeedPref = teamAI.getPassingSpeedPref();
-        // Fast teams expect the ball to move in ~0.15s. Slow teams in ~0.5s.
-        float managerPassDelay = 0.5f - (passSpeedPref * 0.35f);
+
+        // ==========================================
+        // --- THE FIX: PATIENT POSSESSION ---
+        // ==========================================
+        // Increased base delay from 0.3s to 0.8s. 
+        // A team with 100 passing speed (passSpeedPref = 1.0) will now pass every 0.3s.
+        // A team with 0 passing speed (passSpeedPref = 0.0) will hold the ball for 0.8s!
+        float managerPassDelay = 0.8f - (passSpeedPref * 0.5f);
+
+        if (state.subState == TacticalSubState::Transition) managerPassDelay *= 0.4f; // Counter attacks are still fast
+        else if (state.subState == TacticalSubState::KeepPossession) managerPassDelay *= 1.8f; // Heavy time wasting
 
         float playerHogDelay = 0.f;
         if (behavior.dribbleBias > 0.5f) {
-            // High dribble bias players want to hold it. 
-            // Team tactics heavily suppress this UNLESS they are the main superstar (>0.85)
-            float tacticalSuppression = (behavior.dribbleBias > 0.85f) ? 1.2f : std::max(0.1f, 1.0f - passSpeedPref);
+            playerHogDelay = (behavior.dribbleBias - 0.5f) * 1.5f; // Selfish dribblers hold it even longer!
+        }
 
-            // Using std::pow creates an exponential curve. A 0.6 bias player only gets ~0.2s extra delay.
-            // A 0.95 bias player gets a massive ~1.2s extra delay.
-            playerHogDelay = std::pow(behavior.dribbleBias, 3.f) * 3.5f * tacticalSuppression;
-        }
-        else {
-            // Unselfish players actively scan for passes instantly
-            playerHogDelay = -0.2f;
-        }
+        if (state.subState == TacticalSubState::TimeWasting) playerHogDelay += 2.5f;
 
         float actualPassDelay = std::max(0.05f, managerPassDelay + playerHogDelay);
+
+        if (noseBleedFactor > 0.0f) {
+            actualPassDelay *= (1.0f - noseBleedFactor);
+        }
 
         bool isMid = (npc.getPositionRole() == PositionRole::CenterMid ||
             npc.getPositionRole() == PositionRole::DefensiveMid ||
             npc.getPositionRole() == PositionRole::AttackingMid);
 
         if (isMid && isUnderPressure) {
-            if (awareness > 0.7f || behavior.dribbleBias < 0.4f) {
-                actualPassDelay = 0.0f;
-            }
+            if (awareness > 0.7f || behavior.dribbleBias < 0.4f) actualPassDelay = 0.0f; // Elite mids will one-touch out of trouble
         }
 
-        if (isUnderPressure) actualPassDelay *= 0.3f;
+        if (isUnderPressure) actualPassDelay *= 0.4f; // Slight panic reduction
         if (isDeadAngle && awareness > 0.65f) actualPassDelay = 0.0f;
 
         if (npc.getKickCooldown() <= 0.0f && npc.m_passTimer > actualPassDelay) {
             Player* bestTarget = PossessionAI::findBestPassOption(npc, teammates, opposition, user, teamAI, pitch);
+            bool passExecuted = false;
 
             if (bestTarget) {
                 sf::Vector2f toTarget = PlayerAI::normalize(bestTarget->getPosition() - npcPos);
@@ -142,26 +369,19 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
                 float bodyStrengthNorm = npc.getBodyStrength() / 100.f;
 
                 bool vetoPassToTurn = (isBackwardPass && isFirstTime && !isUnderPressure && behavior.dribbleBias > 0.4f);
-
-                bool vetoPassToHoldUp = false;
-                if (isCrammed && bodyStrengthNorm > 0.75f && npc.m_possessionTimer < 1.5f) {
-                    vetoPassToHoldUp = true;
-                }
-
-                // ==========================================
-                // --- THE FIX 2: VETO RESTRICTION ---
-                // ==========================================
+                bool vetoPassToHoldUp = (isCrammed && bodyStrengthNorm > 0.75f && npc.m_possessionTimer < 1.5f);
                 bool vetoPassToDribble = false;
 
-                // You must be an elite dribbler AND the manager must prefer slow build-up
-                float requiredDribbleBias = 0.75f + (passSpeedPref * 0.20f);
-
-                if ((behavior.dribbleBias > requiredDribbleBias && dribbleSkill > 0.85f) && !isCrammed) {
-                    if (closestOppDist > 800.f) {
+                if (state.subState == TacticalSubState::TimeWasting && closestOppDist > 400.f) {
+                    vetoPassToDribble = true;
+                }
+                else if (state.subState == TacticalSubState::Transition && isBackwardPass && closestOppDist > 400.f) {
+                    vetoPassToDribble = true;
+                }
+                else if (behavior.dribbleBias > 0.85f && dribbleSkill > 0.85f && !isCrammed) {
+                    if (closestOppDist > 1200.f) {
                         float forwardAlignment = isHome ? facingVec.x : -facingVec.x;
                         bool isPassForward = isHome ? (bestTarget->getPosition().x > npcPos.x + 300.f) : (bestTarget->getPosition().x < npcPos.x - 300.f);
-
-                        // ONLY ignore the pass if we are running straight at goal and the pass is backward
                         if (forwardAlignment > 0.6f && !isPassForward) {
                             vetoPassToDribble = true;
                         }
@@ -169,30 +389,93 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, Ball& ball, const st
                 }
 
                 if (!vetoPassToTurn && !vetoPassToHoldUp && !vetoPassToDribble) {
-
-                    if (alignment < 0.3f) {
+                    if (alignment < 0.1f) {
                         return toTarget * 0.8f;
                     }
 
                     Player* tOpp = PlayerAI::findNearestOpponent(bestTarget->getPosition(), opposition);
                     float targetOppDist = tOpp ? PlayerAI::dist(bestTarget->getPosition(), tOpp->getPosition()) : 9999.f;
+                    float maxHoldTime = 1.5f + (behavior.dribbleBias * 3.0f) + (dribbleSkill * 2.0f);
 
-                    float maxHoldTime = 1.0f + (behavior.dribbleBias * 2.0f) + (dribbleSkill * 1.5f); // Reduced max hold time
+                    bool forcedByTimer = (!isCleanThrough && npc.m_possessionTimer > maxHoldTime);
 
                     if (isCrammed || (isUnderPressure && targetOppDist > closestOppDist + 200.f) ||
                         (isUnderPressure && passingSkill > dribbleSkill * 1.2f) ||
-                        teamAI.getPassingSpeedPref() > 0.6f || behavior.dribbleBias < 0.35f ||
-                        isDeadAngle || npc.m_possessionTimer > maxHoldTime)
+                        teamAI.getPassingSpeedPref() > 0.7f || behavior.dribbleBias < 0.3f ||
+                        isDeadAngle || forcedByTimer || noseBleedFactor > 0.5f)
                     {
-                        executePass(npc, ball, bestTarget, opposition, pitch, soundManager, stats);
+                        executePass(npc, ball, bestTarget, opposition, pitch, soundManager, stats, teamAI);
+                        passExecuted = true;
                         return { 0.f, 0.f };
                     }
                 }
+            }
+
+            // ==========================================
+            // --- THE FIX 2: THE PANIC CLEARANCE ---
+            // ==========================================
+            // If we found no safe pass (or it was vetoed) AND we are crammed in our defensive third... BOOM IT.
+            if (!passExecuted && inDefensiveThird && isCrammed) {
+
+                // 1. Calculate the Center of Mass of upfield teammates to aim generally towards safety
+                sf::Vector2f clearAim = isHome ? sf::Vector2f(pitch.totalWidth * 0.7f, pitch.totalHeight / 2.f)
+                    : sf::Vector2f(pitch.totalWidth * 0.3f, pitch.totalHeight / 2.f);
+                int upfieldCount = 0;
+                sf::Vector2f centerOfMass(0.f, 0.f);
+
+                for (Player* tm : teammates) {
+                    if (tm == &npc || tm->isSentOff() || tm->getPositionRole() == PositionRole::Goalkeeper) continue;
+
+                    bool isUpfield = isHome ? (tm->getPosition().x > npcPos.x + 800.f) : (tm->getPosition().x < npcPos.x - 800.f);
+                    if (isUpfield) {
+                        centerOfMass += tm->getPosition();
+                        upfieldCount++;
+                    }
+                }
+
+                if (upfieldCount > 0) clearAim = centerOfMass / static_cast<float>(upfieldCount);
+
+                sf::Vector2f clearDir = PlayerAI::normalize(clearAim - npcPos);
+
+                // 2. The "Step to the Side": Evade the immediate presser physically in the kick trajectory
+                Player* nearestOpp = PlayerAI::findNearestOpponent(npcPos, opposition);
+                if (nearestOpp) {
+                    sf::Vector2f toOpp = nearestOpp->getPosition() - npcPos;
+                    if (PlayerAI::dist(npcPos, nearestOpp->getPosition()) < 300.f) {
+                        float dot = clearDir.x * toOpp.x + clearDir.y * toOpp.y;
+                        if (dot > -0.5f) {
+                            // The opponent is directly in the clearance path. Bend the kick perpendicularly away!
+                            sf::Vector2f evadeDir(-toOpp.y, toOpp.x);
+
+                            // Ensure the evasion steps *forward*, not backward into our own goal
+                            if ((evadeDir.x > 0.f) != isHome) evadeDir = -evadeDir;
+
+                            clearDir = PlayerAI::normalize(clearDir + (evadeDir * 1.5f));
+                        }
+                    }
+                }
+
+                // 3. Hoof it
+                float clearPower = npc.getKickPower() * 0.55f;
+                float clearVz = 750.f; // High lofted ball
+                float clearSpin = ((rand() % 100) / 100.f - 0.5f) * 10.f; // Chaotic spin
+
+                stats.recordPassAttempt(npc.getTeam());
+                ball.shoot(clearDir, clearPower, clearSpin, clearVz, 30.f);
+
+                float kickVol = std::clamp(0.0f + (clearPower / 100.f) * 40.f, 10.f, 100.f);
+                soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+
+                npc.resetKickCooldown();
+                return { 0.f, 0.f };
             }
         }
     }
 
     if (matchstate == MatchState::InPlay) {
+        if (noseBleedFactor > 0.3f && (rand() % 100) < (noseBleedFactor * 40.f)) {
+            return { 0.f, 0.f };
+        }
         return calculateDribbleDirection(npc, goalPos, opposition, pitch, teamAI);
     }
     return { 0.f, 0.f };
@@ -204,8 +487,34 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
     sf::Vector2f npcPos = npc.getPosition();
     bool isHome = (npc.getTeam() == Team::Home);
 
+    bool isDeepDefender = (npc.getPositionRole() == PositionRole::CenterBack ||
+        npc.getPositionRole() == PositionRole::LeftBack ||
+        npc.getPositionRole() == PositionRole::RightBack ||
+        npc.getPositionRole() == PositionRole::LeftWingBack ||
+        npc.getPositionRole() == PositionRole::RightWingBack ||
+        npc.getPositionRole() == PositionRole::DefensiveMid);
+
+    float pitchHalfX = pitch.totalWidth / 2.f;
+    float noseBleedFactor = 0.0f;
+    if (isDeepDefender) {
+        float excursion = isHome ? (npcPos.x - pitchHalfX) : (pitchHalfX - npcPos.x);
+        float tolerance = (npc.getPositionRole() == PositionRole::CenterBack) ? -800.f : 800.f;
+        if (excursion > tolerance) {
+            noseBleedFactor = std::clamp((excursion - tolerance) / 2500.f, 0.0f, 1.0f);
+        }
+    }
+
+    TeamState state = teamAI.getCurrentState();
+
     bool inOwnDeepBox = isHome ? (npcPos.x < 2500.f) : (npcPos.x > 7500.f);
+
+    // ==========================================
+    // --- THE FIX 3: DEFENSIVE THIRD PARANOIA ---
+    // ==========================================
+    bool inDefensiveThird = isHome ? (npcPos.x < pitch.totalWidth / 3.f) : (npcPos.x > pitch.totalWidth * 0.66f);
+
     bool inEnemyBox = isHome ? (npcPos.x > pitch.totalWidth - pitch.margin - 1650.f) : (npcPos.x < pitch.margin + 1650.f);
+    sf::Vector2f goalPos = isHome ? sf::Vector2f(pitch.totalWidth - pitch.margin, 3500.f) : sf::Vector2f(pitch.margin, 3500.f);
 
     float shortPassNorm = npc.getShortPassing() / 100.f;
     float longPassNorm = npc.getLongPassing() / 100.f;
@@ -214,7 +523,8 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
 
     float tikiTakaPref = 1.0f - teamAI.getPassingLengthPref();
     float routeOnePref = teamAI.getPassingLengthPref();
-    float counterSpeed = teamAI.getPassingSpeedPref();
+    float passSpeedPref = teamAI.getPassingSpeedPref();
+    float attackSpeedPref = teamAI.getAttackingSpeedPref();
 
     float deepestX = isHome ? 0.f : pitch.totalWidth;
     float secondDeepestX = deepestX;
@@ -235,7 +545,7 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
     float offsideLineX = isHome ? std::max(halfwayX, std::max(secondDeepestX, npcPos.x)) : std::min(halfwayX, std::min(secondDeepestX, npcPos.x));
 
     PlayerBehavior behavior = npc.getPlaystyle().behavior;
-    float riskMultiplier = (behavior.passRiskBias - 0.5f) * 2.0f;
+    float riskMultiplier = (behavior.passRiskBias - 0.5f) * 1.5f;
 
     Player* closestPresser = PlayerAI::findNearestOpponent(npcPos, opposition);
     float presserDist = closestPresser ? PlayerAI::dist(npcPos, closestPresser->getPosition()) : 9999.f;
@@ -302,16 +612,29 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
 
         sf::Vector2f passDir = PlayerAI::normalize(aimSpot - npcPos);
         float forwardProgress = isHome ? (aimSpot.x - npcPos.x) : (npcPos.x - aimSpot.x);
+        float score = 500.f;
 
-        // Base score normalized
-        float score = 600.f;
+        if (state.subState == TacticalSubState::TimeWasting) {
+            if (forwardProgress > 300.f) score -= 15000.f;
+            if (forwardProgress < -300.f) score += 5000.f;
+            if (goHigh) score -= 10000.f;
+        }
+        else if (state.subState == TacticalSubState::Transition) {
+            if (forwardProgress > 800.f && !goHigh) score += (4000.f + (attackSpeedPref * 6000.f)) * visionNorm;
+            if (forwardProgress < 0.f) score -= (1000.f + (attackSpeedPref * 3000.f));
+        }
+        else if (state.subState == TacticalSubState::AllOut) {
+            bool targetInBox = isHome ? (aimSpot.x > 8350.f) : (aimSpot.x < 1650.f);
+            if (targetInBox) score += 15000.f;
+            if (forwardProgress < 0.f) score -= 5000.f;
+        }
 
         bool isOffside = isHome ? (aimSpot.x > offsideLineX) : (aimSpot.x < offsideLineX);
-        if (isOffside) score -= 10000.f * visionNorm; // Hard Veto
+        if (isOffside) score -= 20000.f;
 
         if (target->getPositionRole() == PositionRole::Goalkeeper) {
             bool deepInOwnHalf = isHome ? (npcPos.x < 3500.f) : (npcPos.x > 6500.f);
-            if (!deepInOwnHalf) score -= 10000.f; // Hard Veto
+            if (!deepInOwnHalf) score -= 20000.f;
         }
 
         bool isRightFooted = (npc.getPreferredFoot() == "Right");
@@ -319,71 +642,147 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
         float cross = (facing.x * passDir.y - facing.y * passDir.x);
         bool requiresWeakFoot = (isRightFooted && cross < 0) || (!isRightFooted && cross > 0);
 
-        if (requiresWeakFoot) score -= (5.0f - npc.getWeakFootAccuracy()) * 100.f;
+        if (requiresWeakFoot) score -= (5.0f - npc.getWeakFootAccuracy()) * 50.f;
 
         float bodyAlignment = PlayerAI::dot(facing, passDir);
-        if (bodyAlignment < -0.2f) score -= 1000.f;
+        if (bodyAlignment < -0.2f) score -= 500.f;
 
         bool directLaneBlocked = false;
         bool canCurlAround = false;
+        float worstEffectiveMarkerDist = 9999.f;
+
+        sf::Vector2f passVector = aimSpot - npcPos;
+        float passLengthSq = (passVector.x * passVector.x) + (passVector.y * passVector.y);
 
         for (auto* opp : opposition) {
-            float dOpp = PlayerAI::dist(npcPos, opp->getPosition());
-            if (dOpp < exactDist && dOpp > 100.f) {
-                sf::Vector2f toOpp = opp->getPosition() - npcPos;
-                float alignment = (passDir.x * (toOpp.x / dOpp) + passDir.y * (toOpp.y / dOpp));
+            sf::Vector2f oppPos = opp->getPosition();
 
-                if (alignment > 0.92f) {
+            if (passLengthSq > 0.001f) {
+                sf::Vector2f toOpp = oppPos - npcPos;
+                float t = std::clamp((toOpp.x * passVector.x + toOpp.y * passVector.y) / passLengthSq, 0.0f, 1.0f);
+                sf::Vector2f closestPointOnLine = npcPos + (passVector * t);
+                float orthoDist = PlayerAI::dist(oppPos, closestPointOnLine);
+
+                if (orthoDist < 300.f && t > 0.05f && t < 0.95f) {
                     directLaneBlocked = true;
-                    if (alignment < 0.98f && curlNorm > 0.5f && forwardProgress > -300.f) {
+                    if (orthoDist > 150.f && curlNorm > 0.5f && forwardProgress > -300.f) {
                         canCurlAround = true;
                     }
+                }
+            }
+
+            float rawDistToTarget = PlayerAI::dist(aimSpot, oppPos);
+            if (rawDistToTarget < 1200.f) {
+                float defenderClosingDistance = 850.f * leadTime;
+                float effectiveDist = rawDistToTarget - defenderClosingDistance;
+
+                sf::Vector2f toOppFromTarget = oppPos - aimSpot;
+                sf::Vector2f toOppNorm = (rawDistToTarget > 0.1f) ? (toOppFromTarget / rawDistToTarget) : sf::Vector2f(0.f, 0.f);
+                float passDotOpp = (passDir.x * toOppNorm.x + passDir.y * toOppNorm.y);
+
+                if (!goHigh) {
+                    if (passDotOpp < -0.3f) {
+                        effectiveDist -= 300.f;
+                    }
+                    else if (passDotOpp > 0.3f) {
+                        float bodyStrengthNorm = target->getBodyStrength() / 100.f;
+                        effectiveDist += 150.f + (bodyStrengthNorm * 250.f);
+                    }
+                }
+
+                if (effectiveDist < worstEffectiveMarkerDist) {
+                    worstEffectiveMarkerDist = effectiveDist;
                 }
             }
         }
 
         bool wantHigh = (goHigh || (directLaneBlocked && !canCurlAround));
-
         if (forwardProgress < -200.f) wantHigh = false;
 
-        // Veto blocked paths reliably without overflowing the float scale
-        if (directLaneBlocked && !wantHigh && !canCurlAround) {
-            score -= 10000.f;
-        }
+        if (directLaneBlocked && !wantHigh && !canCurlAround) score -= 10000.f;
+        if (wantHigh && exactDist < 1500.f) score -= 2500.f;
 
-        if (wantHigh && exactDist < 1500.f) score -= 2000.f;
+        float effectiveMarkerDist = worstEffectiveMarkerDist;
 
-        Player* marker = PlayerAI::findNearestOpponent(aimSpot, opposition);
-        float rawDistToMarker = marker ? PlayerAI::dist(aimSpot, marker->getPosition()) : 9999.f;
-        float defenderClosingDistance = 850.f * leadTime;
-        float effectiveMarkerDist = rawDistToMarker - defenderClosingDistance;
+        // ==========================================
+        // --- THE FIX 3: DEFENSIVE PARANOIA SCORING ---
+        // ==========================================
+        if (inDefensiveThird) {
+            // Absolute Zero Tolerance for risk in our own third
+            if (effectiveMarkerDist < 200.f) score -= 8000.f; // Excludes virtually all covered targets
+            else if (effectiveMarkerDist < 400.f) score -= 500.f;
 
-        // Squished Contested Penalties
-        if (effectiveMarkerDist < 250.f) {
-            score -= 4000.f * visionNorm;
-        }
-        else if (effectiveMarkerDist < 500.f) {
-            score -= 1500.f * visionNorm;
-        }
+            // THE FIX 4: REWARDING THE WIDE OUTLET
+            PositionRole targetRole = target->getPositionRole();
+            bool isTargetFB = (targetRole == PositionRole::LeftBack || targetRole == PositionRole::RightBack ||
+                targetRole == PositionRole::LeftWingBack || targetRole == PositionRole::RightWingBack);
 
-        // Squished Safe Pass Supremacy
-        if (effectiveMarkerDist > 800.f && !directLaneBlocked && !isOffside && !inEnemyBox) {
-            score += 2000.f * visionNorm;
-
-            // Tiki-Taka dream is now a solid +3000, putting it reliably at the top without being infinite
-            if (exactDist < 1800.f && !goHigh) {
-                score += 3000.f * visionNorm * shortPassNorm * (1.0f + tikiTakaPref);
+            // If it's a fullback hugging the touchline (within 12m / 1200px of the edge)
+            if (isTargetFB) {
+                if (targetPos.y < pitch.margin + 1200.f || targetPos.y > pitch.totalHeight - pitch.margin - 1200.f) {
+                    // Massive safety bonus to cycle the ball wide
+                    score += 3000.f * shortPassNorm;
+                }
             }
         }
+        else {
+            // Normal field logic
+            if (effectiveMarkerDist < 250.f) score -= 3500.f * visionNorm;
+            else if (effectiveMarkerDist < 500.f) score -= 1500.f * visionNorm;
+        }
+
+        if (effectiveMarkerDist > 800.f && !directLaneBlocked && !isOffside && !inEnemyBox) {
+            score += 1500.f * visionNorm;
+            if (exactDist < 1800.f && !goHigh) {
+                score += 2500.f * visionNorm * shortPassNorm * (1.0f + tikiTakaPref);
+            }
+        }
+
+        if (exactDist < 150.f) {
+            score -= 20000.f;
+        }
+        else if (exactDist < 800.f && !goHigh && !directLaneBlocked && !isOffside) {
+            if ((isCrammed || presserDist < 500.f) && effectiveMarkerDist > presserDist + 100.f) {
+                score += 6000.f * shortPassNorm;
+            }
+            else if (effectiveMarkerDist > 400.f) {
+                score += 2500.f * passSpeedPref * shortPassNorm;
+            }
+        }
+
+        float lineBreakBonus = calculateLineBreakerValue(npcPos, aimSpot, opposition, isHome);
+        score += lineBreakBonus * visionNorm * (0.2f + (attackSpeedPref * 0.8f));
+
+        float spacePassProgress = isHome ? (aimSpot.x - targetPos.x) : (targetPos.x - aimSpot.x);
+        bool inMiddlePark = (npcPos.x > (pitch.totalWidth * 0.33f) && npcPos.x < (pitch.totalWidth * 0.66f));
+
+        if (spacePassProgress > 300.f && !goHigh) {
+            if (inMiddlePark && effectiveMarkerDist < 1200.f) {
+                score -= spacePassProgress * 5.0f;
+            }
+            else if (effectiveMarkerDist > 500.f) {
+                score += spacePassProgress * 3.0f * visionNorm * attackSpeedPref;
+            }
+        }
+        else if (inMiddlePark && std::abs(spacePassProgress) < 150.f) {
+            score += 2000.f * visionNorm;
+        }
+
+        float trapPenalty = calculateReceiverPressureTrend(aimSpot, leadTime, opposition);
+        score -= trapPenalty * visionNorm;
+
+        float triangulationScore = evaluateTriangulation(target, team, opposition);
+        score += triangulationScore * visionNorm;
+
+        float orientationBonus = getReceiverOrientationBonus(target, goalPos);
+        score += orientationBonus * visionNorm;
 
         bool isPasserCB = (npc.getPositionRole() == PositionRole::CenterBack);
         float pitchThirdX = isHome ? (pitch.totalWidth / 3.f) : (pitch.totalWidth * 0.66f);
         bool outOfPosition = isHome ? (npcPos.x > pitchThirdX) : (npcPos.x < pitchThirdX);
 
         if (isPasserCB && outOfPosition) {
-            if (effectiveMarkerDist > 800.f && forwardProgress > -200.f && !goHigh) {
-                score += 1500.f * visionNorm;
-            }
+            if (effectiveMarkerDist > 800.f && forwardProgress > -200.f && !goHigh) score += 1500.f * visionNorm;
             if (goHigh || forwardProgress > 2500.f) score -= 3000.f;
         }
 
@@ -396,31 +795,23 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
             bool isTargetCB = (targetRole == PositionRole::CenterBack);
             bool isTargetGK = (targetRole == PositionRole::Goalkeeper);
 
-            if (isTargetMid && effectiveMarkerDist > 800.f && !goHigh) {
-                score += 2000.f * visionNorm;
-            }
-            else if (isTargetFB && effectiveMarkerDist > 600.f) {
-                score += 1200.f * visionNorm;
-            }
+            if (isTargetMid && effectiveMarkerDist > 800.f && !goHigh) score += 2000.f * visionNorm;
+            else if (isTargetFB && effectiveMarkerDist > 600.f) score += 1200.f * visionNorm;
             else if (isTargetCB || isTargetGK) {
-                if (effectiveMarkerDist < 1000.f) {
-                    score -= 4000.f;
-                }
-                else {
-                    score -= 500.f;
-                }
+                if (effectiveMarkerDist < 1000.f) score -= 4000.f;
+                else score -= 500.f;
             }
         }
 
         float timeScaleNorm = std::clamp(npc.getMatchTimeScale() / 10.0f, 0.2f, 3.0f);
 
         if (riskMultiplier > 0.0f) {
-            score += forwardProgress * (0.3f + (counterSpeed * 0.4f) + (riskMultiplier * 1.5f)) * timeScaleNorm;
+            score += forwardProgress * (0.1f + (attackSpeedPref * 0.8f) + (riskMultiplier * 1.0f)) * timeScaleNorm;
         }
         else {
             score += std::abs(forwardProgress) * (riskMultiplier * 0.5f);
             score += (1000.f - exactDist) * std::abs(riskMultiplier * 0.8f);
-            if (forwardProgress > 0.f) score += forwardProgress * 0.3f * timeScaleNorm;
+            if (forwardProgress > 0.f) score += forwardProgress * (0.1f + (attackSpeedPref * 0.3f)) * timeScaleNorm;
         }
 
         if (exactDist < 1200.f) score += (tikiTakaPref * 800.f) * shortPassNorm;
@@ -449,12 +840,8 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
             float pitchMidY = pitch.totalHeight / 2.f;
             if ((npcPos.y > pitchMidY) != (aimSpot.y > pitchMidY)) {
                 if (std::abs(npcPos.y - aimSpot.y) > 2500.f && (goHigh || !directLaneBlocked)) {
-                    if (effectiveMarkerDist > 1000.f) {
-                        score += 1500.f * visionNorm * longPassNorm;
-                    }
-                    else {
-                        score -= 3000.f;
-                    }
+                    if (effectiveMarkerDist > 1000.f) score += 1500.f * visionNorm * longPassNorm;
+                    else score -= 3000.f;
                 }
             }
         }
@@ -474,31 +861,99 @@ Player* PossessionAI::findBestPassOption(NPCPlayer& npc, const std::vector<Playe
             else if (forwardProgress > 1500.f) score += 1500.f;
         }
 
+        float penUrgency = teamAI.getPenetrationUrgency();
+        if (penUrgency > 0.0f) {
+            if (forwardProgress > 400.f && !goHigh) {
+                score += (forwardProgress * penUrgency * 4.0f) * visionNorm;
+            }
+            if (forwardProgress < -200.f) {
+                score -= (std::abs(forwardProgress) * penUrgency * 6.0f);
+            }
+            if (lineBreakBonus > 0.f) {
+                score += (lineBreakBonus * penUrgency * 2.0f);
+            }
+        }
+
         if (score > bestScore) {
             bestScore = score;
             bestOption = target;
         }
     }
 
-    // Normalized acceptable floor:
-    // If Crammed: -2500 (Accept slightly bad passes just to clear it)
-    // General: -1000 (Takes standard safe passes easily, rejects heavily blocked passes)
-    // Enemy Box: 500 (More critical, holds up for a cutback)
-    float minimumAcceptableScore = -1000.f;
-    if (isCrammed) minimumAcceptableScore = -2500.f;
-    if (inEnemyBox) minimumAcceptableScore = 500.f;
+    float pickiness = 1.0f - passSpeedPref;
+    float minimumAcceptableScore = 1200.f + (pickiness * 3000.f);
+
+    float penUrgency = teamAI.getPenetrationUrgency();
+    if (penUrgency > 0.0f) {
+        minimumAcceptableScore -= (penUrgency * 2500.f);
+    }
+
+    if (noseBleedFactor > 0.0f) {
+        minimumAcceptableScore -= (noseBleedFactor * 4000.f);
+    }
+
+    if (state.subState == TacticalSubState::TimeWasting) {
+        minimumAcceptableScore = 4500.f;
+    }
+    else if (state.subState == TacticalSubState::KeepPossession) {
+        minimumAcceptableScore = std::max(minimumAcceptableScore, 2500.f);
+    }
+    else if (state.subState == TacticalSubState::AllOut) {
+        minimumAcceptableScore = -8000.f;
+    }
+    else if (isCrammed) {
+        minimumAcceptableScore = -1500.f;
+    }
+
+    if (inEnemyBox && state.subState != TacticalSubState::TimeWasting && state.subState != TacticalSubState::AllOut) {
+        minimumAcceptableScore = 1000.f;
+    }
 
     return (bestScore > minimumAcceptableScore) ? bestOption : nullptr;
 }
 
 sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, const TeamAI& teamAI) {
     sf::Vector2f npcPos = npc.getPosition();
-    sf::Vector2f baseDir = PlayerAI::normalize(goalPos - npcPos);
+    bool isHomeSide = (npc.getTeam() == Team::Home);
+
+    // ==========================================
+    // --- NOSE-BLEED RE-CALC ---
+    // ==========================================
+    bool isDeepDefender = (npc.getPositionRole() == PositionRole::CenterBack ||
+        npc.getPositionRole() == PositionRole::LeftBack ||
+        npc.getPositionRole() == PositionRole::RightBack ||
+        npc.getPositionRole() == PositionRole::LeftWingBack ||
+        npc.getPositionRole() == PositionRole::RightWingBack ||
+        npc.getPositionRole() == PositionRole::DefensiveMid);
+
+    float pitchHalfX = pitch.totalWidth / 2.f;
+    float noseBleedFactor = 0.0f;
+    if (isDeepDefender) {
+        float excursion = isHomeSide ? (npcPos.x - pitchHalfX) : (pitchHalfX - npcPos.x);
+        float tolerance = (npc.getPositionRole() == PositionRole::CenterBack) ? -800.f : 800.f;
+        if (excursion > tolerance) {
+            noseBleedFactor = std::clamp((excursion - tolerance) / 2500.f, 0.0f, 1.0f);
+        }
+    }
+
+    TeamState state = teamAI.getCurrentState();
+    sf::Vector2f targetGoal = goalPos;
+
+    if (state.subState == TacticalSubState::TimeWasting) {
+        float cornerX = isHomeSide ? pitch.totalWidth - pitch.margin : pitch.margin;
+        float topCornerY = pitch.margin;
+        float botCornerY = pitch.totalHeight - pitch.margin;
+
+        targetGoal = sf::Vector2f(cornerX, (npcPos.y < pitch.totalHeight / 2.f) ? topCornerY : botCornerY);
+    }
+
+    sf::Vector2f baseDir = PlayerAI::normalize(targetGoal - npcPos);
 
     float bcNorm = npc.getBallControl() / 100.f;
     float agilityNorm = npc.getAgility() / 100.f;
     float speedNorm = npc.getTopSpeed() / 100.f;
-    float counterSpeed = teamAI.getPassingSpeedPref();
+
+    float attackSpeedPref = teamAI.getAttackingSpeedPref();
     float awarenessNorm = npc.getAwareness() / 100.f;
 
     float spongeDist = 1200.f;
@@ -527,7 +982,7 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
         boundaryPush.y -= factor * factor;
     }
 
-    if (boundaryPush.x != 0.f || boundaryPush.y != 0.f) {
+    if ((boundaryPush.x != 0.f || boundaryPush.y != 0.f) && state.subState != TacticalSubState::TimeWasting) {
         float bounceStrength = 3.0f + (speedNorm * 4.0f);
         baseDir = PlayerAI::normalize(baseDir + (boundaryPush * bounceStrength));
     }
@@ -557,7 +1012,6 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
     }
 
     bool isFirstTouch = (npc.m_possessionTimer < 0.5f);
-    // Determine if we must trigger the "Survival Escape" Protocol
     bool isUnderSeverePressure = (overallMinOppDist < 350.f);
 
     for (int i = 0; i < 16; ++i) {
@@ -567,20 +1021,13 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
 
         float score = 0.f;
 
-        // ==========================================
-        // --- 1. SURVIVAL ESCAPE VS FORWARD DRIVE ---
-        // ==========================================
         if (isUnderSeverePressure && closestOpp) {
-            // SURVIVAL MODE: The main goal is putting our body between the ball and the defender
             float dotAway = (testDir.x * -toClosestOpp.x + testDir.y * -toClosestOpp.y);
             score = dotAway * 5000.f * awarenessNorm;
-
-            // Still give a modest bonus to forward momentum if we CAN safely escape forward
             score += (testDir.x * baseDir.x + testDir.y * baseDir.y) * 500.f;
         }
         else {
-            // OPEN HIGHWAY: The main goal is driving toward the goal/momentum
-            score = (200.f + (counterSpeed * 300.f) + (behavior.runFrequency * 200.f)) * (testDir.x * baseDir.x + testDir.y * baseDir.y);
+            score = (100.f + (attackSpeedPref * 500.f) + (behavior.runFrequency * 200.f)) * (testDir.x * baseDir.x + testDir.y * baseDir.y);
         }
 
         sf::Vector2f currentTargetDir = npc.getDribbleTargetDir();
@@ -593,6 +1040,7 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
 
             if (escapeAlignment > 0.5f) {
                 float bodyStrengthNorm = npc.getBodyStrength() / 100.f;
+                if (state.subState == TacticalSubState::TimeWasting) holdUpIntelligence *= 2.0f;
                 score += holdUpIntelligence * 2500.f * bcNorm * bodyStrengthNorm;
             }
         }
@@ -611,12 +1059,23 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
             }
         }
 
+        float dribbleBiasAdj = behavior.dribbleBias;
+        if (state.subState == TacticalSubState::Transition) dribbleBiasAdj = std::max(0.7f, dribbleBiasAdj);
+
         if (maxThreatInLane < 0.1f) {
-            score += 2000.f * speedNorm * behavior.dribbleBias;
+            score += 2000.f * speedNorm * dribbleBiasAdj;
         }
         else {
-            float fearFactor = 800.f - (behavior.dribbleBias * 500.f) - (bcNorm * 300.f);
+            float fearFactor = 800.f - (dribbleBiasAdj * 500.f) - (bcNorm * 300.f);
             fearFactor = std::max(50.f, fearFactor);
+
+            // ==========================================
+            // --- THE FIX 4: NOSE-BLEED TERROR ---
+            // ==========================================
+            if (noseBleedFactor > 0.0f) {
+                fearFactor *= (1.0f + (noseBleedFactor * 4.0f)); // Up to 500% terror when dribbling at an opponent
+            }
+
             score -= maxThreatInLane * fearFactor;
         }
 
@@ -624,16 +1083,23 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
             float testToOppDot = (testDir.x * toClosestOpp.x + testDir.y * toClosestOpp.y);
 
             if (testToOppDot < -0.2f) {
-                score += 2500.f * speedNorm * behavior.dribbleBias * std::abs(testToOppDot);
+                score += 2500.f * speedNorm * dribbleBiasAdj * std::abs(testToOppDot);
             }
             else if (testToOppDot > 0.0f) {
-                if (isTrickster && overallMinOppDist < 250.f) {
+                // ==========================================
+                // --- THE FIX 5: DON'T BE A HERO ---
+                // ==========================================
+                // If a defender is nose-bleeding, heavily punish ANY attempt to dribble towards an opponent
+                if (noseBleedFactor > 0.0f && testToOppDot > 0.1f) {
+                    score -= 15000.f * noseBleedFactor * testToOppDot;
+                }
+                else if (isTrickster && overallMinOppDist < 250.f) {
                     float orthogonality = 1.0f - std::abs(testToOppDot);
-                    if (orthogonality > 0.8f) score += 2500.f * bcNorm * agilityNorm * behavior.dribbleBias * orthogonality;
+                    if (orthogonality > 0.8f) score += 2500.f * bcNorm * agilityNorm * dribbleBiasAdj * orthogonality;
                     if (testToOppDot > 0.6f) score -= 4000.f;
                 }
                 else if (isSpeedster) {
-                    if (testToOppDot > 0.4f && testToOppDot < 0.85f) score += 1800.f * speedNorm * behavior.dribbleBias;
+                    if (testToOppDot > 0.4f && testToOppDot < 0.85f) score += 1800.f * speedNorm * dribbleBiasAdj;
                     if (testToOppDot > 0.85f) score -= 4000.f;
                 }
                 else {
@@ -655,7 +1121,7 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
         if (minBoundDist < 0.f) {
             score -= 50000.f;
         }
-        else if (minBoundDist < 500.f) {
+        else if (minBoundDist < 500.f && state.subState != TacticalSubState::TimeWasting) {
             score -= (500.f - minBoundDist) * 35.f;
         }
 
@@ -669,15 +1135,10 @@ sf::Vector2f PossessionAI::calculateDribbleDirection(NPCPlayer& npc, sf::Vector2
     return bestDir;
 }
 
-// ==========================================
-// --- PASSING ASSIST ---
-// ==========================================
-void PossessionAI::executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats) {
+void PossessionAI::executePass(NPCPlayer& npc, Ball& ball, Player* target, const std::vector<Player*>& opposition, const Pitch& pitch, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI) {
     sf::Vector2f npcPos = npc.getPosition();
     sf::Vector2f targetPos = target->getPosition();
     sf::Vector2f targetVel = target->getVelocity();
-
-    stats.recordPassAttempt(npc.getTeam());
 
     bool isHome = (npc.getTeam() == Team::Home);
     float rawDistToTarget = PlayerAI::dist(npcPos, targetPos);
@@ -758,7 +1219,7 @@ void PossessionAI::executePass(NPCPlayer& npc, Ball& ball, Player* target, const
     }
     else {
         float arrivalSpeed = std::clamp(exactDist * 0.8f, 550.f, 750.f);
-        if (isBackpass) arrivalSpeed = std::clamp(exactDist * 0.5f, 300.f, 450.f);
+        if (isBackpass) arrivalSpeed = std::clamp(exactDist * 0.5f, 500.f, 650.f);
 
         float requiredV0Sq = (arrivalSpeed * arrivalSpeed) + (2.f * ball.friction * exactDist);
         idealPowerWorld = std::sqrt(requiredV0Sq);
@@ -777,6 +1238,20 @@ void PossessionAI::executePass(NPCPlayer& npc, Ball& ball, Player* target, const
     // Reduced from 15 degrees to 6 degrees. Even poor players will mostly hit the lane.
     float errorAngle = (1.0f - (passingStat / 100.0f)) * 6.0f;
     float wfPowerMod = 1.0f;
+
+    // ==========================================
+    // --- THE FIX 3: POSSESSION COMPLACENCY ---
+    // ==========================================
+    // If the team has held the ball for more than 20 seconds, mental fatigue and complacency set in.
+    // The passing error angle slowly increases, ensuring infinite passing loops eventually fail.
+    float phaseTime = teamAI.getCurrentState().phase == MatchPhase::Attacking ?
+        (teamAI.getPhaseTimer()) : 0.0f;
+
+    float complacencyModifier = 0.0f;
+
+    if (phaseTime > 20.0f) complacencyModifier = std::clamp((phaseTime - 20.0f) / 30.0f, 0.0f, 1.0f);
+
+    errorAngle += (complacencyModifier * 5.0f);
 
     if (isWeakFoot) {
         float eMod;
@@ -819,10 +1294,7 @@ void PossessionAI::executePass(NPCPlayer& npc, Ball& ball, Player* target, const
     if (isWeakFoot) intentionalSpin *= (0.4f + (npc.getWeakFootAccuracy() / 5.0f) * 0.6f);
 
     float kickVol = std::clamp(0.0f + (finalPower / npc.getKickPower()) * 40.0f, 10.f, 100.f);
-    soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
-
-    ball.shoot(finalAim, finalPower, intentionalSpin, finalVz, finalBs);
-    npc.resetKickCooldown();
+    dispatchNPCKick(npc, ball, finalAim, finalPower, intentionalSpin, finalVz, finalBs, true, false, false, soundManager);
 }
 
 void PossessionAI::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos, const std::vector<Player*>& opposition, const Pitch& pitch, float dt, SoundManager& soundManager, MatchStatistics& stats) {
@@ -995,7 +1467,6 @@ void PossessionAI::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos,
     }
 
     float kickVol = std::clamp(0.0f + (finalPower / npc.getKickPower()) * 40.f, 10.f, 100.f);
-    soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
 
     // ==========================================
     // --- THE FIX 2: GEOMETRIC SHOT TRACKING ---
@@ -1025,11 +1496,7 @@ void PossessionAI::executeShot(NPCPlayer& npc, Ball& ball, sf::Vector2f goalPos,
         }
     }
 
-    // Record the physically accurate shot result!
-    stats.recordShot(npc.getTeam(), onTarget);
-
-    ball.shoot(aimDir, finalPower, finalSpin, vzPower, finalBackspin);
-    npc.resetKickCooldown();
+    dispatchNPCKick(npc, ball, aimDir, finalPower, finalSpin, vzPower, finalBackspin, false, true, onTarget, soundManager);
 }
 
 void PossessionAI::executeThrowIn(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates) {
@@ -1144,7 +1611,7 @@ void PossessionAI::handleNPCJumpLogic(NPCPlayer& npc, Ball& ball) {
     }
 }
 
-bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager) {
+bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f aimDir, bool isShot, SoundManager& soundManager, MatchStatistics& stats, const Pitch& pitch) {
     if (npc.getKickCooldown() > 0.0f) return false;
     if (ball.hasOwner()) return false;
 
@@ -1189,8 +1656,6 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f a
                 ball.possess(&npc);
             }
             else {
-                // THE FIX 1: Tamed the "chest explosion" heavy touch. 
-                // Reduced 400px/s knock down to 140px/s so it looks like a realistic fumble!
                 float knockSpeed = 15.f + (touchError * 140.f);
                 float bounceZ = 10.f + (touchError * 80.f);
 
@@ -1237,7 +1702,6 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f a
     float vzOut = 0.f;
     float finalBackspin = 0.f;
 
-    // THE FIX 2: CONTEXTUAL AERIAL CLEARANCES
     bool isHome = npc.getTeam() == Team::Home;
     bool inOwnBox = isHome ? (npcPos.x < 1650.f) : (npcPos.x > 8350.f);
     bool isClearance = (!isShot && inOwnBox && incomingSpeed > 300.f);
@@ -1248,11 +1712,10 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f a
             vzOut = 100.f - (activeStat * 3.0f);
         }
         else if (isClearance) {
-            basePower = 55.f + (activeStat * 0.3f); // Boot it away!
+            basePower = 55.f + (activeStat * 0.3f);
             vzOut = 450.f;
         }
         else {
-            // THE FIX 3: Soft Header Pass (Dropped from ~70 power to ~20 power!)
             basePower = 15.f + (activeStat * 0.15f);
             vzOut = 200.f + (activeStat * 1.5f);
         }
@@ -1265,11 +1728,10 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f a
             vzOut = 100.f + (techniqueError * 350.f) + ((1.0f - timingQuality) * 200.f);
         }
         else if (isClearance) {
-            basePower = npc.getKickPower() * 0.85f; // Volley clearance!
+            basePower = npc.getKickPower() * 0.85f;
             vzOut = 600.f;
         }
         else {
-            // Volley Pass
             basePower = 20.f + (activeStat * 0.2f);
             vzOut = 250.f + ((1.0f - skillNorm) * 150.f);
         }
@@ -1288,10 +1750,184 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, Ball& ball, sf::Vector2f a
         aimDir.x * sinA + aimDir.y * cosA
     );
 
+    // ==========================================
+    // --- THE FIX 3: RECORD AERIAL STATS ---
+    // ==========================================
+    if (isShot) {
+        float targetLineX = isHome ? pitch.totalWidth - pitch.margin : pitch.margin;
+        bool onTarget = false;
+
+        // Perform a quick geometric check to see if the aerial shot is on goal
+        if (std::abs(finalDir.x) > 0.001f) {
+            float t = (targetLineX - npc.getPosition().x) / finalDir.x;
+            if (t > 0.f) {
+                float intersectY = npc.getPosition().y + (finalDir.y * t);
+                if (intersectY > 3500.f - 366.f && intersectY < 3500.f + 366.f) {
+                    onTarget = true;
+                }
+            }
+        }
+        stats.recordShot(npc.getTeam(), onTarget);
+    }
+    else if (!isClearance) {
+        // If it's not a shot and not a desperate clearance, it's a pass!
+        stats.recordPassAttempt(npc.getTeam());
+    }
+
     float kickVol = std::clamp(0.f + (basePower / npc.getKickPower()) * 20.0f, 10.f, 100.f);
     soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
 
     ball.shoot(finalDir, basePower, 0.0f, vzOut, finalBackspin);
     npc.resetKickCooldown();
     return true;
+}
+
+void PossessionAI::executeSetPiece(NPCPlayer& npc, Ball& ball, const std::vector<Player*>& teammates, const std::vector<Player*>& opposition, const Pitch& pitch, MatchState state, SoundManager& soundManager, MatchStatistics& stats, const TeamAI& teamAI) {
+    sf::Vector2f npcPos = npc.getPosition();
+    bool isHome = (npc.getTeam() == Team::Home);
+    float pitchCenterY = pitch.totalHeight / 2.f;
+
+    // Home attacks X+, Away attacks X-
+    float goalLineX = isHome ? (pitch.totalWidth - pitch.margin) : pitch.margin;
+
+    sf::Vector2f aimSpot;
+    float vzPower = 600.f;
+    float spin = 0.f;
+    float basePower = 0.f;
+    bool isCross = false;
+
+    if (state == MatchState::Corner) {
+        isCross = true;
+
+        // Target the "Mixer" - approx 8 meters (800px) out from the center of the goal
+        float mixerX = isHome ? (goalLineX - 800.f) : (goalLineX + 800.f);
+
+        // Find the best aerial threat currently inside the penalty box
+        Player* bestTarget = nullptr;
+        float bestHeading = 0.f;
+
+        for (Player* tm : teammates) {
+            if (tm == &npc || tm->isSentOff()) continue;
+
+            bool inBox = isHome ? (tm->getPosition().x > pitch.totalWidth - pitch.margin - 1650.f) : (tm->getPosition().x < pitch.margin + 1650.f);
+            if (inBox) {
+                float headingScore = tm->getHeading() + (tm->getBodyStrength() * 0.5f);
+                if (headingScore > bestHeading) {
+                    bestHeading = headingScore;
+                    bestTarget = tm;
+                }
+            }
+        }
+
+        if (bestTarget) {
+            // Blend the generic mixer coordinates with the specific target's coordinates
+            aimSpot = (sf::Vector2f(mixerX, pitchCenterY) * 0.4f) + (bestTarget->getPosition() * 0.6f);
+        }
+        else {
+            aimSpot = sf::Vector2f(mixerX, pitchCenterY);
+        }
+
+        // High trajectory to clear the near-post defenders
+        vzPower = 950.f;
+
+        // Curl logic: In-swinger vs Out-swinger
+        bool rightFooted = (npc.getPreferredFoot() == "Right");
+        bool takingFromLeft = (npcPos.y < pitchCenterY); // Y- is the left side of the pitch
+
+        float curlNorm = npc.getCurl() / 100.f;
+        float maxSpin = 45.f * curlNorm;
+
+        // Apply bend towards or away from the goal based on foot and pitch side
+        if (takingFromLeft) {
+            spin = rightFooted ? maxSpin : -maxSpin;
+        }
+        else {
+            spin = rightFooted ? -maxSpin : maxSpin;
+        }
+    }
+    else if (state == MatchState::FreeKick) {
+        float distToGoalLine = std::abs(npcPos.x - goalLineX);
+        bool isWide = (npcPos.y < pitchCenterY - 1200.f || npcPos.y > pitchCenterY + 1200.f);
+
+        if (distToGoalLine < 3500.f && isWide) {
+            // Wide free kick in the attacking half -> Treat like a deep corner
+            isCross = true;
+            float mixerX = isHome ? (goalLineX - 1000.f) : (goalLineX + 1000.f);
+            aimSpot = sf::Vector2f(mixerX, pitchCenterY);
+            vzPower = 850.f;
+        }
+        else if (distToGoalLine > 5000.f) {
+            // Deep free kick in own half -> Boom it to the target man
+            isCross = true;
+            Player* bestTarget = nullptr;
+            float bestHeading = 0.f;
+
+            for (Player* tm : teammates) {
+                if (tm == &npc || tm->isSentOff()) continue;
+                // Only target players in the opponent's half
+                if ((isHome && tm->getPosition().x > pitchCenterY) || (!isHome && tm->getPosition().x < pitchCenterY)) {
+                    if (tm->getHeading() > bestHeading) {
+                        bestHeading = tm->getHeading();
+                        bestTarget = tm;
+                    }
+                }
+            }
+
+            if (bestTarget) {
+                // Lead the target slightly towards goal
+                sf::Vector2f lead = isHome ? sf::Vector2f(400.f, 0.f) : sf::Vector2f(-400.f, 0.f);
+                aimSpot = bestTarget->getPosition() + lead;
+            }
+            else {
+                aimSpot = sf::Vector2f(pitch.totalWidth / 2.f, pitchCenterY);
+            }
+            vzPower = 1000.f;
+        }
+        else {
+            // Standard central free kick (too far to shoot) -> Pass it to feet
+            Player* passTarget = PossessionAI::findBestPassOption(npc, teammates, opposition, nullptr, teamAI, pitch);
+            if (passTarget) {
+                PossessionAI::executePass(npc, ball, passTarget, opposition, pitch, soundManager, stats, teamAI);
+                return;
+            }
+            else {
+                // Fallback dump into the box
+                aimSpot = isHome ? sf::Vector2f(goalLineX - 2000.f, pitchCenterY) : sf::Vector2f(goalLineX + 2000.f, pitchCenterY);
+                isCross = true;
+                vzPower = 800.f;
+            }
+        }
+    }
+
+    // --- EXACT KINEMATIC DELIVERY SOLVER ---
+    if (isCross) {
+        float exactDist = PlayerAI::dist(npcPos, aimSpot);
+
+        float timeInAir = (2.f * vzPower) / 980.f;
+        float reqSpeed = exactDist / timeInAir;
+
+        float idealPower = reqSpeed * 1.15f; // Drag tax
+        basePower = idealPower / 52.0f;
+        basePower = std::clamp(basePower, 10.f, npc.getKickPower() * 1.1f);
+
+        sf::Vector2f passDir = PlayerAI::normalize(aimSpot - npcPos);
+
+        // Standard deviation based on passing stats
+        float accuracyNorm = npc.getLongPassing() / 100.f;
+        float errorAngle = (1.0f - accuracyNorm) * 5.0f;
+        float randError = ((rand() % 100) / 100.f - 0.5f) * errorAngle;
+        float rad = randError * 3.14159f / 180.f;
+
+        sf::Vector2f finalAim(
+            passDir.x * std::cos(rad) - passDir.y * std::sin(rad),
+            passDir.x * std::sin(rad) + passDir.y * std::cos(rad)
+        );
+
+        float backspin = 40.f + (accuracyNorm * 30.f);
+
+        float kickVol = std::clamp(0.0f + (basePower / npc.getKickPower()) * 40.0f, 10.f, 100.f);
+        soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+
+        dispatchNPCKick(npc, ball, finalAim, basePower, spin, vzPower, backspin, true, false, false, soundManager);
+    }
 }

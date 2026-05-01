@@ -24,6 +24,9 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
         frame.ballShadow = ball->getShadow();
         frame.ballPos = ball->getPosition();
 
+        // THE FIX: Record possession state so we can rewind to the pass!
+        frame.ballHasOwner = ball->hasOwner();
+
         BodySnapshot ballSnap;
         ballSnap.sprite = ball->getSprite();
         ballSnap.sortDepth = ball->getSortDepth();
@@ -121,7 +124,10 @@ void ReplayEngine::recordFrame(Ball* ball, const std::vector<Player*>& allPlayer
             pSnap.isPlayer = true;
             pSnap.skinColor = p->getSkinColor();
 
-            // THE FIX: Store the dynamic array into the snapshot
+            // ==========================================
+            // --- THE FIX 3: DEEP COPY THE KIT STACK ---
+            // ==========================================
+            // We MUST copy the layer vector, otherwise the shader has nothing to draw!
             pSnap.kitLayers = p->getKitLayers();
 
             frame.bodies.push_back(pSnap);
@@ -140,17 +146,137 @@ void ReplayEngine::startReplay(float playbackSpeed)
 
     m_isReplaying = true;
     m_playbackSpeed = playbackSpeed;
-    m_playbackIndex = 0;
+
+    // ==========================================
+    // --- THE FIX: 300-FRAME STANDARD REPLAY ---
+    // ==========================================
+    // Instead of playing the entire buffer, we only play the last 300 frames (~5 seconds).
+    int startFrame = static_cast<int>(m_buffer.size()) - 300;
+    m_playbackIndex = std::max(0, startFrame);
+
     m_frameTimer = 0.0f;
 
-    if (m_buffer[0].ballPos.has_value()) {
-        m_replayCamPos = m_buffer[0].ballPos.value();
+    // Wipe VAR State Clean
+    m_isOffsideReplay = false;
+    m_freezeTimer = 0.0f;
+    m_currentZoom = 0.8f;
+
+    // Snap the camera to the NEW starting frame, not frame 0!
+    if (m_buffer[m_playbackIndex].ballPos.has_value()) {
+        m_replayCamPos = m_buffer[m_playbackIndex].ballPos.value();
     }
+}
+
+void ReplayEngine::startOffsideReplay(float playbackSpeed, float defenderLineX, sf::Vector2f receiverPos)
+{
+    if (m_buffer.empty()) return;
+
+    m_isReplaying = true;
+    m_playbackSpeed = playbackSpeed;
+    m_isOffsideReplay = true;
+    m_freezeTimer = 3.5f;
+    m_defenderLineX = defenderLineX;
+    m_receiverPos = receiverPos;
+    m_showVarLines = false;
+
+    int passFrameIndex = -1;
+
+    // ==========================================
+    // --- THE FIX 2: BULLETPROOF TIMELINE SCAN ---
+    // ==========================================
+    // Scan backward to find the EXACT frame the ball left the passer's foot!
+    for (int i = static_cast<int>(m_buffer.size()) - 1; i > 0; --i) {
+        if (!m_buffer[i].ballHasOwner && m_buffer[i - 1].ballHasOwner) {
+            passFrameIndex = i - 1;
+            break;
+        }
+    }
+
+    // Failsafe: If the pass was a weird deflection, just start 5 seconds back
+    if (passFrameIndex == -1) {
+        passFrameIndex = std::max(0, static_cast<int>(m_buffer.size()) - 300);
+    }
+
+    m_varFreezeFrameIndex = std::min(passFrameIndex + 2, static_cast<int>(m_buffer.size()) - 1);
+
+    // Start the replay 45 frames (~0.75 seconds) before the pass
+    m_playbackIndex = std::max(0, m_varFreezeFrameIndex - 45);
+    m_frameTimer = 0.0f;
+
+    if (m_buffer[m_varFreezeFrameIndex].ballPos.has_value()) {
+        m_frozenPasserPos = m_buffer[m_varFreezeFrameIndex].ballPos.value();
+    }
+    else {
+        m_frozenPasserPos = m_receiverPos; // fallback
+    }
+
+    if (m_buffer[m_playbackIndex].ballPos.has_value()) {
+        m_replayCamPos = m_buffer[m_playbackIndex].ballPos.value();
+    }
+    m_currentZoom = 0.8f;
+}
+
+void ReplayEngine::replayCam(sf::RenderWindow& window)
+{
+    if (!m_isReplaying || m_buffer.empty() || m_playbackIndex >= m_buffer.size()) return;
+
+    const ReplayFrame& frame = m_buffer[m_playbackIndex];
+    sf::View replayView = window.getDefaultView();
+
+    if (m_isOffsideReplay && m_showVarLines) {
+        // Use the updated variable names
+        float minX = std::min({ m_frozenPasserPos.x, m_defenderLineX, m_receiverPos.x });
+        float maxX = std::max({ m_frozenPasserPos.x, m_defenderLineX, m_receiverPos.x });
+        float minY = std::min(m_frozenPasserPos.y, m_receiverPos.y);
+        float maxY = std::max(m_frozenPasserPos.y, m_receiverPos.y);
+
+        float distX = maxX - minX;
+        float distY = maxY - minY;
+
+        float viewWidth = replayView.getSize().x;
+        float viewHeight = replayView.getSize().y;
+
+        float zoomForX = (distX + 1500.f) / viewHeight;
+        float zoomForY = (distY + 1500.f) / viewWidth;
+
+        float targetZoom = std::max({ 0.8f, zoomForX, zoomForY });
+        m_currentZoom += (targetZoom - m_currentZoom) * 0.05f;
+        replayView.zoom(m_currentZoom);
+
+        sf::Vector2f targetPos(minX + (distX / 2.f), minY + (distY / 2.f));
+        m_replayCamPos.x += (targetPos.x - m_replayCamPos.x) * 0.05f;
+        m_replayCamPos.y += (targetPos.y - m_replayCamPos.y) * 0.05f;
+    }
+    else {
+        m_currentZoom += (0.8f - m_currentZoom) * 0.1f;
+        replayView.zoom(m_currentZoom);
+
+        if (frame.ballPos.has_value()) {
+            sf::Vector2f targetPos = frame.ballPos.value();
+            m_replayCamPos.x += (targetPos.x - m_replayCamPos.x) * 0.1f;
+            m_replayCamPos.y += (targetPos.y - m_replayCamPos.y) * 0.1f;
+        }
+    }
+
+    replayView.setRotation(sf::degrees(90.f));
+    replayView.setCenter(m_replayCamPos);
+    window.setView(replayView);
 }
 
 void ReplayEngine::update(float dt)
 {
     if (!m_isReplaying) return;
+
+    // ==========================================
+    // --- THE FIX 4: DYNAMIC MID-REPLAY FREEZE ---
+    // ==========================================
+    // If the replay has reached the exact frame the pass left the foot, freeze it!
+    if (m_isOffsideReplay && m_playbackIndex == m_varFreezeFrameIndex && m_freezeTimer > 0.0f) {
+        m_showVarLines = true;
+        m_freezeTimer -= dt;
+        m_blendFactor = 0.0f;
+        return;
+    }
 
     m_frameTimer += dt * m_playbackSpeed;
     float timePerFrame = 1.0f / 60.0f;
@@ -162,6 +288,8 @@ void ReplayEngine::update(float dt)
         if (m_playbackIndex >= m_buffer.size() - 1) {
             m_isReplaying = false;
             m_isRecordingLocked = false;
+            m_isOffsideReplay = false;
+            m_showVarLines = false;
             m_buffer.clear();
             return;
         }
@@ -194,11 +322,8 @@ void ReplayEngine::render(sf::RenderWindow& window, sf::Shader* kitShader)
         blended.sortDepth = frameA.bodies[i].sortDepth + (frameB.bodies[i].sortDepth - frameA.bodies[i].sortDepth) * m_blendFactor;
         blended.sprite = frameA.bodies[i].sprite;
 
-        // Pass the shader info forward
         blended.isPlayer = frameA.bodies[i].isPlayer;
         blended.skinColor = frameA.bodies[i].skinColor;
-
-        // THE FIX: Copy the array
         blended.kitLayers = frameA.bodies[i].kitLayers;
 
         sf::Vector2f posA = frameA.bodies[i].sprite.value().getPosition();
@@ -216,24 +341,35 @@ void ReplayEngine::render(sf::RenderWindow& window, sf::Shader* kitShader)
         return a.sortDepth > b.sortDepth;
         });
 
-    // ==========================================
-    // --- THE FIX: RENDER WITH THE DYNAMIC SHADER ---
-    // ==========================================
-    for (const auto& body : blendedBodies) {
-        if (body.isPlayer && kitShader) {
-            auto toGlslColor = [](sf::Color c) {
+    for (const auto& body : blendedBodies) 
+    {
+        if (body.isPlayer && kitShader) 
+        {
+            auto toGlslColor = [](sf::Color c) 
+            {
                 return sf::Glsl::Vec4(c.r / 255.f, c.g / 255.f, c.b / 255.f, c.a / 255.f);
-                };
+            };
 
             kitShader->setUniform("skinColor", toGlslColor(body.skinColor));
             kitShader->setUniform("skinTex", sf::Shader::CurrentTexture);
 
-            // Pre-allocated array names for performance
-            static const std::string uUse[8] = { "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7" };
-            static const std::string uTex[8] = { "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7" };
-            static const std::string uCol[8] = { "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7" };
+            // ==========================================
+            // --- THE FIX 1: EXPAND TO 15 LAYER MAXIMUM ---
+            // ==========================================
+            static const std::string uUse[15] = {
+                "use0", "use1", "use2", "use3", "use4", "use5", "use6", "use7",
+                "use8", "use9", "use10", "use11", "use12", "use13", "use14"
+            };
+            static const std::string uTex[15] = {
+                "tex0", "tex1", "tex2", "tex3", "tex4", "tex5", "tex6", "tex7",
+                "tex8", "tex9", "tex10", "tex11", "tex12", "tex13", "tex14"
+            };
+            static const std::string uCol[15] = {
+                "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7",
+                "col8", "col9", "col10", "col11", "col12", "col13", "col14"
+            };
 
-            for (int i = 0; i < 8; ++i) {
+            for (int i = 0; i < 15; ++i) { // CRITICAL: Loop up to 15!
                 if (i < body.kitLayers.size()) {
                     sf::Texture* tex = AnimationServer::getKitTexture(body.kitLayers[i].textureId);
                     if (tex) {
@@ -253,31 +389,33 @@ void ReplayEngine::render(sf::RenderWindow& window, sf::Shader* kitShader)
             window.draw(body.sprite.value(), kitShader);
         }
         else {
-            // It's the ball, just draw it normally!
             window.draw(body.sprite.value());
         }
     }
-}
 
-void ReplayEngine::replayCam(sf::RenderWindow& window)
-{
-    if (!m_isReplaying || m_buffer.empty() || m_playbackIndex >= m_buffer.size()) {
-        return;
+    // ==========================================
+    // --- NEW: DRAW VAR OFFSIDE LINES ---
+    // ==========================================
+    // We now draw the lines for the entire replay, not just during the freeze.
+    if (m_isOffsideReplay && m_showVarLines) {
+        float alpha = (m_freezeTimer > 0.0f) ? 160.f : 70.f;
+
+        // ==========================================
+        // --- THE FIX 3: COLOR MAPPING ---
+        // ==========================================
+        // 1. Draw Attacking Red Line (Where the Receiver was)
+        sf::RectangleShape blueLine(sf::Vector2f(20.f, 8000.f));
+        blueLine.setOrigin({ 10.f, 4000.f });
+        blueLine.setPosition({ m_receiverPos.x, m_replayCamPos.y });
+        blueLine.setFillColor(sf::Color(255, 0, 0, static_cast<std::uint8_t>(alpha)));
+
+        // 2. Draw Defensive Blue Line (Where the Last Defender was)
+        sf::RectangleShape redLine(sf::Vector2f(20.f, 8000.f));
+        redLine.setOrigin({ 10.f, 4000.f });
+        redLine.setPosition({ m_defenderLineX, m_replayCamPos.y });
+        redLine.setFillColor(sf::Color(0, 100, 255, static_cast<std::uint8_t>(alpha)));
+
+        window.draw(redLine); // Draw red first so it sits under the blue line
+        window.draw(blueLine);
     }
-
-    const ReplayFrame& frame = m_buffer[m_playbackIndex];
-
-    sf::View replayView = window.getDefaultView();
-    replayView.zoom(0.8f);
-    replayView.setRotation(sf::degrees(90.f));
-
-    if (frame.ballPos.has_value()) {
-        sf::Vector2f targetPos = frame.ballPos.value();
-
-        m_replayCamPos.x += (targetPos.x - m_replayCamPos.x) * 0.1f;
-        m_replayCamPos.y += (targetPos.y - m_replayCamPos.y) * 0.1f;
-    }
-
-    replayView.setCenter(m_replayCamPos);
-    window.setView(replayView);
 }

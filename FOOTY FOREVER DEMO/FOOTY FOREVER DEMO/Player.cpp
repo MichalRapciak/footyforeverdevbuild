@@ -48,11 +48,6 @@ void Player::loadFromData(const PlayerData& data, const TeamData& teamData)
     m_skinColor = data.graphics.skinColor;
     m_kitLayers.clear();
 
-    // 1. Face
-    if (!data.graphics.faceType.empty() && data.graphics.faceType != "None") {
-        m_kitLayers.push_back({ data.graphics.faceType, sf::Color::White });
-    }
-
     // 2. Beard
     if (!data.graphics.beardType.empty() && data.graphics.beardType != "None") {
         m_kitLayers.push_back({ data.graphics.beardType, data.graphics.beardColor });
@@ -73,6 +68,45 @@ void Player::loadFromData(const PlayerData& data, const TeamData& teamData)
         }
         m_kitLayers.push_back(shirtLayer);
     }
+    // ==========================================
+    // 4. KITS & BOOTS (Socks -> Boots -> Shorts -> Shirt)
+    // ==========================================
+    for (const auto& layer : teamData.socksLayers) m_kitLayers.push_back(layer);
+
+    // --- BOOTS & LOGOS ---
+    // Boots go over the socks, but under the shorts (just in case of baggy shorts!)
+    if (!data.graphics.bootType.empty() && data.graphics.bootType != "None") {
+
+        // 1. Base Boot
+        m_kitLayers.push_back({ data.graphics.bootType, data.graphics.bootColor });
+
+        // 2. Logo 1
+        if (!data.graphics.bootLogo1Type.empty() && data.graphics.bootLogo1Type != "None") {
+            m_kitLayers.push_back({ data.graphics.bootLogo1Type, data.graphics.bootLogo1Color });
+        }
+
+        // 3. Logo 2
+        if (!data.graphics.bootLogo2Type.empty() && data.graphics.bootLogo2Type != "None") {
+            m_kitLayers.push_back({ data.graphics.bootLogo2Type, data.graphics.bootLogo2Color });
+        }
+    }
+
+    for (const auto& layer : teamData.shortsLayers) m_kitLayers.push_back(layer);
+
+    for (const auto& layer : teamData.shirtLayers) {
+        KitLayer shirtLayer = layer;
+        if (m_matchRole == PositionRole::Goalkeeper) {
+            shirtLayer.color = sf::Color(50, 200, 50); // GK Override
+        }
+        m_kitLayers.push_back(shirtLayer);
+    }
+
+    // ==========================================
+    // 5. GLOBAL SHADING OVERLAY
+    // ==========================================
+    // Drawn absolutely last. This casts shadows and highlights uniformly 
+    // over the skin, face, hair, boots, and all kit elements below it!
+    m_kitLayers.push_back({ "player_shading", sf::Color::White });
 
     // Bind the shared static skin texture just to establish bounds! 
     m_sprite.setTexture(AnimationServer::getSkinTexture());
@@ -360,9 +394,10 @@ void Player::update(float dt)
     float animSpeedMultiplier = 1.0f;
 
     // ==========================================
-    // --- THE FIX: ANIMATION DEADZONE ---
-    // ==========================================
-    if (speed < 10.f && m_currentState != PlayerState::Tackling) {
+        // --- THE FIX: ANIMATION DEADZONE ---
+        // ==========================================
+        // DO NOT snap to idle if they are mid-tackle OR mid-dive!
+    if (speed < 10.f && m_currentState != PlayerState::Tackling && m_currentState != PlayerState::Diving && m_currentState != PlayerState::Kicking) {
         // Player is practically stationary. 
         // Stop the animation clock entirely so they don't jitter!
         animSpeedMultiplier = 0.0f;
@@ -375,9 +410,12 @@ void Player::update(float dt)
         m_sprite.setTextureRect(idleAnim.frames[0]);
     }
     else {
-        // Player is moving. Scale the animation speed dynamically!
+        // Player is moving (or diving/tackling). Scale the animation speed dynamically!
         animSpeedMultiplier = speed / BASE_RUN_SPEED;
         animSpeedMultiplier = std::clamp(animSpeedMultiplier, 0.8f, 2.0f);
+        if (m_currentState == PlayerState::Kicking) {
+            animSpeedMultiplier *= 1.4f; 
+        }
     }
 
     // ==========================================
@@ -899,7 +937,10 @@ float Player::getAwareness() const {
     case 1: finalAwareness *= 0.40f; break; // Completely Unable: 60% Penalty
     }
 
-    return finalAwareness * getGeneralMultiplier() * getMentalMultiplier();
+    // ==========================================
+    // --- THE FIX: APPLY AWARENESS BOOST ---
+    // ==========================================
+    return finalAwareness * getGeneralMultiplier() * getMentalMultiplier() * getDifficultyDefMod();
 }
 
 // ==========================================
@@ -941,6 +982,11 @@ float Player::getMentalMultiplier() const {
     // High chemistry boosts stats by up to 5%.
     float familiarityPenalty = (100.f - m_tacticalFamiliarity) / 100.f * 0.10f;
     float chemistryBonus = (m_teamChemistry / 100.f) * 0.10f;
+    if (m_teamChemistry > 70)
+    {
+    }
+    else if (m_teamChemistry < 50) chemistryBonus = -((100 - m_teamChemistry) / 100.f) * 0.30;
+    else chemistryBonus = -((100 - m_teamChemistry) / 100.f) * 0.20;
 
     return 1.0f - familiarityPenalty + chemistryBonus;
 }

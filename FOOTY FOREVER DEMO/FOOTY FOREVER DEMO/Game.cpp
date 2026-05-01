@@ -108,8 +108,14 @@ void Game::processEvents()
 		case GameState::MainMenu:
 			m_mainMenuScreen.processInput(*event, m_window);
 			break;
-		case GameState::Help:
-			m_helpScreen.processInput(*event);
+		case GameState::GamemodeSelect:
+			m_gamemodeSelectScreen.processInput(*event, m_window);
+			break;
+		case GameState::TournamentSetup:
+			ImGui::SFML::ProcessEvent(m_window, *event);
+			break;
+		case GameState::TournamentHub:
+			ImGui::SFML::ProcessEvent(m_window, *event);
 			break;
 		case GameState::GamePlay:
 			ImGui::SFML::ProcessEvent(m_window, *event);
@@ -174,31 +180,58 @@ void Game::update(sf::Time t_deltaTime)
 		break;
 	case GameState::MainMenu:
 		m_mainMenuScreen.update(t_deltaTime, m_window);
-		if (m_gamingScreen->getGameOver())
+		break;
+	case GameState::GamemodeSelect:
+		m_gamemodeSelectScreen.update(t_deltaTime, m_window);
+		if (currentState == GameState::MainMenu)
 		{
-			m_gamingScreen.reset();
-			m_gamingScreen = std::make_unique<GamePlay>();
-			m_gamingScreen->initialise(m_font);
+			m_mainMenuScreen.setClickCooldown(1.5f);
 		}
-		if (m_gamingScreen->getGameWon())
+		if (currentState == GameState::MatchDay)
 		{
-			m_gamingScreen.reset();
-			m_gamingScreen = std::make_unique<GamePlay>();
-			m_gamingScreen->initialise(m_font);
+			m_matchDayScreen.init(m_font, m_database); // Drops them in with default values, unlocked
 		}
 		break;
-	case GameState::Help:
-		m_helpScreen.update(t_deltaTime);
+	case GameState::TournamentSetup:
+		ImGui::SFML::Update(m_window, t_deltaTime);
+		m_tourSetupScreen.update(t_deltaTime, m_window);
+		if (currentState == GameState::TournamentHub)
+		{
+			m_tourHubScreen.init(m_font, m_database, m_tourSetupScreen.getGeneratedBracket(), m_tourSetupScreen.getUserTeamId());
+		}
+		break;
+	case GameState::TournamentHub:
+		ImGui::SFML::Update(m_window, t_deltaTime);
+		m_tourHubScreen.update(t_deltaTime, m_window);
+		if (currentState == GameState::MatchDay)
+		{
+			m_matchDayScreen.init(
+				m_font,
+				m_database,
+				m_tourHubScreen.getCurrentMatchHomeId(),  // The exact Home team ID from the bracket
+				m_tourHubScreen.getCurrentMatchAwayId(),  // The exact Away team ID from the bracket
+				m_tourHubScreen.getUserTeamId(),          // The ID of the team the user picked
+				true                                      // Yes, this is a tournament!
+			);
+		}
 		break;
 	case GameState::GamePlay:
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_gamingScreen->update(t_deltaTime, m_window);
 		break;
 	case GameState::Editor:
+		if (currentState == GameState::MainMenu)
+		{
+			m_mainMenuScreen.setClickCooldown(1.5f);
+		}
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_editorScreen.update(t_deltaTime, m_window);
 		break;
 	case GameState::MatchDay:
+		if (currentState == GameState::MainMenu)
+		{
+			m_mainMenuScreen.setClickCooldown(1.5f);
+		}
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_matchDayScreen.update(t_deltaTime, m_window);
 
@@ -239,6 +272,10 @@ void Game::update(sf::Time t_deltaTime)
 		break;
 	}
 	case GameState::Settings:
+		if (currentState == GameState::MainMenu)
+		{
+			m_mainMenuScreen.setClickCooldown(1.5f);
+		}
 		ImGui::SFML::Update(m_window, t_deltaTime);
 		m_settingsScreen.update(m_window);
 		break;
@@ -266,8 +303,16 @@ void Game::render()
 	case GameState::MainMenu:
 		m_mainMenuScreen.render(m_window);
 		break;
-	case GameState::Help:
-		m_helpScreen.render(m_window);
+	case GameState::GamemodeSelect:
+		m_gamemodeSelectScreen.render(m_window);
+		break;
+	case GameState::TournamentSetup:
+		m_tourSetupScreen.render(m_window);
+		ImGui::SFML::Render(m_window);
+		break;
+	case GameState::TournamentHub:
+		m_tourHubScreen.render(m_window);
+		ImGui::SFML::Render(m_window);
 		break;
 	case GameState::GamePlay:
 		m_gamingScreen->render(m_window);
@@ -315,11 +360,11 @@ void Game::initialiseStates()
 		std::cout << "problem loading agency r  font" << std::endl;
 	}
 	m_editorScreen.init(m_font, m_database);
-	m_matchDayScreen.init(m_font, m_database);
 	m_licenseScreen.initialise(m_font);
 	m_splashScreen.initialise(m_font);
 	m_mainMenuScreen.initialise(m_font);
-	m_helpScreen.initialise(m_font);
+	m_tourSetupScreen.init(m_font, m_database);
+	m_gamemodeSelectScreen.initialise(m_font);
 	m_gamingScreen = std::make_unique<GamePlay>();
 	m_gamingScreen->initialise(m_font);
 	m_settingsScreen.init(m_window);

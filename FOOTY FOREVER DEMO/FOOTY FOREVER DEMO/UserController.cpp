@@ -217,6 +217,7 @@ void UserController::update(float dt, GamePlay& game)
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
 			game.executePlayerSwitch(rescueTarget);
 			game.m_referee.notifyPlayerSwap(&m_userPlayer, rescueTarget);
+			game.m_ball->notifyPlayerSwap(&m_userPlayer, rescueTarget);
 			resetInputs();
 			m_userPlayer.updateAim(tempAim);
 		}
@@ -238,6 +239,7 @@ void UserController::update(float dt, GamePlay& game)
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
 			game.executePlayerSwitch(currentOwner);
 			game.m_referee.notifyPlayerSwap(&m_userPlayer, currentOwner);
+			game.m_ball->notifyPlayerSwap(&m_userPlayer, currentOwner);
 			resetInputs();
 			m_userPlayer.updateAim(tempAim);
 			hasPossession = true;
@@ -287,6 +289,7 @@ void UserController::update(float dt, GamePlay& game)
 			sf::Vector2f tempAim = m_userPlayer.getPlayerAim();
 			game.executePlayerSwitch(targetPlayer);
 			game.m_referee.notifyPlayerSwap(&m_userPlayer, targetPlayer);
+			game.m_ball->notifyPlayerSwap(&m_userPlayer, targetPlayer);
 			resetInputs();
 			m_userPlayer.updateAim(tempAim);
 		}
@@ -649,12 +652,16 @@ void UserController::playerMovement(float dt, GamePlay& game)
 		}
 
 		// Apply Movement Forces
-		if (directionInput.x == 0.f && directionInput.y == 0.f) {
-			PhysicsEngine::applyPlayerIdleFriction(m_userPlayer, dt);
-		}
-		else {
-			PhysicsEngine::applyPlayerLocomotion(m_userPlayer, directionInput, currentMax, dt);
-		}
+        if (m_userPlayer.getState() == PlayerState::Kicking) {
+            // FORCE the stride! Even if the user let go of WASD, they must take the final step.
+            PhysicsEngine::applyPlayerLocomotion(m_userPlayer, m_userPlayer.getAimDirection(), currentMax, dt);
+        }
+        else if (directionInput.x == 0.f && directionInput.y == 0.f) {
+            PhysicsEngine::applyPlayerIdleFriction(m_userPlayer, dt);
+        }
+        else {
+            PhysicsEngine::applyPlayerLocomotion(m_userPlayer, directionInput, currentMax, dt);
+        }
 	}
 
 	// Optional: Keep the user strictly inside the stadium grass
@@ -673,6 +680,65 @@ void UserController::playerMovement(float dt, GamePlay& game)
 /// <param name="game"></param>
 void UserController::playerShooting(float dt, GamePlay& game)
 {
+	// ==========================================
+	// --- NEW: THE STRIDE WATCHER ---
+	// ==========================================
+	if (m_userPlayer.m_pendingKick.isActive) {
+
+		int currentFrame = m_userPlayer.getAnimator().getCurrentFrameIndex();
+		m_userPlayer.m_pendingKick.failsafeTimer += dt;
+
+		bool frameHit = false;
+		int target = m_userPlayer.m_pendingKick.targetFrame;
+
+		if (currentFrame == target || currentFrame == target + 1) frameHit = true;
+		if (target == 11 && currentFrame == 0) frameHit = true;
+
+		if (frameHit || m_userPlayer.m_pendingKick.failsafeTimer > 0.4f) {
+
+			// THE FIX: Whiff Check! Make sure the ball hasn't rolled away!
+			float distToBall = game.distance(m_userPlayer.getPosition(), game.m_ball->getPosition());
+
+			if (distToBall < 100.f) { // Only log stats and shoot if the ball is actually struck!
+
+				// 1. EXECUTE DEFERRED STAT LOGGING
+				if (m_userPlayer.m_pendingKick.isPassIntent) {
+					game.m_matchStats.recordPassAttempt(m_userPlayer.getTeam());
+					game.m_ball->isPassIntent = true;
+				}
+				else if (m_userPlayer.m_pendingKick.isShotIntent) {
+					game.m_ball->lastShooter = &m_userPlayer;
+					game.m_ball->lastShotWasOnTarget = m_userPlayer.m_pendingKick.isShotOnTarget;
+					game.m_ball->lastShooterAssister = m_userPlayer.m_pendingKick.assistCandidate;
+					game.m_matchStats.recordShot(m_userPlayer.getTeam(), m_userPlayer.m_pendingKick.isShotOnTarget);
+					game.m_ball->isPassIntent = false;
+				}
+
+				// 2. Audio
+				float kickVol = std::clamp(0.f + ((m_userPlayer.m_pendingKick.power / m_userPlayer.getKickPower()) * 40.0f), 10.f, 100.f);
+				game.m_soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+
+				// 3. The Physical Strike
+				game.m_ball->shoot(
+					m_userPlayer.m_pendingKick.aimDir,
+					m_userPlayer.m_pendingKick.power,
+					m_userPlayer.m_pendingKick.spin,
+					m_userPlayer.m_pendingKick.vz,
+					m_userPlayer.m_pendingKick.backspin
+				);
+			}
+
+			// 4. Clean up the stride (Whether we hit or whiffed!)
+			m_userPlayer.m_pendingKick.isActive = false;
+			m_userPlayer.setState(PlayerState::Normal);
+
+			justKicked = true;
+			kickCooldownTimer = kickCooldown;
+		}
+
+		return;
+	}
+
 	// --- 1. COOLDOWNS & AUTO-POSSESS ---
 	if (kickCooldownTimer > 0.f) {
 		justKicked = false;
@@ -694,12 +760,15 @@ void UserController::playerShooting(float dt, GamePlay& game)
 	bool canContestAir = (game.m_ball->z > 40.f && distToBall < 150.f);
 
 	// ==========================================
-	// --- 2. UNIFIED CHARGING SYSTEM ---
-	// ==========================================
+		// --- 2. UNIFIED CHARGING SYSTEM ---
+		// ==========================================
 	if (kickPressed) {
 		justKicked = false;
 		charging = true;
-		m_preChargeTimer = 1.0f; // Refresh the 1-second forgiveness buffer
+		m_preChargeTimer = 1.0f;
+
+		// THE FIX 1: Broadcast the user's intent to the world!
+		m_userPlayer.isChargingAction = true;
 
 		// Standard Oscillating Charge
 		if (increasing) {
@@ -713,6 +782,9 @@ void UserController::playerShooting(float dt, GamePlay& game)
 	}
 	else {
 		// The button was released!
+
+		// THE FIX 2: Clear the intent broadcast!
+		m_userPlayer.isChargingAction = false;
 		if (charging) {
 
 			bool canStrikeNow = (hasPossession || canContestAir) && !m_isSetPieceRunUp;
@@ -805,70 +877,141 @@ void UserController::executeKickRelease(GamePlay& game)
 
 
 	// ==========================================
-	// --- 3. APPLY ASSISTS (The Corrector) ---
+	// --- 3. APPLY ASSISTS & INTENT (Deferred) ---
 	// ==========================================
-	// Elite players will use their magnetism to pull the shanked aimDir back on target.
-	// Poor players have no magnetism, so the shanked aimDir stays wild!
+	bool pendingIsPass = false;
+	bool pendingIsShot = false;
+	bool pendingOnTarget = false;
+	Player* pendingAssister = nullptr;
+
 	if (m_currentTarget != nullptr) {
 		AimAssist::applyPassAssist(m_userPlayer, m_currentTarget, aimDir, finalPower, isHighKick, false, game.m_pitch);
-		game.m_matchStats.recordPassAttempt(m_userPlayer.getTeam());
+		pendingIsPass = true;
 	}
 	else if (!isHighKick) {
-		AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
-
 		// ==========================================
-		// --- THE FIX: GEOMETRIC SHOT TRACKING ---
+		// --- SHOT VS MANUAL PASS CONE ---
 		// ==========================================
 		bool isHomeSide = (m_userPlayer.getTeam() == Team::Home);
 		float targetLineX = isHomeSide ? (game.m_pitch.totalWidth - game.m_pitch.margin) : game.m_pitch.margin;
+		sf::Vector2f goalCenter(targetLineX, 3500.f);
 
-		bool onTarget = false;
 		sf::Vector2f playerPos = m_userPlayer.getPosition();
+		sf::Vector2f toGoal = goalCenter - playerPos;
+		float distToGoal = std::sqrt(toGoal.x * toGoal.x + toGoal.y * toGoal.y);
+		if (distToGoal > 0.001f) toGoal /= distToGoal;
 
-		// Prevent divide-by-zero if shooting perfectly vertical
-		if (std::abs(aimDir.x) > 0.001f) {
-			// Calculate the multiplier 't' required to reach the goal line's X coordinate
-			float t = (targetLineX - playerPos.x) / aimDir.x;
+		float aimAlignment = (aimDir.x * toGoal.x) + (aimDir.y * toGoal.y);
 
-			// If t is positive, the ball is actually traveling TOWARD the goal!
-			if (t > 0.f) {
-				// Project the Y coordinate using 't'
-				float intersectY = playerPos.y + (aimDir.y * t);
+		if (aimAlignment > 0.5f) {
+			AimAssist::applyShotAssist(m_userPlayer, aimDir, vzPower, finalPower, game.m_pitch);
 
-				float goalCenterY = 3500.f;
-				float halfGoalWidth = 366.f;
-
-				// Did the trajectory cross the line between the two posts?
-				if (intersectY > goalCenterY - halfGoalWidth && intersectY < goalCenterY + halfGoalWidth) {
-					onTarget = true;
+			bool onTarget = false;
+			if (std::abs(aimDir.x) > 0.001f) {
+				float t = (targetLineX - playerPos.x) / aimDir.x;
+				if (t > 0.f) {
+					float intersectY = playerPos.y + (aimDir.y * t);
+					float halfGoalWidth = 366.f;
+					if (intersectY > 3500.f - halfGoalWidth && intersectY < 3500.f + halfGoalWidth) {
+						onTarget = true;
+					}
 				}
 			}
+			pendingIsShot = true;
+			pendingOnTarget = onTarget;
+			pendingAssister = game.m_ball->assistCandidate;
 		}
-
-		game.m_matchStats.recordShot(m_userPlayer.getTeam(), onTarget);
+		else {
+			// Manual Pass into space
+			pendingIsPass = true;
+		}
+	}
+	else {
+		// High Cross/Clearance
+		pendingIsPass = true;
 	}
 
-	// 4. Calculate Spin (Dampen curl for weak foot)
+	// 4. Calculate Spin 
 	float spin = 0.f;
 	if (m_left) spin = usingRight ? -(m_userPlayer.getCurl() / 2.f) : m_userPlayer.getCurl();
 	if (m_right) spin = usingRight ? -m_userPlayer.getCurl() : (m_userPlayer.getCurl() / 2.f);
 
-	// Weak foot can't curl the ball as well
 	if (isWeakFoot) spin *= (0.4f + (m_userPlayer.getWeakFootAccuracy() / 5.0f) * 0.6f);
 	spin *= (1.1f + kickStrength / 2.f);
 
-	// 5. Execute Audio & Shot
-	float kickVol = std::clamp(0.f + ((finalPower / m_userPlayer.getKickPower()) * 40.0f), 10.f, 100.f);
-	game.m_soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+	// ==========================================
+	// --- THE FIX 1: INSTANT POKE THRESHOLD ---
+	// ==========================================
+	if (kickStrength < 0.25f) {
 
-	// Notice we just pass aimDir here now, as it has already been corrected by the AimAssist
-	game.m_ball->shoot(aimDir, finalPower, spin, vzPower, finalBackspin);
+		// BECAUSE WE SHOOT INSTANTLY, LOG STATS INSTANTLY
+		if (pendingIsPass) {
+			game.m_matchStats.recordPassAttempt(m_userPlayer.getTeam());
+			game.m_ball->isPassIntent = true;
+		}
+		else if (pendingIsShot) {
+			game.m_ball->lastShooter = &m_userPlayer;
+			game.m_ball->lastShotWasOnTarget = pendingOnTarget;
+			game.m_ball->lastShooterAssister = pendingAssister;
+			game.m_matchStats.recordShot(m_userPlayer.getTeam(), pendingOnTarget);
+			game.m_ball->isPassIntent = false;
+		}
+
+		float kickVol = std::clamp(0.f + ((finalPower / m_userPlayer.getKickPower()) * 40.0f), 10.f, 100.f);
+		game.m_soundManager.playRandomSound("kick", 3, kickVol, 0.15f);
+
+		game.m_ball->shoot(aimDir, finalPower, spin, vzPower, finalBackspin);
+
+		kickStrength = 0.f;
+		charging = false;
+		increasing = true;
+		justKicked = true;
+		kickCooldownTimer = kickCooldown;
+		return;
+	}
+
+	// ==========================================
+	// --- 5. QUEUE THE RUN-CYCLE KICK ---
+	// ==========================================
+	int currentFrame = m_userPlayer.getAnimator().getCurrentFrameIndex();
+	int targetFrame = 7;
+
+	if (!usingRight) {
+		if (currentFrame < 3 || currentFrame > 9) targetFrame = 3;
+		else targetFrame = 11;
+	}
+
+	m_userPlayer.m_pendingKick.aimDir = aimDir;
+	m_userPlayer.m_pendingKick.power = finalPower;
+	m_userPlayer.m_pendingKick.spin = spin;
+	m_userPlayer.m_pendingKick.vz = vzPower;
+	m_userPlayer.m_pendingKick.backspin = finalBackspin;
+	m_userPlayer.m_pendingKick.targetFrame = targetFrame;
+	m_userPlayer.m_pendingKick.failsafeTimer = 0.0f;
+
+	// STORE THE DEFERRED STATS
+	m_userPlayer.m_pendingKick.isPassIntent = pendingIsPass;
+	m_userPlayer.m_pendingKick.isShotIntent = pendingIsShot;
+	m_userPlayer.m_pendingKick.isShotOnTarget = pendingOnTarget;
+	m_userPlayer.m_pendingKick.assistCandidate = pendingAssister;
+
+	m_userPlayer.m_pendingKick.isActive = true;
+
+	m_userPlayer.setState(PlayerState::Kicking);
+
+	// ==========================================
+	// --- THE FIX: STANDING KICK MOMENTUM ---
+	// ==========================================
+	// If they shoot from a dead stop, force a tiny step forward to drive the running animation!
+	sf::Vector2f curVel = m_userPlayer.getVelocity();
+	float curSpeed = std::sqrt(curVel.x * curVel.x + curVel.y * curVel.y);
+	if (curSpeed < 150.f) {
+		m_userPlayer.setVelocity(m_userPlayer.getAimDirection() * 250.f);
+	}
 
 	kickStrength = 0.f;
 	charging = false;
 	increasing = true;
-	justKicked = true;
-	kickCooldownTimer = kickCooldown;
 }
 
 bool UserController::calculateAerialKick(GamePlay& game, float& finalPower, float& vzPower, float& errorAngle, float& finalBackspin)
