@@ -149,7 +149,7 @@ void MatchEngine::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 {
 	float dt = t_deltaTime.asSeconds();
 
-	if (m_pause)
+	if (m_pause || m_referee.getMatchState() == MatchState::HalfTime || m_referee.getMatchState() == MatchState::FullTime)
 	{
 		updatePauseMenu(t_window); // This checks for clicks and sets m_showGamePlan = true
 
@@ -212,11 +212,12 @@ void MatchEngine::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 
 	// 1. Gather all players
 	std::vector<Player*> homeFriends;
-	if (m_userPlayer->getTeam() == Team::Home) homeFriends.push_back(m_userPlayer.get());
+	
+	if (m_userPlayer) if (m_userPlayer->getTeam() == Team::Home) homeFriends.push_back(m_userPlayer.get());
 	for (auto& npc : m_homeside) homeFriends.push_back(npc.get());
 
 	std::vector<Player*> homeEnemies;
-	if (m_userPlayer->getTeam() == Team::Away) homeEnemies.push_back(m_userPlayer.get());
+	if (m_userPlayer) if (m_userPlayer->getTeam() == Team::Away) homeEnemies.push_back(m_userPlayer.get());
 	for (auto& opp : m_awayside) homeEnemies.push_back(opp.get());
 
 	std::vector<Player*> allPlayers = homeFriends;
@@ -281,8 +282,11 @@ void MatchEngine::update(sf::Time& t_deltaTime, sf::RenderWindow& t_window)
 			m_matchInfo.recordAppearanceEnd(p->getId(), finalMinute);
 		}
 
+		m_matchInfo.calculateFinalRatings(allPlayers);
+
 		m_matchLogged = true;
 		std::cout << "MATCH LOGGED! Final Score: " << m_matchInfo.getHomeScore() << " - " << m_matchInfo.getAwayScore() << "\n";
+		m_gameOver = true;
 	}
 
 	// ==========================================
@@ -1607,7 +1611,7 @@ void MatchEngine::triggerForfeit(bool isHomeForfeit)
 	m_gameOverText.setPosition({ xpos, 1080.f * 0.4f });
 }
 
-void MatchEngine::executePlayerSwitch(Player* targetNPC) 
+void MatchEngine::executePlayerSwitch(Player* targetNPC, MatchEnvironment& env)
 {
 	// Safety checks
 	if (!targetNPC || targetNPC == m_userPlayer.get() || targetNPC->getTeam() != m_userPlayer->getTeam()) return;
@@ -1623,10 +1627,10 @@ void MatchEngine::executePlayerSwitch(Player* targetNPC)
 	// Because the pointers didn't move but the 'hasPossession' bool did, 
 	// we need to tell the Ball object who its new owner pointer is.
 	if (m_ball->getOwner() == targetNPC) {
-		m_ball->possess(m_userPlayer.get());
+		m_ball->possess(m_userPlayer.get(), env);
 	}
 	else if (m_ball->getOwner() == m_userPlayer.get()) {
-		m_ball->possess(targetNPC);
+		m_ball->possess(targetNPC, env);
 	}
 }
 
@@ -2077,7 +2081,7 @@ void MatchEngine::performSubstitution(Team team, int pitchIndex, int benchIndex)
 	PlayerData subData = teamData.bench[benchIndex];
 
 	// ==========================================
-	// --- THE FIX: THE ANTI-CLONING VAULT ---
+	// --- THE ANTI-CLONING VAULT ---
 	// ==========================================
 	// DO NOT rely on secondary arrays that might be out of sync.
 	// Ask the physical player object who they are, and pull their exact 
@@ -2086,7 +2090,17 @@ void MatchEngine::performSubstitution(Team team, int pitchIndex, int benchIndex)
 	if (!outgoingData) return; // Safety abort if the player somehow doesn't exist
 
 	// ==========================================
-	// --- THE FIX: BURN THE PLAYER ID ---
+	// --- THE FIX: RECORD APPEARANCE STATS ---
+	// ==========================================
+	int currentMinute = static_cast<int>(m_referee.getMatchMinute());
+	std::string teamIdStr = (team == Team::Home) ? m_matchInfo.getHomeTeamId() : m_matchInfo.getAwayTeamId();
+
+	// Clock out the old player, clock in the new player!
+	m_matchInfo.recordAppearanceEnd(outgoingData->id, currentMinute);
+	m_matchInfo.recordAppearanceStart(subData.id, teamIdStr, currentMinute);
+
+	// ==========================================
+	// --- BURN THE PLAYER ID ---
 	// ==========================================
 	// Record the outgoing player so they can take no further part in the match!
 	if (team == Team::Home) m_homeSubbedOutIds.push_back(outgoingData->id);

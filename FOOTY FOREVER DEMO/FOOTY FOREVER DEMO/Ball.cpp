@@ -3,6 +3,8 @@
 #include "NPCPlayer.h"
 #include "UserPlayer.h"
 #include "PhysicsEngine.h"
+#include "MatchEnvironment.h"
+#include "MatchInfo.h"
 
 Ball::Ball() : sprite(texture)
 {
@@ -367,7 +369,7 @@ void Ball::draw(sf::RenderWindow& window)
     shape.setPosition(groundPos);
 }
 
-void Ball::possess(Player* player)
+void Ball::possess(Player* player, MatchEnvironment& env)
 {
     if (!player) {
         owner = nullptr;
@@ -395,13 +397,27 @@ void Ball::possess(Player* player)
                 if (isPassIntent) {
                     passCompletedEvent = true;
                     isPassIntent = false; // Consume the intent!
+
+                    env.info->recordPass(lastTouch->getId(), true, false);
                 }
 
                 assistCandidate = lastTouch;
             }
             // If an enemy intercepts or touches it...
             else {
-                isPassIntent = false; // Intercepted! The pass failed.
+                if (isPassIntent) {
+                    isPassIntent = false;
+
+                    // HOOK 2: FAILED PASS & INTERCEPTION
+                    env.info->recordPass(lastTouch->getId(), false, false);
+                    env.info->recordInterception(player->getId());
+                }
+                else {
+                    // HOOK 3: DISPOSSESSED & TACKLE WON
+                    // If it wasn't a pass, the last player was dribbling and got robbed!
+                    env.info->recordDribble(lastTouch->getId(), false);
+                    env.info->recordTackle(player->getId(), true);
+                }
                 assistCandidate = nullptr;
             }
         }

@@ -9,6 +9,7 @@
 #include "Pitch.h"
 #include <cmath>
 #include <algorithm>
+#include "MatchInfo.h"
 
 UserController::UserController(UserPlayer& player) : m_userPlayer(player)
 {
@@ -377,7 +378,7 @@ void UserController::update(float dt, MatchEnvironment& env)
 				else {
 					// 3. INSTANT POSSESSION 
 					if (env.ball->getOwner() != &m_userPlayer && dist(m_userPlayer.getPosition(), env.ball->getPosition()) < 70.f) {
-						env.ball->possess(&m_userPlayer);
+						env.ball->possess(&m_userPlayer, env);
 					}
 				}
 
@@ -716,6 +717,16 @@ void UserController::playerShooting(float dt, MatchEnvironment& env)
 					env.ball->lastShotWasOnTarget = m_userPlayer.m_pendingKick.isShotOnTarget;
 					env.ball->lastShooterAssister = m_userPlayer.m_pendingKick.assistCandidate;
 					env.stats->recordShot(m_userPlayer.getTeam(), m_userPlayer.m_pendingKick.isShotOnTarget);
+					env.info->recordShot(m_userPlayer.getId(), m_userPlayer.m_pendingKick.isShotOnTarget);
+					if (env.ball->assistCandidate != nullptr && env.ball->assistCandidate->getTeam() == m_userPlayer.getTeam()) {
+
+						// We log a pass for the assister with the `isKeyPass` flag set to true!
+						// recordPass(playerId, isCompleted, isKeyPass)
+						env.info->recordPass(env.ball->assistCandidate->getId(), true, true);
+
+						// We don't wipe the assistCandidate yet, because if this shot goes in, 
+						// the Referee needs to know who gets the actual Assist!
+					}
 					env.ball->isPassIntent = false;
 				}
 
@@ -757,7 +768,7 @@ void UserController::playerShooting(float dt, MatchEnvironment& env)
 	// Prevent auto-possess during a Set Piece run-up so the ball stays perfectly still!
 	if (!hasPossession && kickCooldownTimer <= 0.f && !m_isSetPieceRunUp) {
 		if (distToBall < 70.f && m_userPlayer.getState() != PlayerState::Tackling && m_userPlayer.getState() != PlayerState::Stunned && m_userPlayer.getState() != PlayerState::Stumbled && m_userPlayer.getState() != PlayerState::FallOver && env.ball->z < 40.f) {
-			env.ball->possess(&m_userPlayer);
+			env.ball->possess(&m_userPlayer, env);
 			hasPossession = true;
 		}
 	}

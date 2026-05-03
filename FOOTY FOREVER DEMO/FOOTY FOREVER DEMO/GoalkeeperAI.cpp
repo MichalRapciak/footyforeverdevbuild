@@ -122,7 +122,7 @@ void GoalkeeperAI::handleGoalkeeping(NPCPlayer& npc, float dt, const TeamAI& tea
 
     if (!env.ball->hasOwner() && distToBall < 90.f && inOwnBoxX && inOwnBoxY && env.ball->z < 200.f && npc.getKickCooldown() <= 0.0f) {
         if (npc.getState() != PlayerState::Stunned && npc.getState() != PlayerState::FallOver) {
-            env.ball->possess(&npc);
+            env.ball->possess(&npc, env);
             npc.setVelocity({ 0.f, 0.f });
             npc.setRotation(90.0f);
             return;
@@ -324,7 +324,7 @@ void GoalkeeperAI::attemptSave(NPCPlayer& npc, float dt, const TeamAI& teamAI, M
 
     float distToBall = PlayerAI::dist(keeperPos, ballPos);
     float activeStat = (distToBall < 600.0f) ? npc.getGkBlocking() : npc.getGkReactions();
-    float maxDiveSpeed = 250.0f + ((activeStat / 100.0f) * 500.0f);
+    float maxDiveSpeed = 150.0f + ((activeStat / 100.0f) * 500.0f);
 
     sf::Vector2f committedTarget = keeperPos;
     float committedVz = 0.f;
@@ -383,7 +383,7 @@ void GoalkeeperAI::attemptSave(NPCPlayer& npc, float dt, const TeamAI& teamAI, M
     float physicalKeeperTTI = std::max(lateralTTI, verticalTTI);
 
     float mentalStat = (npc.getGkReactions() * 0.6f) + (gkAwareness * 0.4f);
-    float hesitationDelay = std::max(0.0f, (90.0f - mentalStat) / 100.0f * 0.4f);
+    float hesitationDelay = std::max(0.0f, (90.0f - mentalStat) / 100.0f * 0.6f);
     float perceivedKeeperTTI = physicalKeeperTTI - hesitationDelay;
 
     float patienceBuffer = std::clamp((ballSpeed - 500.f) / 2000.f * 0.15f, 0.02f, 0.15f);

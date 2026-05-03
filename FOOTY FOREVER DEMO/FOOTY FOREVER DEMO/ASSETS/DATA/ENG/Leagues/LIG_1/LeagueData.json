@@ -1,0 +1,13 @@
+{
+    "LIG_1": {
+        "country_code": "ENG",
+        "name": "Premier League",
+        "teams": [
+            "TEAM_101",
+            "TEAM_103",
+            "TEAM_105",
+            "TEAM_107"
+        ],
+        "tier": 1
+    }
+}

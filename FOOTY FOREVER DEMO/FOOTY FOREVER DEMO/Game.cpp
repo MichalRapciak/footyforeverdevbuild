@@ -236,7 +236,7 @@ void Game::update(sf::Time t_deltaTime)
 				}
 				else {
 					// Standard matchday, don't pass a comp ID
-					m_database.processMatchResult(result);
+					m_database.processMatchResult(result, "");
 					currentState = GameState::MainMenu;
 				}
 			}

@@ -3,6 +3,7 @@
 #include "Entity.h"
 #include "Player.h"
 
+struct MatchEnvironment;
 class UserPlayer;
 
 class Ball : public Entity
@@ -15,7 +16,7 @@ public:
     void updateFreePhysics(float dt);
     void draw(sf::RenderWindow& window);
 
-    void possess(Player* player);
+    void possess(Player* player, MatchEnvironment& env);
     void release();
     void shoot(const sf::Vector2f& direction, float power, float kickSpin, float v0z, float backspin);
 

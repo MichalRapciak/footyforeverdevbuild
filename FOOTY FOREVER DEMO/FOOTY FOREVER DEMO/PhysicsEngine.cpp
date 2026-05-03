@@ -9,6 +9,7 @@
 #include "AnimationServer.h"
 #include "SoundManager.h"
 #include "MatchStatistics.h"
+#include "MatchInfo.h"
 #include "MatchEnvironment.h"
 
 // ==========================================
@@ -618,14 +619,14 @@ void PhysicsEngine::resolveGoalkeeperBallCollisions(MatchEnvironment& env) {
             if (gkBox.contains(env.ball->getPosition()) && zOverlap) {
                 env.ball->lastTouch = p;
 
-                resolveGoalkeeperSave(*p, *env.ball, diveAnim);
+                resolveGoalkeeperSave(*p, *env.ball, diveAnim, env);
                 return;
             }
         }
     }
 }
 
-void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball, const std::string& diveAnim) {
+void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball, const std::string& diveAnim, MatchEnvironment& env) {
     sf::Vector2f incomingVel = ball.velocity;
     float ballSpeed = std::sqrt(incomingVel.x * incomingVel.x + incomingVel.y * incomingVel.y + ball.vz * ball.vz);
 
@@ -650,7 +651,7 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball, const std:
         // ==========================================
         keeper.setRotation(90.f);
 
-        ball.possess(&keeper);
+        ball.possess(&keeper, env);
     }
     else {
         // --- OUTCOME: PARRY / REBOUND ---
@@ -690,6 +691,18 @@ void PhysicsEngine::resolveGoalkeeperSave(Player& keeper, Ball& ball, const std:
         // --- THE FIX: STAND UP AFTER SAVE ---
         // ==========================================
         keeper.setRotation(90.f);
+    }
+    // ==========================================
+    // --- HOOK: GOALKEEPER SAVES ---
+    // ==========================================
+    // Only credit a save if the ball was actually shot by an opponent!
+    if (env.ball->lastShooter != nullptr && env.ball->lastShooter->getTeam() != keeper.getTeam()) {
+
+        env.info->recordSave(keeper.getId());
+
+        // Wipe the shooter memory so the GK doesn't get 5 saves 
+        // if the ball bounces against their chest a few times!
+        env.ball->lastShooter = nullptr;
     }
 }
 
@@ -736,7 +749,7 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(MatchEnvironment& env)
                                 if (impactDir.x == 0 && impactDir.y == 0) impactDir.x = 1.f;
                                 float impactForce = isSameTeam ? 600.f : 800.f;
                                 victim->triggerFallOver(normalize(impactDir) * (impactForce));
-                                victim->checkInjury(impactForce);
+                                victim->checkInjury(impactForce, env);
                                 tackler->resetTackleCooldown();
                                 tackler->setState(PlayerState::Normal);
                                 tackler->setRotation(90.f);
@@ -879,11 +892,11 @@ void PhysicsEngine::resolvePlayerPlayerCollisions(MatchEnvironment& env)
 
                     if (deltaV2 > thresh2 * 8.0f) {
                         p2->triggerFallOver(normalize(p2->getPosition() - p1->getPosition()) * 600.f);
-                        p2->checkInjury(deltaV2); // THE FIX: Big collision impact!
+                        p2->checkInjury(deltaV2, env); // THE FIX: Big collision impact!
                     }
                     if (deltaV1 > thresh1 * 8.0f) {
                         p1->triggerFallOver(normalize(p1->getPosition() - p2->getPosition()) * 600.f);
-                        p1->checkInjury(deltaV1); // THE FIX: Big collision impact!
+                        p1->checkInjury(deltaV1, env); // THE FIX: Big collision impact!
                     }
                 }
             }

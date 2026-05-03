@@ -5,6 +5,7 @@
 #include "SoundManager.h"
 #include "Ball.h"
 #include "MatchState.h"
+#include "MatchInfo.h"
 #include "Pitch.h"
 
 // 1. Receiver Orientation
@@ -433,6 +434,7 @@ sf::Vector2f PossessionAI::handlePossession(NPCPlayer& npc, UserPlayer* user, fl
                 float clearSpin = ((rand() % 100) / 100.f - 0.5f) * 10.f;
 
                 env.stats->recordPassAttempt(npc.getTeam());
+                env.info->recordClearance(npc.getId());
                 env.ball->shoot(clearDir, clearPower, clearSpin, clearVz, 30.f);
 
                 float kickVol = std::clamp(0.0f + (clearPower / 100.f) * 40.f, 10.f, 100.f);
@@ -1524,7 +1526,7 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, sf::Vector2f aimDir, bool 
             float touchError = 1.0f - bcNorm;
 
             if (bcNorm > 0.85f && (rand() % 100 < 80)) {
-                env.ball->possess(&npc);
+                env.ball->possess(&npc, env);
             }
             else {
                 float knockSpeed = 15.f + (touchError * 140.f);
@@ -1540,7 +1542,6 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, sf::Vector2f aimDir, bool 
                     baseDir.x * std::cos(rad) - baseDir.y * std::sin(rad),
                     baseDir.x * std::sin(rad) + baseDir.y * std::cos(rad)
                 );
-
                 env.ball->shoot(knockDir, knockSpeed, 0.f, bounceZ, 0.f);
             }
             npc.resetKickCooldown();
@@ -1584,6 +1585,7 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, sf::Vector2f aimDir, bool 
         }
         else if (isClearance) {
             basePower = 55.f + (activeStat * 0.3f);
+            env.info->recordClearance(npc.getId());
             vzOut = 450.f;
         }
         else {
@@ -1633,6 +1635,16 @@ bool PossessionAI::tryNPCAerialStrike(NPCPlayer& npc, sf::Vector2f aimDir, bool 
                     onTarget = true;
                 }
             }
+        }
+        env.info->recordShot(npc.getId(), onTarget);
+        if (env.ball->assistCandidate != nullptr && env.ball->assistCandidate->getTeam() == npc.getTeam()) {
+
+            // We log a pass for the assister with the `isKeyPass` flag set to true!
+            // recordPass(playerId, isCompleted, isKeyPass)
+            env.info->recordPass(env.ball->assistCandidate->getId(), true, true);
+
+            // We don't wipe the assistCandidate yet, because if this shot goes in, 
+            // the Referee needs to know who gets the actual Assist!
         }
         env.stats->recordShot(npc.getTeam(), onTarget);
     }

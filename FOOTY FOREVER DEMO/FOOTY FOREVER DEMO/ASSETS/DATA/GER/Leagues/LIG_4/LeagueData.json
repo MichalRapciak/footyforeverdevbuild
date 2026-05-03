@@ -1,0 +1,10 @@
+{
+    "LIG_4": {
+        "country_code": "GER",
+        "name": "Bundesliga",
+        "teams": [
+            "TEAM_110"
+        ],
+        "tier": 1
+    }
+}

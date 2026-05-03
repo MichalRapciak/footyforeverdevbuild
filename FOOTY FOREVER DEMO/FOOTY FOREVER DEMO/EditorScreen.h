@@ -21,6 +21,7 @@ private:
     // --- UI Panel Helpers ---
     void drawPlayerTab(float availableHeight);
     void drawTeamTab(float availableHeight);
+    void drawLeagueTab(float availableHeight);
 
     // Team Sub-Tabs
     void drawTeamGeneralTab(TeamData* t);
@@ -45,6 +46,7 @@ private:
     GameDatabase* m_db;
     std::string m_selectedPlayerId;
     std::string m_selectedTeamId;
+    std::string m_selectedLeagueId;
     sf::Sprite bg_s;
     sf::Texture bg_txt;
 };

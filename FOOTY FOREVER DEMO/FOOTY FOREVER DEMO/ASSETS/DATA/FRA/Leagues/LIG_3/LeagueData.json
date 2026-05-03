@@ -1,0 +1,10 @@
+{
+    "LIG_3": {
+        "country_code": "FRA",
+        "name": "Ligue 1",
+        "teams": [
+            "TEAM_111"
+        ],
+        "tier": 1
+    }
+}

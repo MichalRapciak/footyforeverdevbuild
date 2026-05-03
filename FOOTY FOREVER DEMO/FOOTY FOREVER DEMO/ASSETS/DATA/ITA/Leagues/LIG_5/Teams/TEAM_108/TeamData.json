@@ -1,0 +1,54 @@
+{
+    "TEAM_108": {
+        "badge_id": "Badge_Default",
+        "country_code": "ITA",
+        "full_name": "AC Milan",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#CE1D1D",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#262525",
+                    "texture_id": "shirt_stripes"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#2B2B2B",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#DC2020",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "league_id": "LIG_5",
+        "manager_name": "Coach",
+        "roster": [],
+        "short_name": "ACM",
+        "stadium_name": "San Siro",
+        "tactics": {
+            "attacking_speed": 51,
+            "attacking_width": 45,
+            "captain_id": "",
+            "defensive_depth": 72,
+            "formation": "5-3-2",
+            "free_kick_taker_id": "",
+            "left_corner_taker_id": "",
+            "passing_length": 41,
+            "passing_speed": 27,
+            "penalty_taker_id": "",
+            "positional_freedom": 27,
+            "pressing_intensity": 46,
+            "right_corner_taker_id": "",
+            "starting_xi": {}
+        },
+        "team_chemistry": 100.0,
+        "ui_color": "#FF0000"
+    }
+}

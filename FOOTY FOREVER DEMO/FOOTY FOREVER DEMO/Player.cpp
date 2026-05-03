@@ -4,6 +4,9 @@
 #include "GameDatabase.h" 
 #include "PlaystyleDatabase.h"
 #include "AnimationServer.h"
+#include "MatchEnvironment.h"
+#include "MatchInfo.h"
+#include "MatchReferee.h"
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -625,11 +628,11 @@ bool Player::executeShoulderBarge(Player* target) {
     return true;
 }
 
-void Player::checkInjury(float impactForce) {
+void Player::checkInjury(float impactForce, MatchEnvironment& env) {
     // If they are already seriously injured, don't overwrite it with a minor knock
     if (isInjured && currentInjurySeverity == InjurySeverity::Severe) return;
 
-    float resNorm = getInjuryResistance() / 100.0f;
+    float resNorm = getInjuryResistance() / 5.0f;
     float stamNorm = getCurrentStamina() / getMaxStamina();
 
     // 1. Normalize the impact force (assuming 1000.f is a massive, bone-crunching tackle)
@@ -652,11 +655,11 @@ void Player::checkInjury(float impactForce) {
     float roll = (rand() % 10000) / 100.f;
 
     if (roll < injuryRiskPercent) {
-        applyRandomInjury(impactNorm);
+        applyRandomInjury(impactNorm, env);
     }
 }
 
-void Player::applyRandomInjury(float impactNorm) {
+void Player::applyRandomInjury(float impactNorm, MatchEnvironment& env) {
     std::vector<InjuryType> validInjuries;
 
     // Filter injuries based on the tackle impact. 
@@ -677,16 +680,21 @@ void Player::applyRandomInjury(float impactNorm) {
     currentInjury = selected.name;
     currentInjurySeverity = selected.severity;
 
-    // Calculate randomized duration within the bounds
     int durationRange = selected.maxDays - selected.minDays;
     injuryDaysRemaining = selected.minDays + (durationRange > 0 ? (rand() % durationRange) : 0);
+
+    // HOOK IT!
+    std::string teamId = (m_team == Team::Home) ? env.info->getHomeTeamId() : env.info->getAwayTeamId();
+    int currentMinute = static_cast<int>(env.referee->getMatchMinute());
+
+    // THE FIX: Pass the exact injury string and calculated days!
+    env.info->recordInjury(getId(), teamId, currentMinute, currentInjurySeverity, currentInjury, injuryDaysRemaining);
 
     // ==========================================
         // --- THE SEVERE INJURY TRIGGER ---
         // ==========================================
     if (selected.severity == InjurySeverity::Severe) {
         // 1. Play the horrific scream audio
-
 
         // 2. Lock them in the injured state so they writhe on the floor
         setState(PlayerState::Injured);

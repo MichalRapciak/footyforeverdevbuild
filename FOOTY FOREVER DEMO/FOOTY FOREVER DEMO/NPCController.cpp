@@ -12,6 +12,7 @@
 #include "PositioningAI.h"
 #include "GoalkeeperAI.h"
 #include "SpatialGrid.h"
+#include "MatchInfo.h"
 #include "MatchStatistics.h"
 #include "SoundManager.h" // Need this to call playRandomSound
 #include <cmath>
@@ -60,6 +61,16 @@ void NPCController::update(NPCPlayer& npc, UserPlayer* userPlayer, float dt, Pla
                     env.ball->lastShotWasOnTarget = npc.m_pendingKick.isShotOnTarget;
                     env.ball->lastShooterAssister = npc.m_pendingKick.assistCandidate;
                     env.stats->recordShot(npc.getTeam(), npc.m_pendingKick.isShotOnTarget);
+                    if (env.ball->assistCandidate != nullptr && env.ball->assistCandidate->getTeam() == npc.getTeam()) {
+
+                        // We log a pass for the assister with the `isKeyPass` flag set to true!
+                        // recordPass(playerId, isCompleted, isKeyPass)
+                        env.info->recordPass(env.ball->assistCandidate->getId(), true, true);
+
+                        // We don't wipe the assistCandidate yet, because if this shot goes in, 
+                        // the Referee needs to know who gets the actual Assist!
+                    }
+                    env.info->recordShot(npc.getId(), npc.m_pendingKick.isShotOnTarget);
                     env.ball->isPassIntent = false;
                 }
 
@@ -298,7 +309,7 @@ void NPCController::handleOutfieldActions(NPCPlayer& npc, UserPlayer* user, floa
                 npc.getState() != PlayerState::Stumbled && npc.getState() != PlayerState::FallOver &&
                 env.ball->z < 40.f && npc.getKickCooldown() <= 0.0f)
             {
-                env.ball->possess(&npc);
+                env.ball->possess(&npc, env);
             }
         }
 
@@ -395,27 +406,27 @@ void NPCController::processDefensiveActions(NPCPlayer& npc, float dt, const Tact
     if (inOpponentHalf) {
         if (isTackleFromBehind) safeToTackle = false;
         else if (ballExposedDist < requiredExposureOppHalf) {
-            float aggThreshold = isTackleFromFront ? 15.f : 60.f;
+            float aggThreshold = isTackleFromFront ? 10.f : 45.f;
             if (effectiveAggression < aggThreshold) safeToTackle = false;
         }
         else safeToTackle = false;
     }
     else if (inOwnBox) {
         if (isTackleFromBehind) {
-            if ((rand() % 100) > (effectiveAggression * 0.5f)) safeToTackle = false;
+            if ((rand() % 100) > (effectiveAggression * 0.2f)) safeToTackle = false;
         }
         else if (ballExposedDist < requiredExposureOwnBox) {
-            float aggThreshold = isTackleFromFront ? 5.f : 30.f;
+            float aggThreshold = isTackleFromFront ? 2.5f : 10.f;
             if (effectiveAggression < aggThreshold) safeToTackle = false;
         }
         else safeToTackle = false;
     }
     else {
         if (isTackleFromBehind) {
-            if ((rand() % 100) > (effectiveAggression * 0.7f)) safeToTackle = false;
+            if ((rand() % 100) > (effectiveAggression * 0.4f)) safeToTackle = false;
         }
         else if (ballExposedDist < requiredExposureOpen) {
-            float aggThreshold = isTackleFromFront ? 10.f : 45.f;
+            float aggThreshold = isTackleFromFront ? 5.f : 25.f;
             if (effectiveAggression < aggThreshold) safeToTackle = false;
         }
         else safeToTackle = false;

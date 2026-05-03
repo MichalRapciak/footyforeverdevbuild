@@ -1,0 +1,50 @@
+{
+    "TEAM_107": {
+        "badge_id": "Badge_Default",
+        "country_code": "ENG",
+        "full_name": "Chelsea FC",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#2D37BD",
+                    "texture_id": "shirt_base"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#2D37BD",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#2D37BD",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "league_id": "LIG_1",
+        "manager_name": "Coach",
+        "roster": [],
+        "short_name": "CFC",
+        "stadium_name": "Local Park",
+        "tactics": {
+            "attacking_speed": 46,
+            "attacking_width": 60,
+            "captain_id": "",
+            "defensive_depth": 68,
+            "formation": "4-2-3-1",
+            "free_kick_taker_id": "",
+            "left_corner_taker_id": "",
+            "passing_length": 58,
+            "passing_speed": 56,
+            "penalty_taker_id": "",
+            "positional_freedom": 40,
+            "pressing_intensity": 59,
+            "right_corner_taker_id": "",
+            "starting_xi": {}
+        },
+        "team_chemistry": 73.0,
+        "ui_color": "#1A1AA5"
+    }
+}

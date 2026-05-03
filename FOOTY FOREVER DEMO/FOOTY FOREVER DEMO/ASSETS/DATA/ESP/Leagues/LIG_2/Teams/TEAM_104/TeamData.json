@@ -1,0 +1,82 @@
+{
+    "TEAM_104": {
+        "badge_id": "Badge_Default",
+        "country_code": "ESP",
+        "full_name": "FC Barcelona",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#243D6A",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#A90947",
+                    "texture_id": "shirt_stripes"
+                },
+                {
+                    "color": "#243D6A",
+                    "texture_id": "shirt_collar"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#243D6A",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#243D6A",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "league_id": "LIG_2",
+        "manager_name": "Hansi Flick",
+        "roster": [
+            "PLY_1024",
+            "PLY_1025",
+            "PLY_1026",
+            "PLY_1027",
+            "PLY_1028",
+            "PLY_1029",
+            "PLY_1030",
+            "PLY_1031",
+            "PLY_1032",
+            "PLY_1033",
+            "PLY_1034"
+        ],
+        "short_name": "BAR",
+        "stadium_name": "Camp Nou",
+        "tactics": {
+            "attacking_speed": 41,
+            "attacking_width": 72,
+            "captain_id": "PLY_1026",
+            "defensive_depth": 14,
+            "formation": "4-3-3",
+            "free_kick_taker_id": "PLY_1024",
+            "left_corner_taker_id": "PLY_1026",
+            "passing_length": 20,
+            "passing_speed": 42,
+            "penalty_taker_id": "PLY_1025",
+            "positional_freedom": 69,
+            "pressing_intensity": 70,
+            "right_corner_taker_id": "PLY_1026",
+            "starting_xi": {
+                "0": "PLY_1034",
+                "1": "PLY_1031",
+                "10": "PLY_1026",
+                "2": "PLY_1033",
+                "3": "PLY_1032",
+                "4": "PLY_1030",
+                "5": "PLY_1027",
+                "6": "PLY_1028",
+                "7": "PLY_1029",
+                "8": "PLY_1024",
+                "9": "PLY_1025"
+            }
+        },
+        "team_chemistry": 91.0,
+        "ui_color": "#9C3FC3"
+    }
+}

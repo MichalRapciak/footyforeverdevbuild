@@ -1,0 +1,10 @@
+{
+    "LIG_6": {
+        "country_code": "IRL",
+        "name": "KDFL Division 1",
+        "teams": [
+            "TEAM_102"
+        ],
+        "tier": 9
+    }
+}

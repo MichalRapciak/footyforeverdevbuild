@@ -792,11 +792,12 @@ void MatchReferee::awardFoul(FoulEvent foul, Player* victim, MatchEnvironment& e
     env.stats->recordFoul(foul.offender->getTeam());
     env.sound->playSound("ref_foul", 100.f);
 
-    int currentFouls = foul.offender->incrementFouls();
+    // ==========================================
+    // --- HOOK 4: INDIVIDUAL FOUL COMMITTED ---
+    // ==========================================
+    env.info->recordFoul(foul.offender->getId());
 
-    // ==========================================
-    // --- THE FIX: RECORD CARDS IN MATCH INFO ---
-    // ==========================================
+    int currentFouls = foul.offender->incrementFouls();
     int currentMinute = static_cast<int>(m_matchMinute);
     std::string teamId = isHomeDefending ? env.info->getHomeTeamId() : env.info->getAwayTeamId();
 

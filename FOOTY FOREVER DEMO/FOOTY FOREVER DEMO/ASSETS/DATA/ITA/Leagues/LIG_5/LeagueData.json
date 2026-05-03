@@ -1,0 +1,12 @@
+{
+    "LIG_5": {
+        "country_code": "ITA",
+        "name": "Serie A",
+        "teams": [
+            "TEAM_108",
+            "TEAM_109",
+            "TEAM_112"
+        ],
+        "tier": 1
+    }
+}

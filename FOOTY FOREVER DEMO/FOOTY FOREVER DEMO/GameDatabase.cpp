@@ -443,16 +443,22 @@
         std::cout << "Successfully initialized " << countries.size() << " default countries!\n";
     }
 
+    LeagueData* GameDatabase::getLeague(const std::string& id) {
+        auto it = leagues.find(id);
+        if (it != leagues.end()) return &(it->second);
+        return nullptr;
+    }
+
+    // ==========================================
+    // --- UPDATED LOADING LOGIC ---
+    // ==========================================
     void GameDatabase::loadDatabase(const std::string& baseDir) {
         players.clear();
         teams.clear();
+        leagues.clear();
         initializeDefaultCountries();
-        if (!fs::exists(baseDir)) {
-            std::cerr << "Database directory does not exist: " << baseDir << "\n";
-            return;
-        }
+        if (!fs::exists(baseDir)) return;
 
-        // Recursively scan every folder in the base directory
         for (const auto& entry : fs::recursive_directory_iterator(baseDir)) {
             if (entry.is_regular_file() && entry.path().extension() == ".json") {
                 std::ifstream file(entry.path());
@@ -462,13 +468,27 @@
                 try { file >> j; }
                 catch (...) { continue; }
 
-                // Is it a Team file or a Player file?
-                if (entry.path().filename() == "TeamData.json") {
-                    // --- PARSE TEAM ---
+                // --- PARSE LEAGUES ---
+                if (entry.path().filename() == "LeagueData.json") {
+                    for (auto& [id, lgData] : j.items()) {
+                        LeagueData l;
+                        l.id = id;
+                        l.name = lgData.value("name", "Unknown League");
+                        l.countryCode = lgData.value("country_code", "UNK");
+                        l.tier = lgData.value("tier", 1);
+                        if (lgData.contains("teams")) {
+                            for (const auto& tId : lgData["teams"]) l.teamIds.push_back(tId.get<std::string>());
+                        }
+                        leagues[id] = l;
+                    }
+                }
+                // --- PARSE TEAMS ---
+                else if (entry.path().filename() == "TeamData.json") {
                     for (auto& [id, teamData] : j.items()) {
                         TeamData t;
                         t.id = id;
                         t.countryCode = teamData.value("country_code", "ENG");
+                        t.leagueId = teamData.value("league_id", ""); // Load League ID!
                         t.fullName = teamData.value("full_name", "Unknown Team");
                         t.shortName = teamData.value("short_name", "UNK");
                         t.teamChemistry = teamData.value("team_chemistry", 100.f);
@@ -477,9 +497,6 @@
                         t.managerName = teamData.value("manager_name", "Unknown Manager");
                         t.uiColor = hexToColor(teamData.value("ui_color", "#FFFFFF"));
 
-                        // ==========================================
-                        // --- THE FIX: PARSE THE INFINITE ARRAYS ---
-                        // ==========================================
                         if (teamData.contains("kits")) {
                             auto& kits = teamData["kits"];
                             if (kits.contains("shirt"))  t.shirtLayers = parseKitLayers(kits["shirt"]);
@@ -492,6 +509,7 @@
                                 t.rosterPlayerIds.push_back(playerId.get<std::string>());
                             }
                         }
+
                         if (teamData.contains("tactics")) {
                             auto& tac = teamData["tactics"];
                             t.defaultTactics.formationName = tac.value("formation", "4-3-3");
@@ -502,6 +520,7 @@
                             t.defaultTactics.positionalFreedom = tac.value("positional_freedom", 50);
                             t.defaultTactics.passingSpeed = tac.value("passing_speed", 50);
                             t.defaultTactics.attackingSpeed = tac.value("attacking_speed", 50);
+
                             t.defaultTactics.captainId = tac.value("captain_id", "");
                             t.defaultTactics.penaltyTakerId = tac.value("penalty_taker_id", "");
                             t.defaultTactics.leftCornerTakerId = tac.value("left_corner_taker_id", "");
@@ -617,8 +636,24 @@
                 }
             }
         }
-        std::cout << "Loaded " << teams.size() << " teams and " << players.size() << " players.\n";
-    }
+        for (auto& [tId, t] : teams) {
+            if (!t.leagueId.empty()) {
+                LeagueData* l = getLeague(t.leagueId);
+                if (l) {
+                    // If the team isn't in the league's roster yet, add it
+                    if (std::find(l->teamIds.begin(), l->teamIds.end(), tId) == l->teamIds.end()) {
+                        l->teamIds.push_back(tId);
+                    }
+                }
+                else {
+                    // League doesn't exist, clear the ID so it becomes an Unassigned Team
+                    t.leagueId = "";
+                }
+            }
+        }
+
+        std::cout << "Loaded " << leagues.size() << " leagues, " << teams.size() << " teams, and " << players.size() << " players.\n";
+}
 
     void GameDatabase::deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId) {
         std::string folder;
@@ -636,14 +671,30 @@
     }
 
     void GameDatabase::saveDatabase(const std::string& baseDir) {
-        if (fs::exists(baseDir)) {
-            fs::remove_all(baseDir);
-        }
+        if (fs::exists(baseDir)) fs::remove_all(baseDir);
         fs::create_directories(baseDir);
 
+        for (const auto& [id, l] : leagues) saveLeague(id, baseDir);
         for (const auto& [id, t] : teams) saveTeam(id, baseDir);
         for (const auto& [id, p] : players) savePlayer(id, baseDir);
-        std::cout << "Successfully saved full database to " << baseDir << "\n";
+    }
+
+    void GameDatabase::saveLeague(const std::string& id, const std::string& baseDir) {
+        LeagueData* l = getLeague(id);
+        if (!l) return;
+
+        std::string cCode = l->countryCode.empty() ? "UNK" : l->countryCode;
+        std::string folder = baseDir + "/" + cCode + "/Leagues/" + id + "/";
+        fs::create_directories(folder);
+
+        json j;
+        j[id]["name"] = l->name;
+        j[id]["country_code"] = l->countryCode;
+        j[id]["tier"] = l->tier;
+        j[id]["teams"] = l->teamIds;
+
+        std::ofstream file(folder + "LeagueData.json");
+        if (file.is_open()) file << j.dump(4);
     }
 
     void GameDatabase::savePlayer(const std::string& id, const std::string& baseDir) {
@@ -657,7 +708,10 @@
         else {
             TeamData* t = getTeam(p->teamId);
             std::string cCode = (t && !t->countryCode.empty()) ? t->countryCode : "UNK";
-            folder = baseDir + "/" + cCode + "/Teams/" + p->teamId + "/Players/";
+            std::string lCode = (t && !t->leagueId.empty()) ? t->leagueId : "NoLeague";
+
+            // NEW PATH TIERING
+            folder = baseDir + "/" + cCode + "/Leagues/" + lCode + "/Teams/" + p->teamId + "/Players/";
         }
 
         fs::create_directories(folder);
@@ -738,10 +792,14 @@
         if (!t) return;
 
         std::string cCode = t->countryCode.empty() ? "UNK" : t->countryCode;
-        std::string folder = baseDir + "/" + cCode + "/Teams/" + id + "/";
+        std::string lCode = t->leagueId.empty() ? "NoLeague" : t->leagueId;
+
+        // NEW PATH TIERING
+        std::string folder = baseDir + "/" + cCode + "/Leagues/" + lCode + "/Teams/" + id + "/";
         fs::create_directories(folder);
 
         json j;
+        j[id]["league_id"] = t->leagueId;
         j[id]["full_name"] = t->fullName;
         j[id]["short_name"] = t->shortName;
         j[id]["country_code"] = t->countryCode;
@@ -814,6 +872,8 @@
 
         CompetitionData* comp = getCompetition(compId);
 
+
+
         // 1. Process all Goals & Assists
         for (const auto& goal : info.getGoals()) {
             // We don't credit own goals to a player's total tally
@@ -844,6 +904,41 @@
             if (minutesPlayed > 0 && comp) {
                 comp->playerStats[app.playerId].appearances++;
                 comp->playerStats[app.playerId].minutesPlayed += minutesPlayed;
+            }
+        }
+
+        // ==========================================
+        // --- THE FIX: PROCESS ADVANCED STATS & RATINGS ---
+        // ==========================================
+        if (comp) {
+            for (const auto& [pId, pStats] : info.getPlayerStats()) {
+
+                // This auto-creates the stat block if it's their first match!
+                PlayerCompStats& compStats = comp->playerStats[pId];
+
+                compStats.passesAttempted += pStats.passesAttempted;
+                compStats.passesCompleted += pStats.passesCompleted;
+                compStats.tacklesWon += pStats.tacklesWon;
+                compStats.interceptions += pStats.interceptions;
+                compStats.saves += pStats.saves;
+
+                // Only add to the rating average if they played enough to get one
+                if (pStats.matchRating > 1.0f) { // Assuming 0.0 means unrated
+                    compStats.totalMatchRating += pStats.matchRating;
+                    compStats.matchesRated++;
+                }
+            }
+        }
+
+        for (const auto& inj : info.getInjuries()) {
+            PlayerData* p = getPlayer(inj.playerId);
+            if (p) {
+                p->isInjured = true;
+                p->currentInjurySeverity = inj.severity;
+
+                // THE FIX: Directly apply the exact injury from the simulation!
+                p->currentInjury = inj.injuryName;
+                p->injuryDaysRemaining = inj.durationDays;
             }
         }
 

@@ -57,7 +57,7 @@ public:
     static void resolveGoalkeeperBallCollisions(MatchEnvironment& env);
 
     // The mathematical resolution of the ball hitting the keeper's gloves
-    static void resolveGoalkeeperSave(Player& keeper, Ball& ball, const std::string& diveAnim);
+    static void resolveGoalkeeperSave(Player& keeper, Ball& ball, const std::string& diveAnim, MatchEnvironment& env);
 
     // ==========================================
     // 3. COLLISION PHYSICS

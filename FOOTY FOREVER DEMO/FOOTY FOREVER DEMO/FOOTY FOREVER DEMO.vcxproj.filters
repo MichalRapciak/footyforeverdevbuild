@@ -195,6 +195,12 @@
     <ClCompile Include="MatchInfo.cpp">
       <Filter>Resource Files\InfoDump</Filter>
     </ClCompile>
+    <ClCompile Include="QuickSimEngine.cpp">
+      <Filter>Resource Files\Engines</Filter>
+    </ClCompile>
+    <ClCompile Include="GameCalendar.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h">
@@ -379,6 +385,12 @@
     </ClInclude>
     <ClInclude Include="MatchEnvironment.h">
       <Filter>Header Files\InfoDump</Filter>
+    </ClInclude>
+    <ClInclude Include="QuickSimEngine.h">
+      <Filter>Header Files\Engines</Filter>
+    </ClInclude>
+    <ClInclude Include="GameCalendar.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

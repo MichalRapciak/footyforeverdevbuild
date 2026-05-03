@@ -15,6 +15,18 @@ struct MatchGoalEvent {
     bool isPenalty = false;
 };
 
+
+#include "InjuryData.h"
+
+struct MatchInjuryEvent {
+    std::string playerId;
+    std::string teamId;
+    int matchMinute;
+    InjurySeverity severity;
+    std::string injuryName; // <-- NEW
+    int durationDays;
+};
+
 struct MatchCardEvent {
     std::string playerId;
     std::string teamId;
@@ -30,6 +42,10 @@ struct MatchAppearanceEvent {
 };
 
 struct PlayerMatchStats {
+    int goals = 0;
+    int assists = 0;
+
+
     int passesAttempted = 0;
     int passesCompleted = 0;
     int keyPasses = 0;
@@ -52,6 +68,8 @@ struct PlayerMatchStats {
     float matchRating = 6.0f;
 };
 
+class Player;
+
 // ==========================================
 // --- MATCH INFO CLASS ---
 // ==========================================
@@ -72,6 +90,11 @@ public:
     void recordAppearanceStart(const std::string& playerId, const std::string& teamId, int minute = 0);
     void recordAppearanceEnd(const std::string& playerId, int minute);
 
+    void calculateFinalRatings(const std::vector<Player*>& allPlayers);
+
+    void recordInjury(const std::string& playerId, const std::string& teamId, int minute, InjurySeverity severity, const std::string& injuryName, int durationDays);
+    const std::vector<MatchInjuryEvent>& getInjuries() const { return m_injuries; }
+
     // ==========================================
     // --- NEW: 4. RATING EVENT LOGGING ---
     // ==========================================
@@ -85,6 +108,7 @@ public:
     void recordDribble(const std::string& playerId, bool won);
 
     // 5. Final Score / State Accessors
+    void setScore(int home, int away) { m_homeScore = home; m_awayScore = away; }
     int getHomeScore() const { return m_homeScore; }
     int getAwayScore() const { return m_awayScore; }
     const std::string& getHomeTeamId() const { return m_homeTeamId; }
@@ -110,6 +134,8 @@ private:
     std::vector<MatchGoalEvent> m_goals;
     std::vector<MatchCardEvent> m_cards;
     std::vector<MatchAppearanceEvent> m_appearances;
+
+    std::vector<MatchInjuryEvent> m_injuries;
 
     // --- NEW: The Data Dictionary ---
     std::map<std::string, PlayerMatchStats> m_playerStats;

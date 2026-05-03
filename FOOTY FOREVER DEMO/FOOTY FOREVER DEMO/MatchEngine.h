@@ -47,7 +47,7 @@ class MatchEngine
 		Player* findFirstResponder(const std::vector<Player*>& t_team);
 		UserPlayer* getUserPlayer() { return m_userPlayer.get(); }
 
-		void executePlayerSwitch(Player* targetNPC);
+		void executePlayerSwitch(Player* targetNPC, MatchEnvironment& env);
 
 		void beginMatchSetup(GameDatabase& db, const std::string& homeTeamId, const std::string& awayTeamId, const std::string& userPlayerId);
 		float loadNextPlayer(); // Returns progress from 0.0 to 1.0

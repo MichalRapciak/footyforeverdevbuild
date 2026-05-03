@@ -1,0 +1,78 @@
+{
+    "TEAM_110": {
+        "badge_id": "Badge_Default",
+        "country_code": "GER",
+        "full_name": "Bayern Munich",
+        "kits": {
+            "shirt": [
+                {
+                    "color": "#AC0028",
+                    "texture_id": "shirt_base"
+                },
+                {
+                    "color": "#FFFFFF",
+                    "texture_id": "shirt_stripes"
+                }
+            ],
+            "shorts": [
+                {
+                    "color": "#AD0000",
+                    "texture_id": "shorts_base"
+                }
+            ],
+            "socks": [
+                {
+                    "color": "#A70000",
+                    "texture_id": "socks_base"
+                }
+            ]
+        },
+        "league_id": "LIG_4",
+        "manager_name": "V. Kompany",
+        "roster": [
+            "PLY_1070",
+            "PLY_1071",
+            "PLY_1072",
+            "PLY_1073",
+            "PLY_1074",
+            "PLY_1075",
+            "PLY_1077",
+            "PLY_1078",
+            "PLY_1076",
+            "PLY_1079",
+            "PLY_1080"
+        ],
+        "short_name": "FCB",
+        "stadium_name": "Allianz Arena",
+        "tactics": {
+            "attacking_speed": 56,
+            "attacking_width": 72,
+            "captain_id": "PLY_1079",
+            "defensive_depth": 39,
+            "formation": "4-2-3-1",
+            "free_kick_taker_id": "PLY_1071",
+            "left_corner_taker_id": "PLY_1072",
+            "passing_length": 36,
+            "passing_speed": 24,
+            "penalty_taker_id": "PLY_1070",
+            "positional_freedom": 82,
+            "pressing_intensity": 76,
+            "right_corner_taker_id": "PLY_1071",
+            "starting_xi": {
+                "0": "PLY_1079",
+                "1": "PLY_1080",
+                "10": "PLY_1070",
+                "2": "PLY_1076",
+                "3": "PLY_1078",
+                "4": "PLY_1077",
+                "5": "PLY_1074",
+                "6": "PLY_1075",
+                "7": "PLY_1071",
+                "8": "PLY_1073",
+                "9": "PLY_1072"
+            }
+        },
+        "team_chemistry": 100.0,
+        "ui_color": "#FF5C5C"
+    }
+}

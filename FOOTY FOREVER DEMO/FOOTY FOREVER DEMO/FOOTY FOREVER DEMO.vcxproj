@@ -139,6 +139,7 @@
     <ClCompile Include="Ball.cpp" />
     <ClCompile Include="EditorScreen.cpp" />
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="GameCalendar.cpp" />
     <ClCompile Include="GameDatabase.cpp" />
     <ClCompile Include="GamemodeSelect.cpp" />
     <ClCompile Include="MatchEngine.cpp" />
@@ -156,6 +157,7 @@
     <ClCompile Include="PlaystyleDatabase.cpp" />
     <ClCompile Include="PositioningAI.cpp" />
     <ClCompile Include="PossessionAI.cpp" />
+    <ClCompile Include="QuickSimEngine.cpp" />
     <ClCompile Include="ReplayEngine.cpp" />
     <ClCompile Include="SettingsScreen.cpp" />
     <ClCompile Include="SoundManager.cpp" />
@@ -184,6 +186,7 @@
     <ClInclude Include="EditorScreen.h" />
     <ClInclude Include="Entity.h" />
     <ClInclude Include="Game.h" />
+    <ClInclude Include="GameCalendar.h" />
     <ClInclude Include="GameDatabase.h" />
     <ClInclude Include="GamemodeSelect.h" />
     <ClInclude Include="MatchEngine.h" />
@@ -212,6 +215,7 @@
     <ClInclude Include="PlaystyleDatabase.h" />
     <ClInclude Include="PositioningAI.h" />
     <ClInclude Include="PossessionAI.h" />
+    <ClInclude Include="QuickSimEngine.h" />
     <ClInclude Include="ReplayEngine.h" />
     <ClInclude Include="SettingsScreen.h" />
     <ClInclude Include="SoundManager.h" />

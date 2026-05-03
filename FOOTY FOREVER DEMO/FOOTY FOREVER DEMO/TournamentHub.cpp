@@ -1,6 +1,7 @@
 #include "TournamentHub.h"
 #include "imgui-1.92.6/imgui.h"
 #include "imgui-1.92.6/imgui-sfml.h"
+#include "QuickSimEngine.h"
 #include "Game.h"
 #include <iostream>
 
@@ -102,12 +103,38 @@ void TournamentHub::simulateBackgroundMatches() {
             return;
         }
 
-        activeMatch.homeScore = rand() % 4;
-        activeMatch.awayScore = rand() % 4;
-        if (activeMatch.homeScore == activeMatch.awayScore) activeMatch.homeScore++;
+        // ==========================================
+        // --- 1. RUN THE QUICK SIM ENGINE ---
+        // ==========================================
+        // Note: m_db is a pointer in TournamentHub, so we dereference it with *m_db
+        MatchInfo result = QuickSimEngine::simulateMatch(*m_db, activeMatch.homeTeamId, activeMatch.awayTeamId);
+
+        activeMatch.homeScore = result.getHomeScore();
+        activeMatch.awayScore = result.getAwayScore();
+
+        // ==========================================
+        // --- 2. KNOCKOUT TIEBREAKER ---
+        // ==========================================
+        // If the 90 minutes end in a draw, simulate a quick "Penalty Shootout" win
+        // by bumping one score by 1. 
+        if (activeMatch.homeScore == activeMatch.awayScore) {
+            if (rand() % 2 == 0) {
+                activeMatch.homeScore++;
+                // Optional: You could log a fake "Penalty shootout winner" event here later
+            }
+            else {
+                activeMatch.awayScore++;
+            }
+        }
 
         activeMatch.isCompleted = true;
         std::string winnerId = (activeMatch.homeScore > activeMatch.awayScore) ? activeMatch.homeTeamId : activeMatch.awayTeamId;
+
+        // ==========================================
+        // --- 3. LOG AI STATS TO THE DATABASE ---
+        // ==========================================
+        // This makes the AI teams populate the top scorers/assisters leaderboards!
+        m_db->processMatchResult(result, m_activeCompId);
 
         if (m_currentRound + 1 < m_bracket.size()) {
             int nextMatchIdx = m_currentMatchIndex / 2;
@@ -199,8 +226,9 @@ void TournamentHub::update(sf::Time dt, sf::RenderWindow& window) {
             ImVec2 pos1(startX, startY + (m * ySpacing));
             ImVec2 pos2(pos1.x, pos1.y + nodeHeight + 4.f);
 
-            drawBracketNode(node.homeTeamId, pos1, ImVec2(nodeWidth, nodeHeight), drawList);
-            drawBracketNode(node.awayTeamId, pos2, ImVec2(nodeWidth, nodeHeight), drawList);
+            // THE FIX: Pass the score and completion status!
+            drawBracketNode(node.homeTeamId, node.homeScore, node.isCompleted, pos1, ImVec2(nodeWidth, nodeHeight), drawList);
+            drawBracketNode(node.awayTeamId, node.awayScore, node.isCompleted, pos2, ImVec2(nodeWidth, nodeHeight), drawList);
 
             // Draw connection lines to the next round
             if (r + 1 < m_bracket.size()) {
@@ -230,21 +258,114 @@ void TournamentHub::update(sf::Time dt, sf::RenderWindow& window) {
         float winnerX = winPos.x + 50.f + ((finalRoundIdx + 1) * xSpacing);
         float winnerY = winPos.y + 50.f + ((std::pow(2, finalRoundIdx) - 1) * 45.f) + 20.f;
 
-        drawBracketNode(m_tournamentWinnerId, ImVec2(winnerX, winnerY), ImVec2(nodeWidth, nodeHeight * 1.5f), drawList);
+        // The winner crown doesn't need a score, so pass 0 and false
+        drawBracketNode(m_tournamentWinnerId, 0, false, ImVec2(winnerX, winnerY), ImVec2(nodeWidth, nodeHeight * 1.5f), drawList);
     }
 
     ImGui::EndChild();
     ImGui::SameLine();
 
-    // --- RIGHT PANEL: SQUAD STATUS ---
+    // ==========================================
+        // --- RIGHT PANEL: SQUAD STATUS & STATS ---
+        // ==========================================
     ImGui::BeginChild("SquadPanel", ImVec2(0, availableY), true);
+
     ImGui::TextDisabled("SQUAD STATUS");
     ImGui::Separator();
     ImGui::Spacing();
 
-    // (You can expand this later to list actual injuries!)
     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Injuries & Suspensions");
-    ImGui::TextDisabled("Squad is fully fit and available.");
+    ImGui::Spacing();
+
+    bool hasIssues = false;
+
+    // THE FIX: Grab the active competition first!
+    CompetitionData* activeComp = m_db->getCompetition(m_activeCompId);
+
+    if (userTeam && activeComp) {
+        for (auto& [pId, player] : m_db->players) {
+            if (player.teamId != m_userTeamId) continue;
+
+            // 1. Check for Injuries (Uses Core PlayerData)
+            if (player.isInjured) {
+                std::string injText = "- " + player.name + " (" + player.currentInjury + ", " + std::to_string(player.injuryDaysRemaining) + " days)";
+                ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "%s", injText.c_str());
+                hasIssues = true;
+            }
+
+            // 2. THE FIX: Check for Suspensions (Uses PlayerCompStats!)
+            // Make sure the player actually has a stat block in this tournament first
+            if (activeComp->playerStats.find(pId) != activeComp->playerStats.end()) {
+                if (activeComp->playerStats[pId].redCards > 0) {
+                    std::string suspText = "- " + player.name + " (Suspended: Red Card)";
+                    ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "%s", suspText.c_str());
+                    hasIssues = true;
+                }
+            }
+        }
+    }
+
+    if (!hasIssues) {
+        ImGui::TextDisabled("Squad is fully fit and available.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    // ==========================================
+    // --- THE FIX: TOP PERFORMERS LEADERBOARD ---
+    // ==========================================
+    ImGui::TextDisabled("TEAM TOP PERFORMERS");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    if (activeComp && userTeam) {
+
+        // 1. Gather all user players who have played at least 1 match
+        std::vector<std::pair<std::string, PlayerCompStats>> performers;
+
+        for (const auto& [pId, pStats] : activeComp->playerStats) {
+            PlayerData* p = m_db->getPlayer(pId);
+            if (p && p->teamId == m_userTeamId && pStats.matchesRated > 0) {
+                performers.push_back({ p->name, pStats });
+            }
+        }
+
+        // 2. Sort them by Average Match Rating (Highest first)
+        std::sort(performers.begin(), performers.end(), [](const auto& a, const auto& b) {
+            return a.second.getAverageRating() > b.second.getAverageRating();
+            });
+
+        // 3. Display the Top 5
+        if (performers.empty()) {
+            ImGui::TextDisabled("No match data available yet.");
+        }
+        else {
+            ImGui::Columns(4, "statsColumns", false);
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Player"); ImGui::NextColumn();
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Avg Rtg"); ImGui::NextColumn();
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Gls"); ImGui::NextColumn();
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Asts"); ImGui::NextColumn();
+            ImGui::Separator();
+
+            int displayCount = std::min(static_cast<int>(performers.size()), 5);
+            for (int i = 0; i < displayCount; ++i) {
+
+                // Color code the rating! (Green = Great, Yellow = Okay, Red = Bad)
+                float avgRtg = performers[i].second.getAverageRating();
+                ImVec4 rtgColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                if (avgRtg >= 7.5f) rtgColor = ImVec4(0.2f, 1.0f, 0.2f, 1.0f);
+                else if (avgRtg <= 6.0f) rtgColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+
+                ImGui::Text("%s", performers[i].first.c_str()); ImGui::NextColumn();
+                ImGui::TextColored(rtgColor, "%.1f", avgRtg); ImGui::NextColumn();
+                ImGui::Text("%d", performers[i].second.goals); ImGui::NextColumn();
+                ImGui::Text("%d", performers[i].second.assists); ImGui::NextColumn();
+            }
+            ImGui::Columns(1);
+        }
+    }
 
     ImGui::EndChild();
 
@@ -288,7 +409,7 @@ void TournamentHub::render(sf::RenderWindow& window) {
     window.draw(bg_s);
 }
 
-void TournamentHub::drawBracketNode(const std::string& teamId, ImVec2 pos, ImVec2 size, ImDrawList* drawList) {
+void TournamentHub::drawBracketNode(const std::string& teamId, int score, bool isCompleted, ImVec2 pos, ImVec2 size, ImDrawList* drawList) {
     ImU32 bgColor = IM_COL32(40, 40, 40, 255);
     ImU32 borderColor = IM_COL32(100, 100, 100, 255);
     ImU32 textColor = IM_COL32(200, 200, 200, 255);
@@ -298,7 +419,14 @@ void TournamentHub::drawBracketNode(const std::string& teamId, ImVec2 pos, ImVec
     if (!teamId.empty()) {
         TeamData* t = m_db->getTeam(teamId);
         if (t) {
-            displayTxt = t->fullName;
+            // THE FIX: Append the score if the match is completed!
+            if (isCompleted) {
+                displayTxt = t->shortName + "  " + std::to_string(score);
+            }
+            else {
+                displayTxt = t->fullName;
+            }
+
             if (teamId == m_userTeamId) {
                 bgColor = IM_COL32(150, 120, 20, 255);
                 textColor = IM_COL32(0, 0, 0, 255);

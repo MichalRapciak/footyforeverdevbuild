@@ -59,5 +59,5 @@ private:
     void simulateBackgroundMatches();
     void updateNextFixture(); // NEW: Extracts the next match info
 
-    void drawBracketNode(const std::string& teamId, ImVec2 pos, ImVec2 size, ImDrawList* drawList);
+    void drawBracketNode(const std::string& teamId, int score, bool isCompleted, ImVec2 pos, ImVec2 size, ImDrawList* drawList);
 };

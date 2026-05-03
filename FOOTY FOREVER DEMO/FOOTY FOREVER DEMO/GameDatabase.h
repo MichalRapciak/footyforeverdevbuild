@@ -109,9 +109,20 @@ struct PlayerData {
     PlayerGraphicsData graphics;
 };
 
+struct LeagueData {
+    std::string id;
+    std::string name;
+    std::string countryCode; // E.g., "ENG"
+    int tier = 1; // 1 = Top Flight (e.g. Premier League), 2 = Championship, etc.
+    std::vector<std::string> teamIds;   
+
+    std::string activeCompetitionId = "";
+};
+
 struct TeamData {
     std::string id;
     std::string countryCode; // The 3-letter ID of the league they play in (e.g., "ENG")
+    std::string leagueId;
     std::string fullName;
     std::string shortName; 
     std::string badgeId;
@@ -151,6 +162,23 @@ struct PlayerCompStats {
     int redCards = 0;
     int appearances = 0;
     int minutesPlayed = 0;
+
+    // --- NEW: ADVANCED STATS ---
+    int passesAttempted = 0;
+    int passesCompleted = 0;
+    int tacklesWon = 0;
+    int interceptions = 0;
+    int saves = 0;
+
+    // --- NEW: RATING TRACKER ---
+    float totalMatchRating = 0.0f; // Sum of all ratings earned
+    int matchesRated = 0;          // How many matches they were rated in
+
+    // Helper to get the average!
+    float getAverageRating() const {
+        if (matchesRated == 0) return 0.0f;
+        return totalMatchRating / static_cast<float>(matchesRated);
+    }
 };
 
 struct Fixture {
@@ -193,6 +221,7 @@ class GameDatabase {
 public:
     std::map<std::string, PlayerData> players;
     std::map<std::string, TeamData> teams;
+    std::map<std::string, LeagueData> leagues;
     std::map<std::string, Country> countries;
 
     std::map<std::string, CompetitionData> competitions;
@@ -204,6 +233,12 @@ public:
     
     void savePlayer(const std::string& id, const std::string& baseDir);
     void saveTeam(const std::string& id, const std::string& baseDir);
+
+    void saveLeague(const std::string& id, const std::string& baseDir); // <--- NEW
+    void deleteTeamFile(const std::string& id, const std::string& baseDir, const std::string& oldLeagueId, const std::string& oldCountry); // <--- NEW (Needed for transfers)
+
+    LeagueData* getLeague(const std::string& id);
+
     void deletePlayerFile(const std::string& id, const std::string& baseDir, const std::string& oldTeamId);
     void initializeDefaultCountries();
     void processMatchResult(const MatchInfo& info, const std::string& compId = "");

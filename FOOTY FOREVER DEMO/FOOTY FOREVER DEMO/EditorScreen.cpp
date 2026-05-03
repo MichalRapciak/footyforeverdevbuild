@@ -124,18 +124,10 @@ void EditorScreen::update(sf::Time dt, sf::RenderWindow& window)
 
     float availableHeight = ImGui::GetContentRegionAvail().y - 50.0f;
 
-    if (ImGui::BeginTabBar("EditorTabs"))
-    {
-        if (ImGui::BeginTabItem("Players")) {
-            drawPlayerTab(availableHeight);
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("Teams")) {
-            drawTeamTab(availableHeight);
-            ImGui::EndTabItem();
-        }
-
+    if (ImGui::BeginTabBar("EditorTabs")) {
+        if (ImGui::BeginTabItem("Players")) { drawPlayerTab(availableHeight); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Teams")) { drawTeamTab(availableHeight); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Leagues")) { drawLeagueTab(availableHeight); ImGui::EndTabItem(); } // <--- NEW
         ImGui::EndTabBar();
     }
 
@@ -153,28 +145,67 @@ void EditorScreen::drawPlayerTab(float availableHeight)
     ImGui::BeginChild("PlayerListPane", ImVec2(250.0f, availableHeight), true);
 
     ImGui::BeginChild("PlayerTree", ImVec2(0, availableHeight - 40.0f), false);
+
     for (auto& [code, country] : m_db->countries) {
-        bool hasTeams = false;
-        for (auto& [tId, team] : m_db->teams) {
-            if (team.countryCode == code) { hasTeams = true; break; }
+
+        // --- THE FIX: Check for any existing content first ---
+        bool hasContent = false;
+        for (auto& [lId, league] : m_db->leagues) {
+            if (league.countryCode == code) { hasContent = true; break; }
+        }
+        if (!hasContent) {
+            for (auto& [tId, team] : m_db->teams) {
+                if (team.countryCode == code) { hasContent = true; break; }
+            }
         }
 
-        if (hasTeams) {
+        // Only draw the country if it has a league or an unassigned team
+        if (hasContent) {
             if (ImGui::TreeNode(country.name.c_str())) {
-                for (auto& [tId, team] : m_db->teams) {
-                    if (team.countryCode == code) {
-                        if (ImGui::TreeNode(team.fullName.c_str())) {
-                            for (auto& [pId, player] : m_db->players) {
-                                if (player.teamId == tId) {
-                                    bool isSelected = (m_selectedPlayerId == pId);
-                                    if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
+
+                // 1. Loop through Leagues in this Country
+                for (auto& [lId, league] : m_db->leagues) {
+                    if (league.countryCode == code) {
+                        if (ImGui::TreeNode(league.name.c_str())) {
+                            for (auto& tId : league.teamIds) {
+                                TeamData* team = m_db->getTeam(tId);
+                                if (team && ImGui::TreeNode(team->fullName.c_str())) {
+                                    // Render Players
+                                    for (auto& [pId, player] : m_db->players) {
+                                        if (player.teamId == tId) {
+                                            bool isSelected = (m_selectedPlayerId == pId);
+                                            if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
+                                        }
+                                    }
+                                    ImGui::TreePop();
                                 }
                             }
                             ImGui::TreePop();
                         }
                     }
                 }
-                ImGui::TreePop();
+
+                // 2. Unassigned Teams (Legacy Data fallback)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+                if (ImGui::TreeNode("Unassigned Teams")) {
+                    for (auto& [tId, team] : m_db->teams) {
+                        if (team.countryCode == code && team.leagueId.empty()) {
+                            if (ImGui::TreeNode(team.fullName.c_str())) {
+                                for (auto& [pId, player] : m_db->players) {
+                                    if (player.teamId == tId) {
+                                        bool isSelected = (m_selectedPlayerId == pId);
+                                        if (ImGui::Selectable(player.name.c_str(), isSelected)) m_selectedPlayerId = pId;
+                                    }
+                                }
+                                ImGui::TreePop();
+                            }
+                        }
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopStyleColor();
+
+                ImGui::TreePop(); // Pop Country
             }
         }
     }
@@ -720,25 +751,57 @@ void EditorScreen::drawTeamTab(float availableHeight)
     ImGui::BeginChild("TeamListPane", ImVec2(250.0f, availableHeight), true);
 
     ImGui::BeginChild("TeamTree", ImVec2(0, availableHeight - 40.0f), false);
+
     for (auto& [code, country] : m_db->countries) {
-        bool hasTeams = false;
-        for (auto& [tId, team] : m_db->teams) {
-            if (team.countryCode == code) { hasTeams = true; break; }
+
+        // --- THE FIX: Check for any existing content first ---
+        bool hasContent = false;
+        for (auto& [lId, league] : m_db->leagues) {
+            if (league.countryCode == code) { hasContent = true; break; }
+        }
+        if (!hasContent) {
+            for (auto& [tId, team] : m_db->teams) {
+                if (team.countryCode == code) { hasContent = true; break; }
+            }
         }
 
-        if (hasTeams) {
+        if (hasContent) {
             if (ImGui::TreeNode(country.name.c_str())) {
-                for (auto& [tId, team] : m_db->teams) {
-                    if (team.countryCode == code) {
-                        bool isSelected = (m_selectedTeamId == tId);
-                        if (ImGui::Selectable(team.fullName.c_str(), isSelected)) m_selectedTeamId = tId;
+
+                // 1. Loop Leagues
+                for (auto& [lId, league] : m_db->leagues) {
+                    if (league.countryCode == code) {
+                        if (ImGui::TreeNode(league.name.c_str())) {
+                            for (auto& tId : league.teamIds) {
+                                TeamData* team = m_db->getTeam(tId);
+                                if (team) {
+                                    bool isSelected = (m_selectedTeamId == tId);
+                                    if (ImGui::Selectable(team->fullName.c_str(), isSelected)) m_selectedTeamId = tId;
+                                }
+                            }
+                            ImGui::TreePop();
+                        }
                     }
                 }
-                ImGui::TreePop();
+
+                // 2. Unassigned Teams (Legacy Data)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+                if (ImGui::TreeNode("Unassigned Teams")) {
+                    for (auto& [tId, team] : m_db->teams) {
+                        if (team.countryCode == code && team.leagueId.empty()) {
+                            bool isSelected = (m_selectedTeamId == tId);
+                            if (ImGui::Selectable(team.fullName.c_str(), isSelected)) m_selectedTeamId = tId;
+                        }
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopStyleColor();
+
+                ImGui::TreePop(); // Pop Country
             }
         }
     }
-    ImGui::EndChild(); // End TeamTree
+    ImGui::EndChild();
 
     if (ImGui::Button("+ Create New Team", ImVec2(-FLT_MIN, 30.0f))) {
         int counter = m_db->teams.size() + 100;
@@ -828,10 +891,45 @@ void EditorScreen::drawTeamGeneralTab(TeamData* t)
     Country* clubCountry = m_db->getCountry(t->countryCode);
     if (clubCountry) currentCountryName = clubCountry->name;
 
-    if (ImGui::BeginCombo("Country / League", currentCountryName.c_str())) {
+    if (ImGui::BeginCombo("Country", currentCountryName.c_str())) {
         for (auto& [code, country] : m_db->countries) {
             if (ImGui::Selectable(country.name.c_str(), t->countryCode == code)) {
                 t->countryCode = code;
+                t->leagueId = ""; // Reset league if they change countries!
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    // ==========================================
+    // --- THE FIX: NEW LEAGUE ASSIGNMENT ---
+    // ==========================================
+    std::string currentLeagueName = "No League (Unassigned)";
+    LeagueData* clubLeague = m_db->getLeague(t->leagueId);
+    if (clubLeague) currentLeagueName = clubLeague->name;
+
+    if (ImGui::BeginCombo("Assigned League", currentLeagueName.c_str())) {
+        if (ImGui::Selectable("No League (Unassigned)", t->leagueId.empty())) {
+            if (clubLeague) { // Remove from old league roster
+                auto it = std::find(clubLeague->teamIds.begin(), clubLeague->teamIds.end(), t->id);
+                if (it != clubLeague->teamIds.end()) clubLeague->teamIds.erase(it);
+            }
+            t->leagueId = "";
+        }
+
+        // Only show leagues that match the club's country
+        for (auto& [lId, lg] : m_db->leagues) {
+            if (lg.countryCode == t->countryCode) {
+                if (ImGui::Selectable(lg.name.c_str(), t->leagueId == lId)) {
+                    if (clubLeague) { // Remove from old league roster
+                        auto it = std::find(clubLeague->teamIds.begin(), clubLeague->teamIds.end(), t->id);
+                        if (it != clubLeague->teamIds.end()) clubLeague->teamIds.erase(it);
+                    }
+                    t->leagueId = lId;
+                    if (std::find(lg.teamIds.begin(), lg.teamIds.end(), t->id) == lg.teamIds.end()) {
+                        lg.teamIds.push_back(t->id); // Add to new league roster
+                    }
+                }
             }
         }
         ImGui::EndCombo();
@@ -1127,6 +1225,115 @@ void EditorScreen::drawTeamTacticsTab(TeamData* t)
     }
     ImGui::EndChild();
 
+    ImGui::EndChild();
+}
+
+//
+// LEAGUE TABS
+//
+
+void EditorScreen::drawLeagueTab(float availableHeight) {
+    ImGui::BeginChild("LeagueListPane", ImVec2(250.0f, availableHeight), true);
+    ImGui::BeginChild("LeagueTree", ImVec2(0, availableHeight - 40.0f), false);
+
+    for (auto& [code, country] : m_db->countries) {
+
+        bool hasContent = false;
+        for (auto& [lId, league] : m_db->leagues) {
+            if (league.countryCode == code) { hasContent = true; break; }
+        }
+        if (!hasContent) {
+            for (auto& [tId, team] : m_db->teams) {
+                if (team.countryCode == code) { hasContent = true; break; }
+            }
+        }
+
+        if (hasContent) {
+            if (ImGui::TreeNode(country.name.c_str())) {
+                for (auto& [lId, lg] : m_db->leagues) {
+                    if (lg.countryCode == code) {
+                        bool isSelected = (m_selectedLeagueId == lId);
+                        if (ImGui::Selectable(lg.name.c_str(), isSelected)) m_selectedLeagueId = lId;
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    if (ImGui::Button("+ Create New League", ImVec2(-FLT_MIN, 30.0f))) {
+        int counter = m_db->leagues.size() + 1;
+        std::string newId = "LIG_" + std::to_string(counter);
+
+        LeagueData newLg;
+        newLg.id = newId;
+        newLg.name = "New League";
+        newLg.countryCode = "ENG";
+        newLg.tier = 1;
+
+        m_db->leagues[newId] = newLg;
+        m_selectedLeagueId = newId;
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("LeagueEditorPane", ImVec2(0, availableHeight), true);
+    if (!m_selectedLeagueId.empty()) {
+        LeagueData* lg = m_db->getLeague(m_selectedLeagueId);
+        if (lg) {
+            ImGui::Text("Editing League: %s", lg->id.c_str());
+            ImGui::Separator();
+
+            char nameBuffer[128] = "";
+            strcpy_s(nameBuffer, lg->name.c_str());
+            if (ImGui::InputText("League Name", nameBuffer, IM_ARRAYSIZE(nameBuffer))) lg->name = nameBuffer;
+
+            std::string currentNatName = "Unknown";
+            Country* c = m_db->getCountry(lg->countryCode);
+            if (c) currentNatName = c->name;
+
+            if (ImGui::BeginCombo("Country", currentNatName.c_str())) {
+                for (auto& [code, country] : m_db->countries) {
+                    if (ImGui::Selectable(country.name.c_str(), lg->countryCode == code)) {
+                        lg->countryCode = code;
+                        // Cascade country code down to member teams!
+                        for (auto& tId : lg->teamIds) {
+                            TeamData* t = m_db->getTeam(tId);
+                            if (t) t->countryCode = code;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::SliderInt("Pyramid Tier", &lg->tier, 1, 10);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Text("Member Teams");
+
+            ImGui::BeginChild("LeagueTeams", ImVec2(0, 0), true);
+            for (auto it = lg->teamIds.begin(); it != lg->teamIds.end();) {
+                TeamData* t = m_db->getTeam(*it);
+                if (t) {
+                    if (ImGui::Button(("X##" + t->id).c_str())) {
+                        t->leagueId = "";
+                        it = lg->teamIds.erase(it);
+                        continue;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("%s", t->fullName.c_str());
+                }
+                ++it;
+            }
+            ImGui::EndChild();
+        }
+    }
+    else {
+        ImGui::Text("Select a league to edit.");
+    }
     ImGui::EndChild();
 }
 

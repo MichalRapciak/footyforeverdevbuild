@@ -1,0 +1,11 @@
+{
+    "LIG_2": {
+        "country_code": "ESP",
+        "name": "La Liga",
+        "teams": [
+            "TEAM_104",
+            "TEAM_106"
+        ],
+        "tier": 1
+    }
+}

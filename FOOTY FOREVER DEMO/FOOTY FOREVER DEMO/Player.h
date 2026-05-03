@@ -18,6 +18,7 @@
 struct PlayerData;
 struct TeamData;
 class Player;
+struct MatchEnvironment;
 
 struct PendingKick {
     bool isActive = false;
@@ -193,8 +194,8 @@ public:
     float getMaxStamina() const { return m_maxStamina; }
 
     // --- Injuries ---
-    void checkInjury(float impactForce);
-    void applyRandomInjury(float impactNorm);
+    void checkInjury(float impactForce, MatchEnvironment& env);
+    void applyRandomInjury(float impactNorm, MatchEnvironment& env);
     float getInjuryDebuff() const {
         if (!isInjured) return 1.0f;
         switch (currentInjurySeverity) {
